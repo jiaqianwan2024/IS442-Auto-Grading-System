@@ -1,0 +1,9 @@
+target/
+.settings/
+.classpath
+.project
+.vscode/
+*.class
+*.log
+*.jar
+.DS_Store
