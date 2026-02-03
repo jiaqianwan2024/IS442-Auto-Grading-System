@@ -1,9 +1,39 @@
+# --- Build & Output ---
 target/
+bin/
+*.class
+*.jar
+*.war
+
+# --- IDE Files (Eclipse, IntelliJ, VS Code) ---
 .settings/
 .classpath
 .project
 .vscode/
-*.class
-*.log
-*.jar
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# --- OS Generated Files ---
 .DS_Store
+Thumbs.db
+
+# --- Runtime Data (CRITICAL FOR TEAM A) ---
+# Do not commit the unzipped student files
+temp/
+output/
+
+# --- Logs (CRITICAL FOR TEAM A/B) ---
+*.log
+logs/
+
+# --- Local Configuration (CRITICAL FOR INFRA SETUP) ---
+# Ignore local config because paths (C:/Users/...) are different for everyone
+config.properties
+
+# --- Testing Zips (Optional) ---
+# If you have massive zip files for testing, ignore them
+# Keep small zips in src/test/resources
+*.zip
+!src/test/resources/*.zip
