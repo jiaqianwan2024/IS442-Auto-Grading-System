@@ -6,5 +6,7 @@ public class Main {
         System.out.println("   IS442 Auto-Grading System (v1.0)       ");
         System.out.println("==========================================");
         System.out.println("[INFO] System initialized.");
+
+        System.out.println("[INFO] Starting grading process...");
     }
 }
