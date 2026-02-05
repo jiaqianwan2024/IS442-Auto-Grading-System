@@ -7,6 +7,6 @@ public class Main {
         System.out.println("==========================================");
         System.out.println("[INFO] System initialized.");
 
-        System.out.println("[INFO] Starting grading process...");
+        System.out.println("[INFO] Starting grading pros...");
     }
 }
