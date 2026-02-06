@@ -1,33 +1,32 @@
-import java.io.IOException;
-import java.io.File;
+package com.autogradingsystem.service.file; // Ensure this package matches your folder structure
+
+// Import the Controller so we can use it
+import com.autogradingsystem.controller.ExecutionController;
 
 public class Main {
+    
+    // The standard Java entry point. 
+    // "public static void main" is required for the JVM to know where to start.
     public static void main(String[] args) {
-        // 1. Define your paths (Relative to your project folder)
-        // Make sure you actually have a zip file named "test.zip" in your project folder!
-        String zipFilePath = "test.zip"; 
-        String destDirectory = "unzipped_output";
+        System.out.println("--- Starting Grading Engine (Team B Mock Test) ---");
 
-        System.out.println("--- Starting File Handling Process ---");
+        // -----------------------------------------------------
+        // 1. INSTANTIATE THE CONTROLLER
+        // -----------------------------------------------------
+        // We create an instance of ExecutionController.
+        // This sets up the internal tools (Injector, Compiler, Runner) inside the controller.
+        ExecutionController controller = new ExecutionController();
 
-        try {
-            // 2. Call the unzip function we built
-            ZipFileProcessor.unzip(zipFilePath, destDirectory);
-            
-            System.out.println("Success! Files extracted to: " + destDirectory);
-            
-            // 3. Simple verification (Connecting to your whiteboard logic)
-            File folder = new File(destDirectory);
-            if (folder.exists() && folder.isDirectory()) {
-                System.out.println("Files found inside: " + folder.list().length);
-            }
+        // -----------------------------------------------------
+        // 2. RUN THE GRADING LOGIC
+        // -----------------------------------------------------
+        // This single line triggers the entire complex process:
+        //   1. Load students (chee.teo, david, etc.)
+        //   2. Loop through Q1A, Q1B, Q2A...
+        //   3. Inject Testers -> Compile -> Run -> Parse
+        //   4. Print the final scoreboard
+        controller.runGrading();
 
-        } catch (IOException e) {
-            System.err.println("Error: Could not complete the unzip process.");
-            System.err.println("Reason: " + e.getMessage());
-            // This is where you would "Log Outlier" as per your flowchart
-        }
-
-        System.out.println("--- Process Finished ---");
+        System.out.println("--- Grading Process Finished ---");
     }
 }
