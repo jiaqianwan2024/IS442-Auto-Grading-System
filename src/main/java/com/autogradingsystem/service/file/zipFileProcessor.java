@@ -1,10 +1,18 @@
-
+package com.autogradingsystem.service.file;
 
 import java.io.*;
 import java.nio.file.*;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
+/**
+ * <p>This method unzips a single file to target file path
+ * 
+ * </p>
+ * @param zipFilePath The path to the target zipped file, expressed as a String
+ * @param destDirectory The path to the directory where the unzipped file will be placed, as a String
+ * @throws Error if zip file does not exist
+ */
 public class ZipFileProcessor{
     public static void unzip (String zipFilePath, String destDirectory) throws IOException{
         File destDir = new File(destDirectory); //Java object pointing to a file path
