@@ -1,157 +1,209 @@
 package com.autogradingsystem.controller;
 
-// specific imports for the services we built (Injector, Compiler, Runner, Parser)
-import com.autogradingsystem.model.Student;
-import com.autogradingsystem.service.execution.CompilerService;
-import com.autogradingsystem.service.execution.ProcessRunner;
-import com.autogradingsystem.service.execution.TesterInjector;
-import com.autogradingsystem.service.grading.OutputParser;
+import com.autogradingsystem.discovery.GradingPlanBuilder;
+import com.autogradingsystem.discovery.TemplateDiscovery;
+import com.autogradingsystem.discovery.TesterDiscovery;
+import com.autogradingsystem.model.ExamStructure;
+import com.autogradingsystem.model.GradingPlan;
+import com.autogradingsystem.model.TesterMap;
+import com.autogradingsystem.service.file.UnzipService;
 
-// standard Java file handling and list imports
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.List;
+import java.io.IOException;
+import java.nio.file.*;
 
+/**
+ * ExecutionController - Main Orchestrator
+ * 
+ * PHASE 2 VERSION:
+ * - Added initialize() method for Phase 1 + Phase 2
+ * - Phase 3 grading logic will be added later
+ * 
+ * @author IS442 Team
+ * @version 2.0 (Phase 2)
+ */
 public class ExecutionController {
-
-    // Instantiate the "Worker" services.
-    // These tools handle the specific low-level tasks.
-    private TesterInjector injector = new TesterInjector();
-    private CompilerService compiler = new CompilerService();
-    private ProcessRunner runner = new ProcessRunner();
-    private OutputParser parser = new OutputParser();
-
-    // ---------------------------------------------------------
-    // HARDCODED CONFIGURATION
-    // ---------------------------------------------------------
-    // 1. DEFINE SPECIFIC TASKS
-    // This array defines exactly which tests will be run and in what order.
-    // It is used to generate the columns in the final report (Q1A, Q1B, etc.)
-    private static final String[] GRADING_TASKS = {"Q1A", "Q1B", "Q2A", "Q2B", "Q3"};
-
-    // ---------------------------------------------------------
-    // DATA LOADING (MOCK)
-    // ---------------------------------------------------------
-    // 2. MOCK LOADER
-    // In a real system, this would read from a Database or CSV file.
-    // Here, we manually create Student objects pointing to specific folders on your Mac.
-    public List<Student> getMockStudents() {
-        List<Student> students = new ArrayList<>();
-        // Creating students with their ID and the Path to their submission folder.
-        // NOTE: These paths are absolute paths on your specific machine.
-        students.add(new Student("chee.teo.2022", Paths.get("/tmp/mock_students/chee.teo.2022")));
-        students.add(new Student("david.2024",    Paths.get("/tmp/mock_students/david.2024")));
-        students.add(new Student("fen.lai.2022",  Paths.get("/tmp/mock_students/fen.lai.2022")));
-        students.add(new Student("jing.lim.2021", Paths.get("/tmp/mock_students/jing.lim.2021")));
-        students.add(new Student("ping.lee.2023", Paths.get("/tmp/mock_students/ping.lee.2023")));
-        students.add(new Student("xing.yan.2023", Paths.get("/tmp/mock_students/xing.yan.2023")));
-        return students;
-    }
-
-    // ---------------------------------------------------------
-    // CORE LOGIC ENGINE
-    // ---------------------------------------------------------
-    // 3. MAIN LOGIC LOOP
-    // This is the "Heart" of the program. It ties everything together.
-    public void runGrading() {
-        List<Student> students = getMockStudents();
-
-        // OUTER LOOP: Go through every student one by one
-        for (Student s : students) {
-            System.out.println("==========================================");
-            System.out.println("--- Grading Student: " + s.getId() + " ---");
-            System.out.println("==========================================");
-
-            double totalScore = 0;
-            StringBuilder scoreSummary = new StringBuilder(); // Builds the string: "Q1A: 3.0  Q1B: 0.0"
-
-            // INNER LOOP: For the current student, go through every task (Q1A, Q1B, Q2A...)
-            for (String task : GRADING_TASKS) {
-                
-                // DYNAMIC MAPPING:
-                // We need to know:
-                // 1. Which folder is this task in? (Q1A is inside the "Q1" folder)
-                // 2. Which Tester file grades this task? (Q1A needs "Q1aTester.java")
-                String folderName = getFolderForTask(task);
-                String testerName = getTesterForTask(task);
-                
-                // Combine student path + question folder (e.g., /tmp/.../student1/Q1)
-                Path fullPath = s.getQuestionPath(folderName);
-
-                // Validation: Check if the student actually submitted the folder
-                if (!Files.exists(fullPath)) {
-                    System.out.println("   [Error] Folder not found: " + fullPath);
-                    scoreSummary.append(task).append(":0.0  ");
-                    continue; // Skip to next task, score is 0
-                }
-
-                try {
-                    // STEP A: INJECT
-                    // Copy the Teacher's Tester file into the Student's folder
-                    injector.copyTester(testerName, fullPath);
-
-                    // STEP B: COMPILE
-                    // Run 'javac *.java' in that folder
-                    boolean compileSuccess = compiler.compile(fullPath);
-
-                    if (compileSuccess) {
-                        // STEP C: RUN
-                        // Execute 'java Q1aTester' and capture the text output
-                        String className = testerName.replace(".java", "");
-                        String output = runner.runTester(className, fullPath);
-                        
-                        // STEP D: PARSE
-                        // Read the text output to find the number at the bottom
-                        double score = parser.parseScore(output);
-                        
-                        // Log progress to console
-                        System.out.println("   Processed " + task + " -> Score: " + score);
-                        
-                        // Add to totals
-                        totalScore += score;
-                        scoreSummary.append(task).append(":").append(score).append("  ");
-                    } else {
-                        // If compile fails, automatically give 0
-                        System.out.println("   " + task + " Compilation Failed.");
-                        scoreSummary.append(task).append(":0.0  ");
-                    }
-
-                } catch (Exception e) {
-                    // General error handler (e.g., File permission issues)
-                    System.out.println("   [Error] " + task + ": " + e.getMessage());
-                    scoreSummary.append(task).append(":0.0  ");
-                }
-            }
-            // Final Report Line for this student (matches Ground Truth requirement)
-            System.out.println("\nRESULT: " + s.getId() + ": " + scoreSummary.toString() + "Total: " + totalScore + "\n");
-        }
-    }
-
-    // ---------------------------------------------------------
-    // HELPER METHODS (MAPPING LOGIC)
-    // ---------------------------------------------------------
     
-    // Helper 1: Decides which folder a task belongs to.
-    // Logic: Q1A and Q1B both live in the "Q1" folder.
-    private String getFolderForTask(String task) {
-        if (task.startsWith("Q1")) return "Q1"; 
-        if (task.startsWith("Q2")) return "Q2"; 
-        if (task.startsWith("Q3")) return "Q3";
-        return "Unknown";
+    // =========================================================================
+    // PHASE 2: Discovery Components
+    // =========================================================================
+    
+    private UnzipService unzipService;
+    private TemplateDiscovery templateDiscovery;
+    private TesterDiscovery testerDiscovery;
+    private GradingPlanBuilder planBuilder;
+    
+    // =========================================================================
+    // PHASE 3: Grading Components (will be added later)
+    // =========================================================================
+    
+    // TODO Phase 3: Add grading components
+    // private TesterInjector injector;
+    // private CompilerService compiler;
+    // private ProcessRunner runner;
+    // private OutputParser parser;
+    
+    /**
+     * Constructor - Initialize all components
+     */
+    public ExecutionController() {
+        // Phase 2: Initialize discovery components
+        this.unzipService = new UnzipService();
+        this.templateDiscovery = new TemplateDiscovery();
+        this.testerDiscovery = new TesterDiscovery();
+        this.planBuilder = new GradingPlanBuilder();
+        
+        // Phase 3: Will initialize grading components here
+        // this.injector = new TesterInjector();
+        // this.compiler = new CompilerService();
+        // this.runner = new ProcessRunner();
+        // this.parser = new OutputParser();
     }
-
-    // Helper 2: Decides which Tester file to inject.
-    // Logic: Maps the task ID "Q1A" to the filename "Q1aTester.java"
-    private String getTesterForTask(String task) {
-        switch (task) {
-            case "Q1A": return "Q1aTester.java";
-            case "Q1B": return "Q1bTester.java";
-            case "Q2A": return "Q2aTester.java";
-            case "Q2B": return "Q2bTester.java";
-            case "Q3":  return "Q3Tester.java";
-            default: return "UnknownTester.java";
+    
+    /**
+     * Initialize system - Run Phase 1 + Phase 2
+     * 
+     * WORKFLOW:
+     * 1. Phase 1: Extract and validate student submissions
+     * 2. Phase 2: Discover exam structure from template
+     * 3. Phase 2: Discover tester files
+     * 4. Phase 2: Build grading plan
+     * 5. Return grading plan (ready for Phase 3)
+     * 
+     * @return GradingPlan ready for execution
+     * @throws IOException if files cannot be read or discovered
+     */
+    public GradingPlan initialize() throws IOException {
+        
+        System.out.println("\n" + "=".repeat(70));
+        System.out.println("🚀 INITIALIZING AUTO-GRADING SYSTEM");
+        System.out.println("=".repeat(70));
+        
+        // =====================================================================
+        // PHASE 1: EXTRACTION & VALIDATION
+        // =====================================================================
+        
+        System.out.println("\n=== PHASE 1: EXTRACTION & VALIDATION ===");
+        unzipService.extractAndValidateStudents();
+        System.out.println("✅ Phase 1 complete - Students extracted to data/extracted/");
+        
+        // =====================================================================
+        // PHASE 2: DISCOVERY & PLANNING
+        // =====================================================================
+        
+        System.out.println("\n=== PHASE 2: DISCOVERY & PLANNING ===");
+        
+        // Find template ZIP
+        Path templateZip = findTemplateZip();
+        
+        // Discover exam structure from template
+        ExamStructure structure = templateDiscovery.discoverStructure(templateZip);
+        
+        // Discover tester files
+        Path testersDir = Paths.get("src", "main", "resources", "testers");
+        TesterMap testers = testerDiscovery.discoverTesters(testersDir);
+        
+        // Build grading plan
+        GradingPlan plan = planBuilder.buildPlan(structure, testers);
+        
+        // =====================================================================
+        // SUMMARY
+        // =====================================================================
+        
+        System.out.println("\n" + "=".repeat(70));
+        System.out.println("✅ INITIALIZATION COMPLETE");
+        System.out.println("=".repeat(70));
+        System.out.println("Grading plan ready: " + plan.getSummary());
+        
+        // Warn if any testers are missing
+        if (plan.getUngradableTaskCount() > 0) {
+            System.err.println("\n⚠️  WARNING: " + plan.getUngradableTaskCount() + 
+                             " task(s) missing testers - these will score 0");
         }
+        
+        System.out.println("=".repeat(70) + "\n");
+        
+        return plan;
+    }
+    
+    /**
+     * Helper method: Find template ZIP file
+     * 
+     * Looks in data/input/template/ for ZIP files
+     * Returns first ZIP found
+     * 
+     * @return Path to template ZIP
+     * @throws IOException if template not found
+     */
+    private Path findTemplateZip() throws IOException {
+        
+        Path templateDir = Paths.get("data", "input", "template");
+        
+        // Check if directory exists
+        if (!Files.exists(templateDir)) {
+            throw new IOException(
+                "Template directory not found: " + templateDir + "\n" +
+                "Please create directory and place template ZIP there"
+            );
+        }
+        
+        // Find all ZIP files
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(templateDir, "*.zip")) {
+            
+            Path firstZip = null;
+            int count = 0;
+            
+            for (Path zip : stream) {
+                if (firstZip == null) {
+                    firstZip = zip;
+                }
+                count++;
+            }
+            
+            if (firstZip == null) {
+                throw new IOException(
+                    "No ZIP files found in: " + templateDir + "\n" +
+                    "Please place template ZIP (e.g., RenameToYourUsername.zip) there"
+                );
+            }
+            
+            if (count > 1) {
+                System.out.println("   ⚠️  Multiple template ZIPs found, using: " + firstZip.getFileName());
+            }
+            
+            return firstZip;
+        }
+    }
+    
+    // =========================================================================
+    // PHASE 3: GRADING EXECUTION (TO BE IMPLEMENTED)
+    // =========================================================================
+    
+    /**
+     * Run grading - Phase 3 (NOT YET IMPLEMENTED)
+     * 
+     * This method will be updated in Phase 3 to:
+     * - Accept GradingPlan parameter
+     * - Get students from data/extracted/
+     * - Use plan.getTasks() instead of hardcoded tasks
+     * - Integrate with CompilerService, ProcessRunner, etc.
+     * 
+     * For now, this is a placeholder.
+     */
+    public void runGrading() {
+        System.out.println("\n=== PHASE 3: GRADING ===");
+        System.out.println("⚠️  Not implemented yet - will be added in Phase 3");
+        System.out.println("This will compile and execute student code against testers\n");
+    }
+    
+    /**
+     * Run grading with plan - Phase 3 (TO BE IMPLEMENTED)
+     * 
+     * @param plan GradingPlan from initialize()
+     */
+    public void runGrading(GradingPlan plan) {
+        // TODO Phase 3: Implement grading execution
+        System.out.println("\n=== PHASE 3: GRADING ===");
+        System.out.println("⚠️  Not implemented yet - will be added in Phase 3");
+        System.out.println("Will grade " + plan.getTaskCount() + " tasks\n");
     }
 }
