@@ -1,8 +1,11 @@
 package com.autogradingsystem.service.file;
 
 import java.io.*;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+
+import com.autogradingsystem.service.validation.ScoreSheetReader;
 
 public class SubmissionUnzipper {
 
@@ -24,8 +27,9 @@ public class SubmissionUnzipper {
 
     public static void main(String[] args) {
         // Resource paths
-        String csvPath = "src/main/resources/IS442-ScoreSheet.csv";
-        String masterZip = "src/main/resources/student-submission.zip";
+        String csvPath = "config/IS442-ScoreSheet.csv";
+        String masterZip = "data/input/submissions/student-submission.zip";
+        
         
         // Working directories
         String tempRoot = "temp_individual_zips"; // Need a place to put these student zips so this java file can loop through them one by one
@@ -36,7 +40,7 @@ public class SubmissionUnzipper {
         
         try {
             // STEP 1: Load the official class list
-            reader.loadValidStudents(csvPath);
+            reader.loadValidStudents(Paths.get(csvPath));
 
             // STEP 2: Extract the master zip containing all students
             ZipFileProcessor.unzip(masterZip, tempRoot);

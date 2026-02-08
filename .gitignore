@@ -37,3 +37,6 @@ config.properties
 # Keep small zips in src/test/resources
 *.zip
 !src/test/resources/*.zip
+data/input/submissions/*.zip
+data/input/templates/*.zip
+extracted_student_work
