@@ -3,28 +3,34 @@ package com.autogradingsystem.controller;
 import com.autogradingsystem.discovery.GradingPlanBuilder;
 import com.autogradingsystem.discovery.TemplateDiscovery;
 import com.autogradingsystem.discovery.TesterDiscovery;
-import com.autogradingsystem.model.ExamStructure;
-import com.autogradingsystem.model.GradingPlan;
-import com.autogradingsystem.model.TesterMap;
+import com.autogradingsystem.model.*;
+import com.autogradingsystem.service.execution.CompilerService;
+import com.autogradingsystem.service.execution.ProcessRunner;
+import com.autogradingsystem.service.execution.TesterInjector;
 import com.autogradingsystem.service.file.UnzipService;
+import com.autogradingsystem.service.grading.OutputParser;
 
 import java.io.IOException;
 import java.nio.file.*;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
- * ExecutionController - Main Orchestrator
+ * ExecutionController - Main Orchestrator for All Phases
  * 
- * PHASE 2 VERSION:
- * - Added initialize() method for Phase 1 + Phase 2
- * - Phase 3 grading logic will be added later
+ * COMPLETE WORKFLOW:
+ * 1. Phase 1: Extract and validate student submissions
+ * 2. Phase 2: Discover exam structure and build grading plan
+ * 3. Phase 3: Execute grading for all students
+ * 4. Phase 4: Generate reports (future)
  * 
  * @author IS442 Team
- * @version 2.0 (Phase 2)
+ * @version 3.0 (Phase 3 Complete)
  */
 public class ExecutionController {
     
     // =========================================================================
-    // PHASE 2: Discovery Components
+    // PHASE 2: DISCOVERY COMPONENTS
     // =========================================================================
     
     private UnzipService unzipService;
@@ -33,31 +39,34 @@ public class ExecutionController {
     private GradingPlanBuilder planBuilder;
     
     // =========================================================================
-    // PHASE 3: Grading Components (will be added later)
+    // PHASE 3: GRADING EXECUTION COMPONENTS
     // =========================================================================
     
-    // TODO Phase 3: Add grading components
-    // private TesterInjector injector;
-    // private CompilerService compiler;
-    // private ProcessRunner runner;
-    // private OutputParser parser;
+    private TesterInjector testerInjector;
+    private CompilerService compilerService;
+    private ProcessRunner processRunner;
+    private OutputParser outputParser;
     
     /**
      * Constructor - Initialize all components
      */
     public ExecutionController() {
-        // Phase 2: Initialize discovery components
+        // Phase 2: Discovery components
         this.unzipService = new UnzipService();
         this.templateDiscovery = new TemplateDiscovery();
         this.testerDiscovery = new TesterDiscovery();
         this.planBuilder = new GradingPlanBuilder();
         
-        // Phase 3: Will initialize grading components here
-        // this.injector = new TesterInjector();
-        // this.compiler = new CompilerService();
-        // this.runner = new ProcessRunner();
-        // this.parser = new OutputParser();
+        // Phase 3: Grading components
+        this.testerInjector = new TesterInjector();
+        this.compilerService = new CompilerService();
+        this.processRunner = new ProcessRunner();
+        this.outputParser = new OutputParser();
     }
+    
+    // =========================================================================
+    // PHASE 1 + PHASE 2: INITIALIZE
+    // =========================================================================
     
     /**
      * Initialize system - Run Phase 1 + Phase 2
@@ -117,7 +126,7 @@ public class ExecutionController {
         // Warn if any testers are missing
         if (plan.getUngradableTaskCount() > 0) {
             System.err.println("\n⚠️  WARNING: " + plan.getUngradableTaskCount() + 
-                             " task(s) missing testers - these will score 0");
+                             " task(s) missing testers - these will be skipped");
         }
         
         System.out.println("=".repeat(70) + "\n");
@@ -127,9 +136,6 @@ public class ExecutionController {
     
     /**
      * Helper method: Find template ZIP file
-     * 
-     * Looks in data/input/template/ for ZIP files
-     * Returns first ZIP found
      * 
      * @return Path to template ZIP
      * @throws IOException if template not found
@@ -175,35 +181,275 @@ public class ExecutionController {
     }
     
     // =========================================================================
-    // PHASE 3: GRADING EXECUTION (TO BE IMPLEMENTED)
+    // PHASE 3: GRADING EXECUTION
     // =========================================================================
     
     /**
-     * Run grading - Phase 3 (NOT YET IMPLEMENTED)
+     * Run grading with plan - Phase 3
      * 
-     * This method will be updated in Phase 3 to:
-     * - Accept GradingPlan parameter
-     * - Get students from data/extracted/
-     * - Use plan.getTasks() instead of hardcoded tasks
-     * - Integrate with CompilerService, ProcessRunner, etc.
+     * WORKFLOW:
+     * 1. Get students from data/extracted/ folder
+     * 2. For each student:
+     *    a. For each task in grading plan:
+     *       - Skip if no tester (helper files)
+     *       - Copy tester to student folder
+     *       - Compile student code + tester
+     *       - Run tester
+     *       - Parse score from output
+     *       - Store result
+     * 3. Return all results
      * 
-     * For now, this is a placeholder.
+     * @param plan GradingPlan from initialize()
+     * @return List of GradingResult objects
+     * @throws IOException if grading fails catastrophically
      */
-    public void runGrading() {
-        System.out.println("\n=== PHASE 3: GRADING ===");
-        System.out.println("⚠️  Not implemented yet - will be added in Phase 3");
-        System.out.println("This will compile and execute student code against testers\n");
+    public List<GradingResult> runGrading(GradingPlan plan) throws IOException {
+        
+        System.out.println("\n" + "=".repeat(70));
+        System.out.println("🎯 PHASE 3: GRADING EXECUTION");
+        System.out.println("=".repeat(70));
+        
+        // Get students from filesystem
+        List<Student> students = getStudentsFromFilesystem();
+        System.out.println("\n📋 Grading " + students.size() + " student(s) on " + 
+                         plan.getGradableTaskCount() + " task(s)\n");
+        
+        // Initialize results collection
+        List<GradingResult> allResults = new ArrayList<>();
+        
+        // Grade each student
+        int studentNum = 1;
+        for (Student student : students) {
+            System.out.println("─".repeat(70));
+            System.out.println("👤 [" + studentNum + "/" + students.size() + "] " + 
+                             student.getUsername());
+            System.out.println("─".repeat(70));
+            
+            // Grade each task for this student
+            for (GradingTask task : plan.getTasks()) {
+                
+                // Skip helper files (no tester)
+                if (!task.hasTester()) {
+                    System.out.println("   ⏭️  Skipping " + task.getQuestionId() + 
+                                     " (helper file - no tester)");
+                    continue;
+                }
+                
+                System.out.print("   📝 " + task.getQuestionId() + "... ");
+                
+                try {
+                    // Grade this task
+                    GradingResult result = gradeTask(student, task);
+                    allResults.add(result);
+                    
+                    // Display result
+                    if (result.isSuccessful()) {
+                        System.out.println("✅ " + String.format("%.1f", result.getScore()) + 
+                                         " points (" + result.getStatus() + ")");
+                    } else {
+                        System.out.println("❌ " + result.getStatus());
+                    }
+                    
+                } catch (Exception e) {
+                    // Handle errors gracefully - create error result
+                    GradingResult errorResult = new GradingResult(
+                        student, task, 0.0, "Error: " + e.getMessage(), "ERROR"
+                    );
+                    allResults.add(errorResult);
+                    System.out.println("❌ ERROR: " + e.getMessage());
+                }
+            }
+            
+            System.out.println();
+            studentNum++;
+        }
+        
+        // Final summary
+        System.out.println("=".repeat(70));
+        System.out.println("✅ PHASE 3 COMPLETE");
+        System.out.println("=".repeat(70));
+        System.out.println("Total results: " + allResults.size());
+        System.out.println("Successful: " + countSuccessful(allResults));
+        System.out.println("Failed: " + countFailed(allResults));
+        System.out.println("=".repeat(70) + "\n");
+        
+        return allResults;
     }
     
     /**
-     * Run grading with plan - Phase 3 (TO BE IMPLEMENTED)
+     * Grade a single task for a student
      * 
-     * @param plan GradingPlan from initialize()
+     * WORKFLOW:
+     * 1. Build paths to student file and tester file
+     * 2. Check student file exists (FIX 4: also check for .class files)
+     * 3. Copy tester to student folder
+     * 4. Compile all Java files in folder
+     * 5. Run tester class
+     * 6. Parse score from output
+     * 7. Return result
+     * 
+     * @param student Student to grade
+     * @param task Task to grade
+     * @return GradingResult with score and output
+     * @throws IOException if file operations fail
      */
-    public void runGrading(GradingPlan plan) {
-        // TODO Phase 3: Implement grading execution
-        System.out.println("\n=== PHASE 3: GRADING ===");
-        System.out.println("⚠️  Not implemented yet - will be added in Phase 3");
-        System.out.println("Will grade " + plan.getTaskCount() + " tasks\n");
+    private GradingResult gradeTask(Student student, GradingTask task) throws IOException {
+        
+        // Build path to student's question folder using Student's helper method
+        Path studentQuestionFolder = student.getQuestionPath(task.getStudentFolder());
+        
+        // Build path to student's Java file
+        Path studentFile = studentQuestionFolder.resolve(task.getStudentFile());
+        
+        // FIX 4 & 5: Enhanced file existence checking with better error messages
+        boolean hasJavaFile = Files.exists(studentFile);
+        boolean hasClassFile = false;
+        Path classFile = null;
+        
+        if (!hasJavaFile) {
+            // FIX 4: Check if .class file exists as fallback
+            String className = task.getStudentFile().replace(".java", ".class");
+            classFile = studentQuestionFolder.resolve(className);
+            hasClassFile = Files.exists(classFile);
+            
+            if (!hasClassFile) {
+                // FIX 5: Better error message with folder contents
+                String errorMessage = buildFileNotFoundError(
+                    task.getStudentFile(), 
+                    studentQuestionFolder
+                );
+                
+                return new GradingResult(
+                    student, task, 0.0, errorMessage, "FILE_NOT_FOUND"
+                );
+            }
+        }
+        
+        // Copy tester to student's folder
+        try {
+            testerInjector.copyTester(task.getTesterFile(), studentQuestionFolder);
+        } catch (IOException e) {
+            return new GradingResult(
+                student, task, 0.0,
+                "Failed to copy tester: " + e.getMessage(),
+                "TESTER_COPY_FAILED"
+            );
+        }
+        
+        // Compile
+        // If student only has .class file, we still need to compile the tester
+        boolean compiled = compilerService.compile(studentQuestionFolder);
+        
+        if (!compiled) {
+            return new GradingResult(
+                student, task, 0.0,
+                "Compilation failed - check syntax errors",
+                "COMPILATION_FAILED"
+            );
+        }
+        
+        // Run the tester class
+        String testerClassName = task.getTesterFile().replace(".java", "");
+        String output = processRunner.runTester(testerClassName, studentQuestionFolder);
+        
+        // Parse score from output
+        double score = outputParser.parseScore(output);
+        
+        // Create and return result
+        return new GradingResult(student, task, score, output);
+    }
+    
+    /**
+     * FIX 5: Builds detailed error message when file not found
+     * 
+     * Shows:
+     * - Expected file path
+     * - Actual folder contents
+     * - Hints about wrapper folders
+     * 
+     * @param expectedFile Expected filename
+     * @param folder Folder where file should be
+     * @return Detailed error message
+     */
+    private String buildFileNotFoundError(String expectedFile, Path folder) {
+        StringBuilder error = new StringBuilder();
+        error.append("File not found: ").append(expectedFile).append("\n");
+        error.append("Expected location: ").append(folder.toAbsolutePath()).append("\n");
+        
+        try {
+            if (Files.exists(folder)) {
+                error.append("Folder contents: ");
+                
+                List<String> items = new ArrayList<>();
+                try (DirectoryStream<Path> stream = Files.newDirectoryStream(folder)) {
+                    for (Path item : stream) {
+                        items.add(item.getFileName().toString());
+                    }
+                }
+                
+                if (items.isEmpty()) {
+                    error.append("[Empty folder]");
+                } else {
+                    error.append(String.join(", ", items));
+                    
+                    // Check if there's a wrapper folder
+                    for (String item : items) {
+                        if (!item.startsWith("Q") && !item.startsWith(".")) {
+                            error.append("\n⚠️  Potential wrapper folder detected: ").append(item);
+                            error.append("\n   (Phase 1 wrapper flattening may have failed)");
+                            break;
+                        }
+                    }
+                }
+            } else {
+                error.append("[Folder does not exist]");
+            }
+        } catch (IOException e) {
+            error.append("[Could not read folder]");
+        }
+        
+        return error.toString();
+    }
+    
+    /**
+     * Get students from extracted folders
+     * 
+     * Scans data/extracted/ for student folders
+     * Each folder name is a student username
+     * 
+     * @return List of Student objects
+     * @throws IOException if directory cannot be read
+     */
+    private List<Student> getStudentsFromFilesystem() throws IOException {
+        List<Student> students = new ArrayList<>();
+        Path extractedDir = Paths.get("data", "extracted");
+        
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(extractedDir)) {
+            for (Path studentFolder : stream) {
+                if (Files.isDirectory(studentFolder)) {
+                    String username = studentFolder.getFileName().toString();
+                    students.add(new Student(username, studentFolder));
+                }
+            }
+        }
+        
+        // Sort alphabetically for consistent output
+        students.sort((a, b) -> a.getUsername().compareTo(b.getUsername()));
+        
+        return students;
+    }
+    
+    /**
+     * Count successful results
+     */
+    private int countSuccessful(List<GradingResult> results) {
+        return (int) results.stream().filter(GradingResult::isSuccessful).count();
+    }
+    
+    /**
+     * Count failed results
+     */
+    private int countFailed(List<GradingResult> results) {
+        return (int) results.stream().filter(r -> !r.isSuccessful()).count();
     }
 }

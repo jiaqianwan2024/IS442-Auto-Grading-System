@@ -12,34 +12,15 @@ import java.util.*;
 /**
  * UnzipService - High-Level Extraction Orchestrator
  * 
- * PURPOSE:
- * - Coordinates the complete student submission extraction workflow
- * - Integrates: ZIP extraction + Student validation + Error reporting
- * - Provides single entry point for the entire extraction process
+ * VERSION: 3.0 (Phase 3 - Wrapper Flattening)
  * 
- * WORKFLOW OVERVIEW:
- * 1. Load official student list from LMS CSV
- * 2. Find master submission ZIP (newest if multiple exist)
- * 3. Extract master ZIP to temp location
- * 4. Find all student ZIPs inside
- * 5. For each student ZIP: Validate and extract using 3-layer detection
- * 6. Generate validation summary report
- * 7. Cleanup temporary files
- * 
- * FOLLOWS PURE CONVENTION:
- * - Expects files in: data/input/submissions/
- * - Expects CSV in: config/IS442-ScoreSheet.csv
- * - Outputs to: data/extracted/
- * - No configuration files needed!
- * 
- * CROSS-PLATFORM DESIGN:
- * - All paths use Path API (not String concatenation)
- * - Uses Files.createTempDirectory() (works on Windows/Mac/Linux)
- * - DirectoryStream for directory iteration (cross-platform)
- * - Files.move() instead of File.renameTo() (more reliable)
+ * NEW IN v3.0:
+ * - FIX 1: Automatic wrapper folder flattening
+ * - Detects and flattens nested structures (01400003/Q1/, ping.lee.2023/Q1/, etc.)
+ * - Handles double-nesting (username folder inside username folder)
  * 
  * @author IS442 Team
- * @version 2.0 (Pure Convention + Path API)
+ * @version 3.0
  */
 public class UnzipService {
     
@@ -47,13 +28,6 @@ public class UnzipService {
     private final ScoreSheetReader scoreReader;
     private final StudentValidator validator;
     
-    /**
-     * Constructor - Initializes validation services
-     * 
-     * DESIGN PATTERN: Dependency Injection (simple form)
-     * - Creates dependencies in constructor
-     * - Alternative: Could accept them as parameters (better for testing)
-     */
     public UnzipService() {
         this.scoreReader = new ScoreSheetReader();
         this.validator = new StudentValidator();
@@ -61,40 +35,26 @@ public class UnzipService {
     
     /**
      * Complete extraction and validation workflow.
-     * This is the main entry point - call this to extract everything!
-     * 
-     * RETURNS:
-     * List of ValidationResult objects - one per student submission
-     * Caller can inspect results to see which students were recovered vs unrecognized
-     * 
-     * EXCEPTIONS:
-     * Throws IOException if critical files missing or filesystem errors
-     * - Missing CSV: Instructor forgot to place scoresheet
-     * - Missing ZIP: Instructor forgot to place submissions
-     * - Permission denied: Filesystem doesn't allow file operations
-     * 
-     * @return List of validation results (one per student)
-     * @throws IOException if critical setup fails
+     * Now includes automatic wrapper folder flattening!
      */
     public List<ValidationResult> extractAndValidateStudents() throws IOException {
         
-        // ================================================================
-        // HEADER: Print start banner
-        // ================================================================
         System.out.println("\n" + "=".repeat(70));
         System.out.println("🚀 EXTRACTION & VALIDATION - Phase 1");
         System.out.println("=".repeat(70));
         
-        // ================================================================
-        // STEP 1: Load official student list from LMS CSV
-        // ================================================================
-        // Path is relative to project root (cross-platform)
-        // Windows: config\IS442-ScoreSheet.csv
-        // Mac: config/IS442-ScoreSheet.csv
-        // Path.of() handles both!
+        // STEP 0: Clean up old extracted data
+        Path extractedDir = Paths.get("data", "extracted");
+        if (Files.exists(extractedDir)) {
+            System.out.println("\n🧹 Step 0: Cleaning up previous extraction...");
+            deleteDirectory(extractedDir);
+            System.out.println("   ✅ Old data cleared");
+        }
+        Files.createDirectories(extractedDir);
+        
+        // STEP 1: Load official student list
         Path csvPath = Paths.get("config", "IS442-ScoreSheet.csv");
         
-        // VALIDATION: Check if CSV exists
         if (!Files.exists(csvPath)) {
             throw new IOException(
                 "❌ LMS scoresheet not found: " + csvPath + "\n" +
@@ -102,38 +62,23 @@ public class UnzipService {
             );
         }
         
-        System.out.println("\n📋 Step 1: Loading official student list...");
+        System.out.println("\n👥 Step 1: Loading official student list...");
         scoreReader.loadValidStudents(csvPath);
-        System.out.println("   ✅ Loaded " + scoreReader.getStudentCount() + " students");
         
-        // ================================================================
-        // STEP 2: Find master submission ZIP (newest if multiple)
-        // ================================================================
-        System.out.println("\n📦 Step 2: Locating master submission ZIP...");
+        // STEP 2: Find master submission ZIP
+        System.out.println("\n📁 Step 2: Locating master submission ZIP...");
         Path submissionsDir = Paths.get("data", "input", "submissions");
         Path masterZip = findNewestZip(submissionsDir);
         System.out.println("   ✅ Using: " + masterZip.getFileName());
         
-        // ================================================================
-        // STEP 3: Extract master ZIP to temporary location
-        // ================================================================
-        System.out.println("\n📂 Step 3: Extracting master ZIP...");
-        
-        // Create temp directory in system temp folder
-        // Files.createTempDirectory():
-        // - Windows: C:\Users\Name\AppData\Local\Temp\master_extract_xxxxx
-        // - Mac: /var/folders/.../master_extract_xxxxx
-        // - Linux: /tmp/master_extract_xxxxx
-        // The xxxxx is random to avoid conflicts
-        Path tempExtract = Files.createTempDirectory("master_extract");
+        // STEP 3: Extract master ZIP
+        Path tempExtract = Files.createTempDirectory("master-extract");
         
         try {
-            // Extract master ZIP
+            System.out.println("\n📦 Step 3: Extracting master ZIP...");
             ZipFileProcessor.unzip(masterZip, tempExtract);
             
-            // ================================================================
-            // STEP 4: Find all student ZIPs inside the extracted master
-            // ================================================================
+            // STEP 4: Find student ZIPs
             System.out.println("\n🔍 Step 4: Finding individual student submissions...");
             List<Path> studentZips = findStudentZips(tempExtract);
             
@@ -146,26 +91,19 @@ public class UnzipService {
             
             System.out.println("   ✅ Found " + studentZips.size() + " student submissions");
             
-            // ================================================================
-            // STEP 5: Prepare final destination directory
-            // ================================================================
+            // STEP 5: Prepare destination
             Path finalDestination = Paths.get("data", "extracted");
             Files.createDirectories(finalDestination);
             
-            // ================================================================
-            // STEP 6: Validate and extract each student (3-layer detection)
-            // ================================================================
+            // STEP 6: Validate and extract each student
             System.out.println("\n👥 Step 5: Validating students (3-layer detection)...");
             System.out.println("-".repeat(70));
             
             List<ValidationResult> results = new ArrayList<>();
             int count = 0;
             
-            // Process each student ZIP
             for (Path studentZip : studentZips) {
                 count++;
-                
-                // Show progress: [1/6] [2/6] etc.
                 System.out.print("   [" + count + "/" + studentZips.size() + "] ");
                 
                 // Run 3-layer validation
@@ -177,53 +115,132 @@ public class UnzipService {
                 
                 results.add(result);
                 logValidationResult(result);
+                
+                // FIX 1: Flatten wrapper folders after extraction
+                if (result.isIdentified()) {
+                    try {
+                        // Build path to extracted student folder
+                        Path extractedPath = finalDestination.resolve(result.getResolvedId());
+                        flattenWrapperFolder(extractedPath);
+                    } catch (IOException e) {
+                        System.err.println("⚠️  Warning: Could not flatten wrapper folder: " + e.getMessage());
+                    }
+                }
             }
             
-            // ================================================================
-            // STEP 7: Print validation summary
-            // ================================================================
+            // STEP 7: Print summary
             printValidationSummary(results);
             
             return results;
             
         } finally {
-            // ================================================================
-            // STEP 8: Cleanup temporary directory
-            // ================================================================
-            // IMPORTANT: This runs even if an exception occurred
-            // We must clean up temp files to avoid filling up disk
+            // STEP 8: Cleanup
             deleteDirectory(tempExtract);
             System.out.println("🧹 Cleaned up temporary files");
         }
     }
     
     /**
-     * Finds the newest ZIP file in a directory.
+     * FIX 1: Flattens wrapper folders (e.g., 01400003/Q1/, ping.lee.2023/Q1/)
      * 
-     * STRATEGY:
-     * 1. Find all .zip files in directory
-     * 2. If none found → throw error
-     * 3. If one found → return it
-     * 4. If multiple found → compare modification times, return newest
+     * DETECTS:
+     * - Single folder at top level containing Q folders
+     * - Moves Q1/, Q2/, Q3/ up one level
+     * - Deletes empty wrapper folder
      * 
-     * USE CASE:
-     * Instructor might upload multiple versions:
-     * - student-submission.zip (uploaded Monday)
-     * - student-submission-updated.zip (uploaded Wednesday)
-     * System automatically uses the Wednesday version
-     * 
-     * CROSS-PLATFORM NOTES:
-     * - Files.getLastModifiedTime() works on all platforms
-     * - Returns FileTime object (timezone-aware, comparable)
-     * - Handles different filesystem timestamps correctly
-     * 
-     * @param directory Directory to search for ZIPs
-     * @return Path to the newest ZIP file
-     * @throws IOException if directory doesn't exist or no ZIPs found
+     * HANDLES:
+     * - Student ID wrappers (01400003/)
+     * - Username wrappers (ping.lee.2023/)
+     * - Template name wrappers (RenameToYourStudentID/)
+     * - Double nesting (username/username/Q1/)
      */
+    private void flattenWrapperFolder(Path studentDir) throws IOException {
+        
+        if (!Files.exists(studentDir) || !Files.isDirectory(studentDir)) {
+            return;
+        }
+        
+        // List top-level items
+        List<Path> folders = new ArrayList<>();
+        List<Path> files = new ArrayList<>();
+        
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(studentDir)) {
+            for (Path item : stream) {
+                if (Files.isDirectory(item)) {
+                    folders.add(item);
+                } else {
+                    // Count files but ignore .DS_Store and other junk
+                    String fileName = item.getFileName().toString();
+                    if (!fileName.startsWith(".")) {
+                        files.add(item);
+                    }
+                }
+            }
+        }
+        
+        // Debug: Show what we found
+        System.out.println("   🔍 Checking structure: " + folders.size() + " folder(s), " + files.size() + " file(s)");
+        
+        // Detect wrapper: exactly 1 folder and few/no real files
+        if (folders.size() != 1 || files.size() > 2) {
+            System.out.println("   ℹ️  No wrapper detected - structure looks correct");
+            return;  // Not a wrapper structure
+        }
+        
+        Path wrapperFolder = folders.get(0);
+        System.out.println("   🔍 Potential wrapper: " + wrapperFolder.getFileName());
+        
+        // Check if wrapper contains Q folders
+        boolean hasQuestionFolders = false;
+        List<Path> itemsToMove = new ArrayList<>();
+        
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(wrapperFolder)) {
+            for (Path item : stream) {
+                itemsToMove.add(item);
+                
+                if (Files.isDirectory(item)) {
+                    String name = item.getFileName().toString();
+                    // Match Q1, Q2, Q3, Q10, etc.
+                    if (name.matches("^Q\\d+$")) {
+                        hasQuestionFolders = true;
+                        System.out.println("   ✓ Found: " + name);
+                    }
+                }
+            }
+        }
+        
+        // Only flatten if wrapper contains question folders
+        if (!hasQuestionFolders) {
+            System.out.println("   ℹ️  No Q folders in wrapper - skipping flatten");
+            return;
+        }
+        
+        // Flatten: Move all items from wrapper to parent
+        System.out.println("   🔧 Flattening wrapper folder: " + wrapperFolder.getFileName());
+        
+        for (Path item : itemsToMove) {
+            Path target = studentDir.resolve(item.getFileName());
+            
+            // If target already exists, delete it first
+            if (Files.exists(target)) {
+                if (Files.isDirectory(target)) {
+                    deleteDirectory(target);
+                } else {
+                    Files.delete(target);
+                }
+            }
+            
+            Files.move(item, target, StandardCopyOption.REPLACE_EXISTING);
+            System.out.println("      ↳ Moved: " + item.getFileName());
+        }
+        
+        // Delete empty wrapper folder
+        Files.delete(wrapperFolder);
+        System.out.println("   ✅ Structure flattened successfully");
+    }
+    
     private Path findNewestZip(Path directory) throws IOException {
         
-        // VALIDATION: Check if directory exists
         if (!Files.exists(directory)) {
             throw new IOException(
                 "❌ Directory not found: " + directory + "\n" +
@@ -231,18 +248,14 @@ public class UnzipService {
             );
         }
         
-        // Find all ZIP files
         List<Path> zipFiles = new ArrayList<>();
         
-        // DirectoryStream with glob pattern "*.zip"
-        // More efficient than listing all files and filtering
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(directory, "*.zip")) {
             for (Path zip : stream) {
                 zipFiles.add(zip);
             }
         }
         
-        // VALIDATION: Check if any ZIPs found
         if (zipFiles.isEmpty()) {
             throw new IOException(
                 "❌ No ZIP files found in: " + directory + "\n" +
@@ -250,24 +263,19 @@ public class UnzipService {
             );
         }
         
-        // If only one ZIP, return it
         if (zipFiles.size() == 1) {
             return zipFiles.get(0);
         }
         
-        // Multiple ZIPs found - find newest by modification time
         System.out.println("   ⚠️  Found " + zipFiles.size() + " ZIPs, selecting newest...");
         
         Path newest = zipFiles.get(0);
         FileTime newestTime = Files.getLastModifiedTime(newest);
         
-        // Compare modification times
         for (int i = 1; i < zipFiles.size(); i++) {
             Path current = zipFiles.get(i);
             FileTime currentTime = Files.getLastModifiedTime(current);
             
-            // FileTime.compareTo():
-            // Returns > 0 if currentTime is newer than newestTime
             if (currentTime.compareTo(newestTime) > 0) {
                 newest = current;
                 newestTime = currentTime;
@@ -277,52 +285,19 @@ public class UnzipService {
         return newest;
     }
     
-    /**
-     * Finds all student ZIP files in the extracted master ZIP.
-     * 
-     * HANDLES TWO COMMON STRUCTURES:
-     * 
-     * Structure A (with subfolder):
-     *   student-submission.zip
-     *   └── student-submission/
-     *       ├── 2023-2024-ping.lee.2023.zip
-     *       ├── 2023-2024-chee.teo.2022.zip
-     *       └── ...
-     * 
-     * Structure B (flat):
-     *   student-submission.zip
-     *   ├── 2023-2024-ping.lee.2023.zip
-     *   ├── 2023-2024-chee.teo.2022.zip
-     *   └── ...
-     * 
-     * This method handles BOTH by checking subdirectories first
-     * 
-     * @param tempExtract Path to extracted master ZIP contents
-     * @return List of paths to individual student ZIPs
-     * @throws IOException if directory cannot be read
-     */
     private List<Path> findStudentZips(Path tempExtract) throws IOException {
-        
         List<Path> studentZips = new ArrayList<>();
         
-        // Iterate through top-level contents
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(tempExtract)) {
-            
-            for (Path entry : stream) {
-                
-                if (Files.isDirectory(entry)) {
-                    // It's a subdirectory - look for ZIPs inside
-                    // This handles Structure A (nested folder)
-                    try (DirectoryStream<Path> nested = Files.newDirectoryStream(entry, "*.zip")) {
-                        for (Path zip : nested) {
+            for (Path item : stream) {
+                if (Files.isDirectory(item)) {
+                    try (DirectoryStream<Path> subStream = Files.newDirectoryStream(item, "*.zip")) {
+                        for (Path zip : subStream) {
                             studentZips.add(zip);
                         }
                     }
-                    
-                } else if (entry.toString().endsWith(".zip")) {
-                    // It's a ZIP file at root level
-                    // This handles Structure B (flat)
-                    studentZips.add(entry);
+                } else if (item.toString().endsWith(".zip")) {
+                    studentZips.add(item);
                 }
             }
         }
@@ -330,135 +305,69 @@ public class UnzipService {
         return studentZips;
     }
     
-    /**
-     * Logs a single validation result with appropriate emoji and color.
-     * 
-     * OUTPUT FORMAT:
-     * ✅ ping.lee.2023
-     * ⚠️  chee.teo.2022 (recovered from folder)
-     * ⚠️  david.2024 (recovered from comment)
-     * ❌ wrongname.zip (UNRECOGNIZED)
-     * 
-     * @param result Validation result to log
-     */
     private void logValidationResult(ValidationResult result) {
+        ValidationResult.Status status = result.getStatus();
+        String symbol = "";
         
-        switch (result.getStatus()) {
-            
+        switch (status) {
             case MATCHED:
-                // Perfect - filename was correct
-                System.out.println("✅ " + result.getResolvedId());
+                symbol = "✅";
+                System.out.println(symbol + " " + result.getResolvedId());
                 break;
-                
             case RECOVERED_FOLDER:
-                // Found via internal folder name
-                System.out.println("⚠️  " + result.getResolvedId() + " (recovered from folder)");
+                symbol = "⚠️ ";
+                System.out.println(symbol + " " + result.getResolvedId() + " (recovered from folder)");
                 break;
-                
             case RECOVERED_COMMENT:
-                // Found via Java file comment
-                System.out.println("⚠️  " + result.getResolvedId() + " (recovered from comment)");
+                symbol = "⚠️ ";
+                System.out.println(symbol + " " + result.getResolvedId() + " (recovered from comment)");
                 break;
-                
             case UNRECOGNIZED:
-                // Could not identify student
-                System.out.println("❌ " + result.getOriginalFilename() + " (UNRECOGNIZED)");
+                symbol = "❌";
+                System.out.println(symbol + " " + result.getOriginalFilename() + " (UNRECOGNIZED)");
                 break;
         }
     }
     
-    /**
-     * Prints a comprehensive validation summary table.
-     * 
-     * Shows:
-     * - Total submissions processed
-     * - How many were perfectly matched
-     * - How many were recovered (and how)
-     * - How many were unrecognized
-     * - Warning if any unrecognized (won't be graded)
-     * 
-     * USES JAVA STREAMS:
-     * - filter() to select specific statuses
-     * - count() to get totals
-     * - Functional programming style (modern Java)
-     * 
-     * @param results List of all validation results
-     */
     private void printValidationSummary(List<ValidationResult> results) {
-        
         System.out.println("\n" + "=".repeat(70));
         System.out.println("📊 VALIDATION SUMMARY");
         System.out.println("=".repeat(70));
         
-        // Count results by status using streams
         long matched = results.stream()
             .filter(r -> r.getStatus() == ValidationResult.Status.MATCHED)
             .count();
-            
-        long recoveredFolder = results.stream()
+        long fromFolder = results.stream()
             .filter(r -> r.getStatus() == ValidationResult.Status.RECOVERED_FOLDER)
             .count();
-            
-        long recoveredComment = results.stream()
+        long fromComment = results.stream()
             .filter(r -> r.getStatus() == ValidationResult.Status.RECOVERED_COMMENT)
             .count();
-            
         long unrecognized = results.stream()
             .filter(r -> r.getStatus() == ValidationResult.Status.UNRECOGNIZED)
             .count();
         
-        // Print summary
         System.out.println("Total submissions: " + results.size());
         System.out.println("  ✅ Matched (filename correct): " + matched);
-        System.out.println("  ⚠️  Recovered (from folder): " + recoveredFolder);
-        System.out.println("  ⚠️  Recovered (from comment): " + recoveredComment);
+        System.out.println("  ⚠️  Recovered (from folder): " + fromFolder);
+        System.out.println("  ⚠️  Recovered (from comment): " + fromComment);
         System.out.println("  ❌ Unrecognized: " + unrecognized);
-        
-        // Warning if any unrecognized
-        if (unrecognized > 0) {
-            System.out.println("\n⚠️  WARNING: " + unrecognized + " unrecognized submission(s)");
-            System.out.println("   These will NOT be graded. Manual investigation required.");
-            System.out.println("   Check data/extracted/ for correctly extracted students.");
-        }
-        
-        System.out.println("=".repeat(70) + "\n");
+        System.out.println("=".repeat(70));
     }
     
-    /**
-     * Recursively deletes a directory and all its contents.
-     * Used for cleanup of temporary directories.
-     * 
-     * IMPLEMENTATION:
-     * - Files.walk() traverses entire directory tree
-     * - sorted() in reverse order ensures files deleted before directories
-     * - forEach() deletes each path
-     * 
-     * CROSS-PLATFORM:
-     * - Works on all filesystems
-     * - Handles different path separators automatically
-     * - Safe for temporary directories
-     * 
-     * @param dir Directory to delete recursively
-     * @throws IOException if deletion fails
-     */
-    private void deleteDirectory(Path dir) throws IOException {
-        
-        if (Files.exists(dir)) {
-            
-            Files.walk(dir)
-                // Sort paths in reverse order (deepest first)
-                // "/tmp/a/b/c.txt" comes before "/tmp/a/b" comes before "/tmp/a"
-                .sorted((a, b) -> -a.compareTo(b))
-                // Delete each path
-                .forEach(path -> {
-                    try {
-                        Files.delete(path);
-                    } catch (IOException e) {
-                        // Log error but don't stop cleanup
-                        // Some files might be locked or in use
-                        System.err.println("⚠️  Could not delete: " + path);
-                    }
-                });
+    private void deleteDirectory(Path directory) throws IOException {
+        if (!Files.exists(directory)) {
+            return;
         }
+        
+        Files.walk(directory)
+            .sorted(Comparator.reverseOrder())
+            .forEach(path -> {
+                try {
+                    Files.delete(path);
+                } catch (IOException e) {
+                    // Ignore
+                }
+            });
     }
 }
