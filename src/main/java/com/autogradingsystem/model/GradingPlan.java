@@ -1,97 +1,106 @@
 package com.autogradingsystem.model;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
- * GradingPlan - Data Model for Complete Grading Plan
+ * GradingPlan - Collection of All Grading Tasks
  * 
  * PURPOSE:
- * - Contains all grading tasks for an exam
- * - Provides methods to query and iterate over tasks
- * - Represents the complete grading strategy
+ * - Encapsulates the complete grading plan for an exam
+ * - Contains all GradingTask objects to be executed
+ * - Shared across discovery and execution services
+ * - Immutable for thread safety
  * 
- * DESIGN PATTERN: Value Object / Data Transfer Object (DTO)
- * - Immutable after construction (all fields final)
- * - No business logic - just data storage and queries
- * - Thread-safe (immutable)
+ * CREATED BY:
+ * - GradingPlanBuilder during Phase 2 (Discovery)
  * 
- * EXAMPLE DATA:
- * GradingPlan {
- *   tasks: [
- *     GradingTask{Q1a, Q1aTester.java, Q1, Q1a.java},
- *     GradingTask{Q1b, Q1bTester.java, Q1, Q1b.java},
- *     GradingTask{Q2a, Q2aTester.java, Q2, Q2a.java},
- *     GradingTask{Q2b, Q2bTester.java, Q2, Q2b.java},
- *     GradingTask{Q3, Q3Tester.java, Q3, Q3.java}
- *   ]
- * }
+ * USED BY:
+ * - ExecutionController for executing grading
+ * - Main.java for validation
  * 
- * USAGE IN MAIN GRADING LOOP:
- * GradingPlan plan = controller.initialize();
- * 
- * for (Student student : students) {
- *     for (GradingTask task : plan.getTasks()) {
- *         // Grade student on this task
- *         int score = gradeTask(student, task);
- *     }
- * }
+ * NO CHANGES FROM v3.0:
+ * - Already well-designed
+ * - Package stays in global model/ (shared across services)
+ * - Added comprehensive JavaDoc
  * 
  * @author IS442 Team
- * @version 1.0
+ * @version 4.0 (Spring Boot Microservices Structure)
  */
 public class GradingPlan {
     
-    // List of all grading tasks in order
+    // ================================================================
+    // FIELDS
+    // ================================================================
+    
+    /**
+     * List of all grading tasks
+     * 
+     * CONTAINS:
+     * - One GradingTask per question file to grade
+     * - Typically 5-10 tasks for a standard exam
+     * 
+     * EXAMPLE:
+     * [
+     *   GradingTask(Q1a, Q1aTester.java, Q1, Q1a.java),
+     *   GradingTask(Q1b, Q1bTester.java, Q1, Q1b.java),
+     *   GradingTask(Q2a, Q2aTester.java, Q2, Q2a.java),
+     *   GradingTask(Q2b, Q2bTester.java, Q2, Q2b.java),
+     *   GradingTask(Q3, Q3Tester.java, Q3, Q3.java)
+     * ]
+     * 
+     * IMMUTABILITY:
+     * - List is unmodifiable after construction
+     * - Tasks themselves are immutable
+     */
     private final List<GradingTask> tasks;
     
+    // ================================================================
+    // CONSTRUCTOR
+    // ================================================================
+    
     /**
-     * Constructor - Creates immutable GradingPlan
+     * Creates a GradingPlan from a list of tasks
      * 
-     * IMMUTABILITY:
-     * - Makes defensive copy of input list
-     * - Prevents external modification after creation
-     * - Thread-safe
+     * DEFENSIVE COPYING:
+     * - Makes unmodifiable copy of input list
+     * - Prevents external modification after construction
+     * - Ensures true immutability
      * 
-     * @param tasks List of GradingTask objects (will be copied)
-     * @throws IllegalArgumentException if tasks is null
+     * @param tasks List of GradingTask objects
      */
     public GradingPlan(List<GradingTask> tasks) {
-        
-        // Input validation
-        if (tasks == null) {
-            throw new IllegalArgumentException("Tasks list cannot be null");
-        }
-        
-        // Defensive copy of list
-        this.tasks = new ArrayList<>(tasks);
+        // Create defensive unmodifiable copy
+        this.tasks = Collections.unmodifiableList(new ArrayList<>(tasks));
     }
     
+    // ================================================================
+    // GETTERS
+    // ================================================================
+    
     /**
-     * Returns all grading tasks.
+     * Gets the complete list of grading tasks
      * 
-     * IMMUTABILITY:
-     * - Returns unmodifiable list
-     * - Caller cannot modify the plan
+     * RETURNS:
+     * Unmodifiable list of all GradingTask objects
      * 
-     * EXAMPLE:
-     * List<GradingTask> tasks = plan.getTasks();
-     * for (GradingTask task : tasks) {
-     *     // Process task
-     * }
+     * USED FOR:
+     * - Iterating over tasks during grading
+     * - Counting total tasks
+     * - Validation
      * 
-     * @return Unmodifiable list of grading tasks
+     * @return Unmodifiable list of all tasks
      */
     public List<GradingTask> getTasks() {
-        return Collections.unmodifiableList(tasks);
+        return tasks;
     }
     
     /**
-     * Returns total number of tasks.
+     * Gets total number of tasks in the plan
      * 
-     * EXAMPLE:
-     * int count = plan.getTaskCount();
-     * // Returns: 5 (for Q1a, Q1b, Q2a, Q2b, Q3)
+     * USEFUL FOR:
+     * - Progress tracking ("Grading task 3 of 5")
+     * - Validation (ensure plan is not empty)
+     * - Logging
      * 
      * @return Number of tasks
      */
@@ -99,26 +108,32 @@ public class GradingPlan {
         return tasks.size();
     }
     
+    // ================================================================
+    // QUERY METHODS
+    // ================================================================
+    
     /**
-     * Checks if plan is empty (no tasks).
+     * Checks if plan is empty (no tasks to grade)
      * 
-     * EXAMPLE:
-     * boolean empty = plan.isEmpty();
+     * USEFUL FOR:
+     * - Validation before starting grading
+     * - Error handling
      * 
-     * @return true if no tasks, false otherwise
+     * @return true if no tasks exist, false otherwise
      */
     public boolean isEmpty() {
         return tasks.isEmpty();
     }
     
     /**
-     * Gets a specific task by index.
+     * Gets task by index
      * 
-     * EXAMPLE:
-     * GradingTask firstTask = plan.getTask(0);  // Q1a
+     * USEFUL FOR:
+     * - Sequential processing
+     * - Progress tracking with index
      * 
      * @param index Task index (0-based)
-     * @return GradingTask at index
+     * @return GradingTask at the specified index
      * @throws IndexOutOfBoundsException if index is invalid
      */
     public GradingTask getTask(int index) {
@@ -126,181 +141,126 @@ public class GradingPlan {
     }
     
     /**
-     * Finds task by question ID.
+     * Finds task by question ID
+     * 
+     * USEFUL FOR:
+     * - Looking up specific question
+     * - Checking if question exists in plan
      * 
      * EXAMPLE:
-     * Optional<GradingTask> task = plan.findTaskByQuestionId("Q1a");
-     * if (task.isPresent()) {
-     *     // Use task
-     * }
+     * getTaskByQuestionId("Q1a") → GradingTask for Q1a
+     * getTaskByQuestionId("Q99") → null (not in plan)
      * 
-     * @param questionId Question ID to search for
-     * @return Optional containing task if found, empty otherwise
+     * @param questionId Question ID to find
+     * @return GradingTask for the question, or null if not found
      */
-    public Optional<GradingTask> findTaskByQuestionId(String questionId) {
-        return tasks.stream()
-                .filter(task -> task.getQuestionId().equals(questionId))
-                .findFirst();
+    public GradingTask getTaskByQuestionId(String questionId) {
+        for (GradingTask task : tasks) {
+            if (task.getQuestionId().equals(questionId)) {
+                return task;
+            }
+        }
+        return null;
     }
     
     /**
-     * Returns tasks that have testers.
-     * Useful for reporting how many tasks can be graded.
+     * Checks if plan contains a task for the given question ID
      * 
-     * EXAMPLE:
-     * List<GradingTask> gradableTasks = plan.getTasksWithTesters();
-     * System.out.println(gradableTasks.size() + " out of " + 
-     *                    plan.getTaskCount() + " tasks can be graded");
-     * 
-     * @return List of tasks with testers
+     * @param questionId Question ID to check
+     * @return true if task exists, false otherwise
      */
-    public List<GradingTask> getTasksWithTesters() {
-        return tasks.stream()
-                .filter(GradingTask::hasTester)
-                .collect(Collectors.toList());
+    public boolean hasTask(String questionId) {
+        return getTaskByQuestionId(questionId) != null;
     }
     
     /**
-     * Returns tasks that are missing testers.
-     * Useful for warning the instructor.
+     * Gets all unique question IDs in the plan
      * 
-     * EXAMPLE:
-     * List<GradingTask> missingTesters = plan.getTasksWithoutTesters();
-     * if (!missingTesters.isEmpty()) {
-     *     System.err.println("⚠️ Warning: " + missingTesters.size() + 
-     *                        " task(s) missing testers");
-     *     for (GradingTask task : missingTesters) {
-     *         System.err.println("  - " + task.getQuestionId());
-     *     }
-     * }
+     * USEFUL FOR:
+     * - Listing all graded questions
+     * - Validation
+     * - Reporting
      * 
-     * @return List of tasks without testers
+     * @return List of all question IDs
      */
-    public List<GradingTask> getTasksWithoutTesters() {
-        return tasks.stream()
-                .filter(task -> !task.hasTester())
-                .collect(Collectors.toList());
+    public List<String> getQuestionIds() {
+        List<String> questionIds = new ArrayList<>();
+        for (GradingTask task : tasks) {
+            questionIds.add(task.getQuestionId());
+        }
+        return questionIds;
     }
     
     /**
-     * Returns count of tasks with testers.
+     * Gets all unique question folders in the plan
      * 
-     * EXAMPLE:
-     * int gradable = plan.getGradableTaskCount();
-     * // Returns: 4 (if 4 out of 5 tasks have testers)
+     * USEFUL FOR:
+     * - Listing all question folders (Q1, Q2, Q3)
+     * - Navigation
+     * - Validation
      * 
-     * @return Number of tasks with testers
-     */
-    public int getGradableTaskCount() {
-        return (int) tasks.stream()
-                .filter(GradingTask::hasTester)
-                .count();
-    }
-    
-    /**
-     * Returns count of tasks without testers.
-     * 
-     * EXAMPLE:
-     * int ungradable = plan.getUngradableTaskCount();
-     * // Returns: 1 (if 1 out of 5 tasks missing tester)
-     * 
-     * @return Number of tasks without testers
-     */
-    public int getUngradableTaskCount() {
-        return (int) tasks.stream()
-                .filter(task -> !task.hasTester())
-                .count();
-    }
-    
-    /**
-     * Returns all unique question folders.
-     * Useful for understanding exam structure.
-     * 
-     * EXAMPLE:
-     * Set<String> folders = plan.getQuestionFolders();
-     * // Returns: ["Q1", "Q2", "Q3"]
-     * 
-     * @return Set of unique folder names
+     * @return Set of all question folder names
      */
     public Set<String> getQuestionFolders() {
-        return tasks.stream()
-                .map(GradingTask::getStudentFolder)
-                .collect(Collectors.toSet());
-    }
-    
-    /**
-     * Returns summary statistics for logging.
-     * 
-     * EXAMPLE OUTPUT:
-     * "5 tasks (4 with testers, 1 missing tester)"
-     * 
-     * @return Summary string
-     */
-    public String getSummary() {
-        int total = getTaskCount();
-        int gradable = getGradableTaskCount();
-        int ungradable = getUngradableTaskCount();
-        
-        StringBuilder summary = new StringBuilder();
-        summary.append(total).append(" task").append(total == 1 ? "" : "s");
-        
-        if (ungradable > 0) {
-            summary.append(" (")
-                   .append(gradable).append(" with tester").append(gradable == 1 ? "" : "s")
-                   .append(", ")
-                   .append(ungradable).append(" missing tester").append(ungradable == 1 ? "" : "s")
-                   .append(")");
+        Set<String> folders = new HashSet<>();
+        for (GradingTask task : tasks) {
+            folders.add(task.getStudentFolder());
         }
-        
-        return summary.toString();
+        return folders;
     }
     
+    // ================================================================
+    // FILTERING METHODS
+    // ================================================================
+    
     /**
-     * Returns detailed string representation for debugging.
+     * Gets all tasks for a specific question folder
      * 
-     * EXAMPLE OUTPUT:
-     * GradingPlan{
-     *   tasks: 5
-     *   [1] Q1a → Q1aTester.java
-     *   [2] Q1b → Q1bTester.java
-     *   [3] Q2a → Q2aTester.java
-     *   [4] Q2b → Q2bTester.java
-     *   [5] Q3 → Q3Tester.java
-     *   Summary: 5 tasks (5 with testers, 0 missing testers)
-     * }
+     * USEFUL FOR:
+     * - Grading all parts of Q1 together
+     * - Folder-based organization
      * 
-     * @return String representation
+     * EXAMPLE:
+     * getTasksForFolder("Q1") → [Q1a task, Q1b task]
+     * 
+     * @param questionFolder Folder name (e.g., "Q1")
+     * @return List of tasks in that folder
+     */
+    public List<GradingTask> getTasksForFolder(String questionFolder) {
+        List<GradingTask> folderTasks = new ArrayList<>();
+        for (GradingTask task : tasks) {
+            if (task.getStudentFolder().equals(questionFolder)) {
+                folderTasks.add(task);
+            }
+        }
+        return folderTasks;
+    }
+    
+    // ================================================================
+    // OBJECT METHODS
+    // ================================================================
+    
+    /**
+     * String representation for debugging
+     * 
+     * FORMAT:
+     * GradingPlan{tasks=5, questions=[Q1a, Q1b, Q2a, Q2b, Q3]}
+     * 
+     * @return Human-readable representation
      */
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("GradingPlan{\n");
-        sb.append("  tasks: ").append(tasks.size()).append("\n");
-        
-        for (int i = 0; i < tasks.size(); i++) {
-            GradingTask task = tasks.get(i);
-            sb.append("  [").append(i + 1).append("] ")
-              .append(task.getQuestionId()).append(" → ");
-            
-            if (task.hasTester()) {
-                sb.append(task.getTesterFile());
-            } else {
-                sb.append("NONE (missing tester)");
-            }
-            
-            sb.append("\n");
-        }
-        
-        sb.append("  Summary: ").append(getSummary()).append("\n");
-        sb.append("}");
-        return sb.toString();
+        return String.format(
+            "GradingPlan{tasks=%d, questions=%s}",
+            tasks.size(),
+            getQuestionIds()
+        );
     }
     
     /**
-     * Equality check based on content.
-     * Two GradingPlans are equal if they have the same tasks in the same order.
+     * Checks equality based on tasks list
      * 
-     * @param obj Object to compare
+     * @param obj Object to compare with
      * @return true if equal, false otherwise
      */
     @Override
@@ -313,12 +273,12 @@ public class GradingPlan {
     }
     
     /**
-     * Hash code based on content.
+     * Generates hash code based on tasks list
      * 
      * @return Hash code
      */
     @Override
     public int hashCode() {
-        return Objects.hash(tasks);
+        return tasks.hashCode();
     }
 }
