@@ -1,46 +1,133 @@
 package com.autogradingsystem.model;
 
-import java.util.Objects;
-
 /**
- * GradingResult - Result of Grading One Task for One Student
+ * GradingResult - Represents the Result of Grading One Task
  * 
  * PURPOSE:
- * - Stores the outcome of grading a single question for a single student
- * - Tracks raw points (not percentages) - e.g., 3.0/3.0, 4.0/4.0
- * - Used for Phase 4 reporting
+ * - Encapsulates the complete result of grading one question for one student
+ * - Stores raw points (not percentages) - percentages calculated later
+ * - Shared across execution and analysis services
+ * - Supports updating with max scores after initial grading
  * 
- * RAW POINTS SYSTEM:
- * - Different questions have different max scores
- * - Q1a: 3 tests = 3.0 max
- * - Q1b: 3 tests = 3.0 max
- * - Q3: 4 tests = 4.0 max
- * - Scores are NOT normalized to 100
+ * CREATED BY:
+ * - ExecutionController during Phase 3 (Grading)
+ * 
+ * USED BY:
+ * - ScoreAnalyzer for calculating totals and percentages
+ * - AnalysisController for displaying results
+ * 
+ * DESIGN:
+ * - Immutable except for maxScore (updated after inference)
+ * - Multiple constructors for different use cases
+ * - Status auto-determined from score/output
+ * 
+ * NO CHANGES FROM v3.0:
+ * - Already well-designed
+ * - Package stays in global model/ (shared across services)
+ * - Added comprehensive JavaDoc
  * 
  * @author IS442 Team
- * @version 2.0 (Updated for raw points)
+ * @version 4.0 (Spring Boot Microservices Structure)
  */
 public class GradingResult {
     
-    private final Student student;
-    private final GradingTask task;
-    private final double score;        // Points earned (e.g., 3.0)
-    private final double maxScore;     // Max possible (e.g., 3.0) - 0.0 if unknown
-    private final String output;
-    private final String status;
+    // ================================================================
+    // FIELDS
+    // ================================================================
     
     /**
-     * Constructor with max score (preferred)
+     * Student who was graded
+     */
+    private final Student student;
+    
+    /**
+     * Task that was graded
+     */
+    private final GradingTask task;
+    
+    /**
+     * Raw points earned
+     * 
+     * EXAMPLES:
+     * - 3.0 (full marks on 3-point question)
+     * - 1.5 (partial credit)
+     * - 0.0 (no credit)
+     * 
+     * NOT A PERCENTAGE:
+     * - This is absolute points, not percentage
+     * - 3.0 points out of 3.0 max = 100%
+     * - Percentage calculated using: (score / maxScore) * 100
+     */
+    private final double score;
+    
+    /**
+     * Maximum possible points for this question
+     * 
+     * INITIALLY:
+     * - May be 0.0 if not known yet
+     * - Updated by ScoreAnalyzer after inference
+     * 
+     * INFERENCE SOURCES:
+     * - Highest score achieved by any student
+     * - OR parsed from tester file if all students scored 0
+     * 
+     * EXAMPLES:
+     * - 3.0 (for a 3-point question)
+     * - 5.0 (for a 5-point question)
+     * - 4.0 (for a 4-point question)
+     */
+    private final double maxScore;
+    
+    /**
+     * Full console output from tester execution
+     * 
+     * CONTAINS:
+     * - All test results
+     * - Print statements from tester
+     * - Final score on last line
+     * - Any error messages
+     * 
+     * USEFUL FOR:
+     * - Debugging failures
+     * - Understanding partial credit
+     * - Manual review
+     */
+    private final String output;
+    
+    /**
+     * Grading status
+     * 
+     * POSSIBLE VALUES:
+     * - "PERFECT" - Full marks achieved
+     * - "PARTIAL" - Some credit earned
+     * - "FAILED" - No credit (but code ran)
+     * - "COMPILATION_FAILED" - Code didn't compile
+     * - "FILE_NOT_FOUND" - Student didn't submit file
+     * - "TIMEOUT" - Execution exceeded time limit
+     * - "ERROR" - Other execution error
+     */
+    private final String status;
+    
+    // ================================================================
+    // CONSTRUCTORS
+    // ================================================================
+    
+    /**
+     * Full constructor - All fields specified
+     * 
+     * USE CASE:
+     * - When creating result with known max score
+     * - After max score inference
      * 
      * @param student Student who was graded
      * @param task Task that was graded
-     * @param score Score achieved (raw points)
-     * @param maxScore Maximum possible score for this question
+     * @param score Raw points earned
+     * @param maxScore Maximum possible points
      * @param output Full console output
      * @param status Grading status
      */
-    public GradingResult(Student student, GradingTask task, double score, double maxScore, 
-                        String output, String status) {
+    public GradingResult(Student student, GradingTask task, double score,
+                        double maxScore, String output, String status) {
         this.student = student;
         this.task = task;
         this.score = score;
@@ -50,243 +137,281 @@ public class GradingResult {
     }
     
     /**
-     * Constructor with max score, auto-determine status
+     * Constructor without max score
+     * 
+     * USE CASE:
+     * - Initial grading (max score not yet known)
+     * - Max score will be inferred later by ScoreAnalyzer
+     * 
+     * DEFAULT:
+     * - Sets maxScore = 0.0
      * 
      * @param student Student who was graded
      * @param task Task that was graded
-     * @param score Score achieved
-     * @param maxScore Maximum possible score
-     * @param output Console output
+     * @param score Raw points earned
+     * @param output Full console output
+     * @param status Grading status
      */
-    public GradingResult(Student student, GradingTask task, double score, double maxScore, String output) {
-        this(student, task, score, maxScore, output, determineStatus(score, maxScore, output));
-    }
-    
-    /**
-     * Constructor without max score (legacy - max defaults to 0.0)
-     * Max score will be inferred later from all results
-     * 
-     * @param student Student who was graded
-     * @param task Task that was graded
-     * @param score Score achieved
-     * @param output Console output
-     * @param status Status
-     */
-    public GradingResult(Student student, GradingTask task, double score, String output, String status) {
+    public GradingResult(Student student, GradingTask task, double score,
+                        String output, String status) {
         this(student, task, score, 0.0, output, status);
     }
     
     /**
-     * Constructor without max score, auto-determine status
+     * Constructor with auto-determined status
      * 
-     * @param student Student
-     * @param task Task
-     * @param score Score achieved
-     * @param output Console output
+     * USE CASE:
+     * - Successful grading (code ran, got score)
+     * - Status determined from score and output
+     * 
+     * STATUS LOGIC:
+     * - If score > 0 and maxScore > 0 and score == maxScore → "PERFECT"
+     * - If score > 0 → "PARTIAL"
+     * - If score == 0 → "FAILED"
+     * 
+     * @param student Student who was graded
+     * @param task Task that was graded
+     * @param score Raw points earned
+     * @param output Full console output
      */
     public GradingResult(Student student, GradingTask task, double score, String output) {
         this(student, task, score, 0.0, output, determineStatus(score, 0.0, output));
     }
     
+    // ================================================================
+    // GETTERS
+    // ================================================================
+    
     /**
-     * Determines status from score, max score, and output
+     * Gets the student who was graded
      * 
-     * @param score Score achieved
-     * @param maxScore Maximum possible (0.0 if unknown)
-     * @param output Console output
+     * @return Student object
+     */
+    public Student getStudent() {
+        return student;
+    }
+    
+    /**
+     * Gets the task that was graded
+     * 
+     * @return GradingTask object
+     */
+    public GradingTask getTask() {
+        return task;
+    }
+    
+    /**
+     * Gets the question ID (convenience method)
+     * 
+     * EQUIVALENT TO:
+     * result.getTask().getQuestionId()
+     * 
+     * @return Question ID (e.g., "Q1a")
+     */
+    public String getQuestionId() {
+        return task.getQuestionId();
+    }
+    
+    /**
+     * Gets the raw points earned
+     * 
+     * @return Score in points (not percentage)
+     */
+    public double getScore() {
+        return score;
+    }
+    
+    /**
+     * Gets the maximum possible points
+     * 
+     * @return Max score (0.0 if not yet inferred)
+     */
+    public double getMaxScore() {
+        return maxScore;
+    }
+    
+    /**
+     * Gets the full console output
+     * 
+     * @return Output from tester execution
+     */
+    public String getOutput() {
+        return output;
+    }
+    
+    /**
+     * Gets the grading status
+     * 
      * @return Status string
      */
-    private static String determineStatus(double score, double maxScore, String output) {
-        if (output == null || output.isEmpty()) {
-            return "NO_OUTPUT";
-        }
-        
-        if (output.contains("Compilation Failed") || output.contains("[javac ERROR]")) {
-            return "COMPILATION_FAILED";
-        }
-        
-        if (output.contains("File not found") || output.contains("FileNotFoundException")) {
-            return "FILE_NOT_FOUND";
-        }
-        
-        if (output.contains("Timed Out") || output.contains("Timeout")) {
-            return "TIMEOUT";
-        }
-        
-        if (output.contains("Error:")) {
-            return "RUNTIME_ERROR";
-        }
-        
-        if (score == 0.0) {
-            return "FAILED";
-        }
-        
-        // Check if perfect (only if we know max score)
-        if (maxScore > 0.0 && score >= maxScore) {
-            return "PERFECT";
-        }
-        
-        return "PARTIAL";
+    public String getStatus() {
+        return status;
     }
     
-    // =========================================================================
-    // GETTERS
-    // =========================================================================
-    
-    public Student getStudent() { return student; }
-    public GradingTask getTask() { return task; }
-    public double getScore() { return score; }
-    public double getMaxScore() { return maxScore; }
-    public String getOutput() { return output; }
-    public String getStatus() { return status; }
-    public String getStudentUsername() { return student.getUsername(); }
-    public String getQuestionId() { return task.getQuestionId(); }
+    // ================================================================
+    // CALCULATED PROPERTIES
+    // ================================================================
     
     /**
-     * Checks if max score is known
+     * Calculates percentage score
      * 
-     * @return true if maxScore > 0, false otherwise
-     */
-    public boolean hasMaxScore() {
-        return maxScore > 0.0;
-    }
-    
-    /**
-     * Calculates percentage (only if max score known)
+     * FORMULA:
+     * percentage = (score / maxScore) * 100
      * 
-     * @return Percentage (0-100) or -1 if max unknown
+     * EXAMPLES:
+     * - 3.0 / 3.0 * 100 = 100.0%
+     * - 1.5 / 3.0 * 100 = 50.0%
+     * - 0.0 / 3.0 * 100 = 0.0%
+     * 
+     * EDGE CASES:
+     * - If maxScore is 0 → returns 0.0 (avoid division by zero)
+     * 
+     * @return Percentage score (0-100)
      */
     public double getPercentage() {
-        if (maxScore <= 0.0) {
-            return -1.0;  // Unknown
+        if (maxScore <= 0) {
+            return 0.0;
         }
         return (score / maxScore) * 100.0;
     }
     
     /**
-     * Checks if grading was successful (score > 0 and no errors)
+     * Checks if student achieved perfect score
      * 
-     * @return true if successful, false otherwise
-     */
-    public boolean isSuccessful() {
-        return score > 0.0 && 
-               !status.equals("COMPILATION_FAILED") && 
-               !status.equals("FILE_NOT_FOUND") &&
-               !status.equals("TIMEOUT") &&
-               !status.equals("RUNTIME_ERROR");
-    }
-    
-    /**
-     * Checks if student got perfect score
+     * PERFECT CRITERIA:
+     * - maxScore > 0 (known)
+     * - score == maxScore (full marks)
      * 
-     * @return true if score == maxScore (or maxScore unknown and score > 0), false otherwise
+     * @return true if perfect score, false otherwise
      */
     public boolean isPerfect() {
-        if (maxScore > 0.0) {
-            return score >= maxScore;
-        }
-        return false;  // Can't determine without max score
+        return maxScore > 0 && Math.abs(score - maxScore) < 0.001;  // Use epsilon for float comparison
     }
     
     /**
-     * Checks if grading failed completely (score == 0)
+     * Checks if student received partial credit
      * 
-     * @return true if score == 0.0, false otherwise
+     * PARTIAL CRITERIA:
+     * - score > 0 (got some points)
+     * - score < maxScore (but not full marks)
+     * 
+     * @return true if partial credit, false otherwise
+     */
+    public boolean isPartial() {
+        return score > 0 && !isPerfect();
+    }
+    
+    /**
+     * Checks if student failed (no credit)
+     * 
+     * FAILED CRITERIA:
+     * - score == 0 (no points earned)
+     * - Status is not compilation/file error
+     * 
+     * @return true if failed, false otherwise
      */
     public boolean isFailed() {
-        return score == 0.0;
+        return score == 0 && 
+               !status.equals("COMPILATION_FAILED") && 
+               !status.equals("FILE_NOT_FOUND");
     }
     
+    // ================================================================
+    // TRANSFORMATION METHODS
+    // ================================================================
+    
     /**
-     * Updates max score (for when inferring from results)
-     * Returns new GradingResult with updated max score
+     * Creates a new GradingResult with updated max score
      * 
-     * @param newMaxScore Max score to set
+     * USE CASE:
+     * - After max score inference by ScoreAnalyzer
+     * - Updating results with inferred max scores
+     * 
+     * IMMUTABILITY:
+     * - Original result is unchanged
+     * - Returns new GradingResult with updated maxScore
+     * - Status is recalculated based on new max score
+     * 
+     * @param newMax New maximum score
      * @return New GradingResult with updated max score
      */
-    public GradingResult withMaxScore(double newMaxScore) {
-        return new GradingResult(student, task, score, newMaxScore, output, status);
+    public GradingResult withMaxScore(double newMax) {
+        String newStatus = determineStatus(this.score, newMax, this.output);
+        return new GradingResult(
+            this.student,
+            this.task,
+            this.score,
+            newMax,
+            this.output,
+            newStatus
+        );
     }
     
-    // =========================================================================
-    // UTILITY METHODS
-    // =========================================================================
+    // ================================================================
+    // HELPER METHODS
+    // ================================================================
     
     /**
-     * Returns summary string for logging
+     * Determines grading status from score and output
      * 
-     * EXAMPLE:
-     * "ping.lee.2023 | Q1a | 3.0/3.0 | PERFECT"
-     * "ping.lee.2023 | Q1b | 2.0/3.0 | PARTIAL"
+     * LOGIC:
+     * 1. If output contains "FILE_NOT_FOUND" → "FILE_NOT_FOUND"
+     * 2. If output contains "COMPILATION_FAILED" → "COMPILATION_FAILED"
+     * 3. If score > 0 and maxScore > 0 and score == maxScore → "PERFECT"
+     * 4. If score > 0 → "PARTIAL"
+     * 5. Otherwise → "FAILED"
      * 
-     * @return Summary string
+     * @param score Points earned
+     * @param maxScore Maximum possible points
+     * @param output Console output
+     * @return Status string
      */
-    public String getSummary() {
-        if (hasMaxScore()) {
-            return String.format("%s | %s | %.1f/%.1f | %s", 
-                student.getUsername(), 
-                task.getQuestionId(), 
-                score,
-                maxScore,
-                status
-            );
+    private static String determineStatus(double score, double maxScore, String output) {
+        
+        // Check for error conditions in output
+        if (output != null) {
+            if (output.contains("FILE_NOT_FOUND") || output.contains("File not found")) {
+                return "FILE_NOT_FOUND";
+            }
+            if (output.contains("COMPILATION_FAILED") || output.contains("Compilation failed")) {
+                return "COMPILATION_FAILED";
+            }
+            if (output.contains("TIMEOUT") || output.contains("Timed out")) {
+                return "TIMEOUT";
+            }
+        }
+        
+        // Determine status from score
+        if (maxScore > 0 && Math.abs(score - maxScore) < 0.001) {
+            return "PERFECT";
+        } else if (score > 0) {
+            return "PARTIAL";
         } else {
-            return String.format("%s | %s | %.1f | %s", 
-                student.getUsername(), 
-                task.getQuestionId(), 
-                score, 
-                status
-            );
+            return "FAILED";
         }
     }
     
-    /**
-     * Returns score display string
-     * 
-     * EXAMPLE:
-     * "3.0" (if max unknown)
-     * "3.0/3.0" (if max known)
-     * 
-     * @return Score display string
-     */
-    public String getScoreDisplay() {
-        if (hasMaxScore()) {
-            return String.format("%.1f/%.1f", score, maxScore);
-        } else {
-            return String.format("%.1f", score);
-        }
-    }
+    // ================================================================
+    // OBJECT METHODS
+    // ================================================================
     
     /**
-     * Returns detailed string representation for debugging
+     * String representation for debugging
      * 
-     * @return String representation
+     * FORMAT:
+     * GradingResult{student='ping.lee.2023', question='Q1a', score=3.0/3.0, status=PERFECT}
+     * 
+     * @return Human-readable representation
      */
     @Override
     public String toString() {
-        if (hasMaxScore()) {
-            return "GradingResult{student=" + student.getUsername() +
-                   ", question=" + task.getQuestionId() +
-                   ", score=" + score + "/" + maxScore +
-                   ", status=" + status + '}';
-        } else {
-            return "GradingResult{student=" + student.getUsername() +
-                   ", question=" + task.getQuestionId() +
-                   ", score=" + score +
-                   ", status=" + status + '}';
-        }
-    }
-    
-    @Override
-    public boolean equals(Object obj) {
-        if (this == obj) return true;
-        if (obj == null || getClass() != obj.getClass()) return false;
-        GradingResult other = (GradingResult) obj;
-        return student.equals(other.student) && task.equals(other.task);
-    }
-    
-    @Override
-    public int hashCode() {
-        return Objects.hash(student, task);
+        return String.format(
+            "GradingResult{student='%s', question='%s', score=%.1f/%.1f, status=%s}",
+            student.getId(),
+            task.getQuestionId(),
+            score,
+            maxScore,
+            status
+        );
     }
 }

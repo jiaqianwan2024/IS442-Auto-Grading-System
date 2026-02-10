@@ -32,8 +32,3 @@ logs/
 # Ignore local config because paths (C:/Users/...) are different for everyone
 config.properties
 
-# --- Testing Zips (Optional) ---
-# If you have massive zip files for testing, ignore them
-# Keep small zips in src/test/resources
-!src/test/resources/*.zip
-data/extracted/*

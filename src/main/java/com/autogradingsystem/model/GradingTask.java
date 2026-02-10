@@ -1,218 +1,253 @@
 package com.autogradingsystem.model;
 
-import java.util.Objects;
-
 /**
- * GradingTask - Data Model for a Single Grading Task
+ * GradingTask - Represents One Question to be Graded
  * 
  * PURPOSE:
- * - Represents one question to be graded
- * - Contains all information needed to grade that question
- * - Links question, tester, folder, and file together
+ * - Encapsulates all information needed to grade one question
+ * - Shared across discovery, execution, and analysis services
+ * - Immutable for thread safety
  * 
- * DESIGN PATTERN: Value Object / Data Transfer Object (DTO)
- * - Immutable after construction (all fields final)
- * - No business logic - just data storage
- * - Easy to pass between components
- * - Thread-safe (immutable)
+ * CONTAINS:
+ * - Question ID (e.g., "Q1a")
+ * - Tester filename (e.g., "Q1aTester.java")
+ * - Student folder location (e.g., "Q1")
+ * - Student filename (e.g., "Q1a.java")
  * 
- * EXAMPLE DATA:
- * GradingTask {
- *   questionId: "Q1a",
- *   testerFile: "Q1aTester.java",
- *   studentFolder: "Q1",
- *   studentFile: "Q1a.java"
- * }
+ * CREATED BY:
+ * - GradingPlanBuilder during Phase 2 (Discovery)
  * 
- * USAGE IN GRADING LOOP:
- * for (GradingTask task : plan.getTasks()) {
- *     String studentPath = studentBaseDir + "/" + task.getStudentFolder() + "/" + task.getStudentFile();
- *     String testerPath = testersDir + "/" + task.getTesterFile();
- *     
- *     // Inject tester, compile, run, parse score...
- * }
+ * USED BY:
+ * - ExecutionController for grading
+ * - GradingResult for storing task information
  * 
- * NULL TESTER HANDLING:
- * - testerFile CAN be null if no tester found for question
- * - Grading logic should check for null and score as 0
- * - This allows graceful degradation when testers are missing
+ * NO CHANGES FROM v3.0:
+ * - Already well-designed
+ * - Package stays in global model/ (shared across services)
+ * - Added comprehensive JavaDoc
  * 
  * @author IS442 Team
- * @version 1.0
+ * @version 4.0 (Spring Boot Microservices Structure)
  */
 public class GradingTask {
     
-    // Question identifier (e.g., "Q1a", "Q2b")
-    private final String questionId;
-    
-    // Tester filename (e.g., "Q1aTester.java")
-    // CAN BE NULL if no tester found for this question
-    private final String testerFile;
-    
-    // Student's question folder (e.g., "Q1", "Q2")
-    private final String studentFolder;
-    
-    // Student's Java file (e.g., "Q1a.java")
-    private final String studentFile;
+    // ================================================================
+    // FIELDS
+    // ================================================================
     
     /**
-     * Constructor - Creates immutable GradingTask
+     * Question identifier
      * 
-     * VALIDATION:
-     * - questionId, studentFolder, studentFile must not be null
-     * - testerFile CAN be null (indicates missing tester)
+     * EXAMPLES:
+     * - "Q1a" (Question 1, part a)
+     * - "Q1b" (Question 1, part b)
+     * - "Q2a" (Question 2, part a)
+     * - "Q3" (Question 3, single file)
      * 
-     * NULL TESTER EXAMPLE:
-     * GradingTask task = new GradingTask("Q1a", null, "Q1", "Q1a.java");
-     * // Valid - represents question with no tester (will score 0)
-     * 
-     * @param questionId Question ID (e.g., "Q1a") - must not be null
-     * @param testerFile Tester filename (e.g., "Q1aTester.java") - can be null
-     * @param studentFolder Student folder name (e.g., "Q1") - must not be null
-     * @param studentFile Student filename (e.g., "Q1a.java") - must not be null
-     * @throws IllegalArgumentException if required fields are null
+     * USED FOR:
+     * - Matching with testers
+     * - Grouping results
+     * - Display formatting
      */
-    public GradingTask(String questionId, String testerFile, String studentFolder, String studentFile) {
-        
-        // Validate required fields
-        if (questionId == null || questionId.trim().isEmpty()) {
-            throw new IllegalArgumentException("Question ID cannot be null or empty");
-        }
-        if (studentFolder == null || studentFolder.trim().isEmpty()) {
-            throw new IllegalArgumentException("Student folder cannot be null or empty");
-        }
-        if (studentFile == null || studentFile.trim().isEmpty()) {
-            throw new IllegalArgumentException("Student file cannot be null or empty");
-        }
-        
-        // Note: testerFile is allowed to be null
-        
+    private final String questionId;
+    
+    /**
+     * Tester filename
+     * 
+     * EXAMPLES:
+     * - "Q1aTester.java"
+     * - "Q1bTester.java"
+     * - "Q3Tester.java"
+     * 
+     * USED FOR:
+     * - Locating tester in resources/input/testers/
+     * - Copying tester to student folder
+     */
+    private final String testerFile;
+    
+    /**
+     * Student folder containing the file to grade
+     * 
+     * EXAMPLES:
+     * - "Q1" (contains Q1a.java, Q1b.java)
+     * - "Q2" (contains Q2a.java, Q2b.java)
+     * - "Q3" (contains Q3.java, ShapeComparator.java)
+     * 
+     * USED FOR:
+     * - Building path to student's submission
+     * - Navigation in student's extracted folder
+     */
+    private final String studentFolder;
+    
+    /**
+     * Student filename to grade
+     * 
+     * EXAMPLES:
+     * - "Q1a.java"
+     * - "Q1b.java"
+     * - "Q3.java"
+     * 
+     * USED FOR:
+     * - Checking if file exists
+     * - Locating exact file to grade
+     */
+    private final String studentFile;
+    
+    // ================================================================
+    // CONSTRUCTOR
+    // ================================================================
+    
+    /**
+     * Creates a GradingTask
+     * 
+     * EXAMPLE:
+     * new GradingTask(
+     *   "Q1a",              // questionId
+     *   "Q1aTester.java",   // testerFile
+     *   "Q1",               // studentFolder
+     *   "Q1a.java"          // studentFile
+     * )
+     * 
+     * This represents: Grade Q1a.java in folder Q1/ using Q1aTester.java
+     * 
+     * @param questionId Question identifier
+     * @param testerFile Tester filename
+     * @param studentFolder Folder containing student file
+     * @param studentFile Student filename
+     */
+    public GradingTask(String questionId, String testerFile, 
+                      String studentFolder, String studentFile) {
         this.questionId = questionId;
         this.testerFile = testerFile;
         this.studentFolder = studentFolder;
         this.studentFile = studentFile;
     }
     
+    // ================================================================
+    // GETTERS
+    // ================================================================
+    
     /**
-     * Gets the question ID.
+     * Gets the question identifier
      * 
-     * EXAMPLE:
-     * String id = task.getQuestionId();  // "Q1a"
+     * USED FOR:
+     * - Grouping results by question
+     * - Display formatting
+     * - Matching with max scores
      * 
-     * @return Question ID (never null)
+     * @return Question ID (e.g., "Q1a")
      */
     public String getQuestionId() {
         return questionId;
     }
     
     /**
-     * Gets the tester filename.
+     * Gets the tester filename
      * 
-     * IMPORTANT: CAN RETURN NULL!
-     * Always check for null before using:
+     * USED FOR:
+     * - Locating tester in resources/input/testers/
+     * - Copying tester to student folder
+     * - Running tester class
      * 
-     * EXAMPLE:
-     * String tester = task.getTesterFile();
-     * if (tester != null) {
-     *     // Use tester
-     * } else {
-     *     // No tester - score as 0
-     * }
-     * 
-     * @return Tester filename or null if no tester
+     * @return Tester filename (e.g., "Q1aTester.java")
      */
     public String getTesterFile() {
         return testerFile;
     }
     
     /**
-     * Gets the student folder name.
+     * Gets the student folder name
      * 
-     * EXAMPLE:
-     * String folder = task.getStudentFolder();  // "Q1"
+     * USED FOR:
+     * - Building path: data/extracted/{student}/{studentFolder}/
+     * - Navigation in student's submission
      * 
-     * @return Student folder (never null)
+     * @return Folder name (e.g., "Q1")
      */
     public String getStudentFolder() {
         return studentFolder;
     }
     
     /**
-     * Gets the student filename.
+     * Gets the student filename
      * 
-     * EXAMPLE:
-     * String file = task.getStudentFile();  // "Q1a.java"
+     * USED FOR:
+     * - Checking if file exists
+     * - Error messages
+     * - Logging
      * 
-     * @return Student filename (never null)
+     * @return Student filename (e.g., "Q1a.java")
      */
     public String getStudentFile() {
         return studentFile;
     }
     
+    // ================================================================
+    // HELPER METHODS
+    // ================================================================
+    
     /**
-     * Checks if this task has a tester.
+     * Gets tester class name (without .java extension)
      * 
-     * RECOMMENDED: Use this before getTesterFile() to avoid null checks
+     * CONVENIENCE METHOD:
+     * - Removes ".java" from testerFile
+     * - Used for running: java Q1aTester
      * 
      * EXAMPLE:
-     * if (task.hasTester()) {
-     *     String tester = task.getTesterFile();
-     *     // Safe - tester is not null
-     * } else {
-     *     System.out.println("No tester for " + task.getQuestionId());
-     * }
+     * getTesterClassName() → "Q1aTester"
      * 
-     * @return true if tester exists, false if null
+     * @return Tester class name without extension
      */
-    public boolean hasTester() {
-        return testerFile != null;
+    public String getTesterClassName() {
+        if (testerFile.endsWith(".java")) {
+            return testerFile.substring(0, testerFile.length() - ".java".length());
+        }
+        return testerFile;
     }
     
     /**
-     * Builds full path to student file.
-     * Helper method for convenience.
+     * Gets student class name (without .java extension)
+     * 
+     * CONVENIENCE METHOD:
+     * - Removes ".java" from studentFile
+     * - Used for checking .class files
      * 
      * EXAMPLE:
-     * String basePath = "data/extracted/ping.lee.2023";
-     * String fullPath = task.getStudentFilePath(basePath);
-     * // Returns: "data/extracted/ping.lee.2023/Q1/Q1a.java"
+     * getStudentClassName() → "Q1a"
      * 
-     * CROSS-PLATFORM NOTE:
-     * Uses "/" separator - Path.of() or Paths.get() will convert appropriately
-     * 
-     * @param studentBaseDirectory Base directory for student
-     * @return Full path to student file
+     * @return Student class name without extension
      */
-    public String getStudentFilePath(String studentBaseDirectory) {
-        return studentBaseDirectory + "/" + studentFolder + "/" + studentFile;
+    public String getStudentClassName() {
+        if (studentFile.endsWith(".java")) {
+            return studentFile.substring(0, studentFile.length() - ".java".length());
+        }
+        return studentFile;
     }
     
+    // ================================================================
+    // OBJECT METHODS
+    // ================================================================
+    
     /**
-     * Returns detailed string representation for debugging.
+     * String representation for debugging
      * 
-     * EXAMPLE OUTPUT:
-     * GradingTask{Q1a, tester=Q1aTester.java, folder=Q1, file=Q1a.java}
+     * FORMAT:
+     * GradingTask{questionId='Q1a', tester='Q1aTester.java', folder='Q1', file='Q1a.java'}
      * 
-     * OR if no tester:
-     * GradingTask{Q1a, tester=NONE, folder=Q1, file=Q1a.java}
-     * 
-     * @return String representation
+     * @return Human-readable representation
      */
     @Override
     public String toString() {
-        return "GradingTask{" +
-               "questionId='" + questionId + '\'' +
-               ", tester=" + (testerFile != null ? testerFile : "NONE") +
-               ", folder='" + studentFolder + '\'' +
-               ", file='" + studentFile + '\'' +
-               '}';
+        return String.format(
+            "GradingTask{questionId='%s', tester='%s', folder='%s', file='%s'}",
+            questionId, testerFile, studentFolder, studentFile
+        );
     }
     
     /**
-     * Equality check based on content.
-     * Two GradingTasks are equal if all fields match.
+     * Checks equality based on all fields
      * 
-     * @param obj Object to compare
+     * @param obj Object to compare with
      * @return true if equal, false otherwise
      */
     @Override
@@ -221,19 +256,24 @@ public class GradingTask {
         if (obj == null || getClass() != obj.getClass()) return false;
         
         GradingTask other = (GradingTask) obj;
+        
         return questionId.equals(other.questionId) &&
-               Objects.equals(testerFile, other.testerFile) &&
+               testerFile.equals(other.testerFile) &&
                studentFolder.equals(other.studentFolder) &&
                studentFile.equals(other.studentFile);
     }
     
     /**
-     * Hash code based on content.
+     * Generates hash code based on all fields
      * 
      * @return Hash code
      */
     @Override
     public int hashCode() {
-        return Objects.hash(questionId, testerFile, studentFolder, studentFile);
+        int result = questionId.hashCode();
+        result = 31 * result + testerFile.hashCode();
+        result = 31 * result + studentFolder.hashCode();
+        result = 31 * result + studentFile.hashCode();
+        return result;
     }
 }
