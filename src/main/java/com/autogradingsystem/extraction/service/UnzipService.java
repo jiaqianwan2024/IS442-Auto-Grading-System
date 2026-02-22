@@ -115,103 +115,46 @@ public class UnzipService {
         }
     }
     
-    /**
-     * Flattens wrapper folders (e.g., 01400003/Q1/, ping.lee.2023/Q1/)
-     * 
-     * DETECTS:
-     * - Single folder at top level containing Q folders
-     * - Moves Q1/, Q2/, Q3/ up one level
-     * - Deletes empty wrapper folder
-     * 
-     * HANDLES:
-     * - Student ID wrappers (01400003/)
-     * - Username wrappers (ping.lee.2023/)
-     * - Template name wrappers (RenameToYourStudentID/)
-     * 
-     * LOGGING:
-     * - Only logs if wrapper is detected and flattened
-     * - This is important debugging information
-     * 
-     * @param studentDir Path to student's root directory
-     * @throws IOException if flattening fails
-     */
-    private void flattenWrapperFolder(Path studentDir) throws IOException {
+/**
+ * Flattens deep wrapper folders (e.g., username/wrapper1/wrapper2/Q1/)
+ * * PURPOSE:
+ * - Detects the "True Root" of student work, even if deeply nested
+ * - Moves Q1/, Q2/ folders or Q1.java files up to the student root
+ * - Deletes redundant empty wrapper folders (e.g., "final", "submission")
+ * * WHY RECURSIVE?
+ * - Students often submit ZIPs with multiple nested folders
+ * - Standardizing the structure is critical for the Execution Layer (Phase 3)
+ * * LOGGING:
+ * - Logs the relative path being flattened for debugging
+ * - Logs success upon structure normalization
+ * * @param studentDir Path to student's root directory in resources/output/extracted/
+ * @throws IOException if moving files or deleting wrappers fails
+ */
+private void flattenWrapperFolder(Path studentDir) throws IOException {
+    if (!Files.exists(studentDir) || !Files.isDirectory(studentDir)) {
+        return;
+    }
+
+    // 1. Locate the "True Root" containing Q folders or files
+    Path trueRoot = findTrueRoot(studentDir);
+
+    // 2. If trueRoot is deeper than studentDir, normalize the structure
+    if (trueRoot != null && !trueRoot.equals(studentDir)) {
+        System.out.println("   🔧 Deep nesting detected. Flattening from: " + studentDir.relativize(trueRoot));
         
-        if (!Files.exists(studentDir) || !Files.isDirectory(studentDir)) {
-            return;
-        }
-        
-        // List top-level items
-        List<Path> folders = new ArrayList<>();
-        List<Path> files = new ArrayList<>();
-        
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(studentDir)) {
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(trueRoot)) {
             for (Path item : stream) {
-                if (Files.isDirectory(item)) {
-                    folders.add(item);
-                } else {
-                    // Count files but ignore .DS_Store and other junk
-                    String fileName = item.getFileName().toString();
-                    if (!fileName.startsWith(".")) {
-                        files.add(item);
-                    }
-                }
+                Path target = studentDir.resolve(item.getFileName());
+                // Moves items up to the student ID folder
+                Files.move(item, target, StandardCopyOption.REPLACE_EXISTING);
             }
         }
-        
-        // Detect wrapper: exactly 1 folder and few/no real files
-        if (folders.size() != 1 || files.size() > 2) {
-            return;  // Not a wrapper structure
-        }
-        
-        Path wrapperFolder = folders.get(0);
-        
-        // Check if wrapper contains Q folders
-        boolean hasQuestionFolders = false;
-        List<Path> itemsToMove = new ArrayList<>();
-        
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(wrapperFolder)) {
-            for (Path item : stream) {
-                itemsToMove.add(item);
-                
-                if (Files.isDirectory(item)) {
-                    String name = item.getFileName().toString();
-                    // Match Q1, Q2, Q3, Q10, etc.
-                    if (name.matches("^Q\\d+$")) {
-                        hasQuestionFolders = true;
-                    }
-                }
-            }
-        }
-        
-        // Only flatten if wrapper contains question folders
-        if (!hasQuestionFolders) {
-            return;
-        }
-        
-        // Log wrapper flattening (important for debugging)
-        System.out.println("   🔧 Flattening wrapper folder: " + wrapperFolder.getFileName());
-        
-        // Flatten: Move all items from wrapper to parent
-        for (Path item : itemsToMove) {
-            Path target = studentDir.resolve(item.getFileName());
-            
-            // If target already exists, delete it first
-            if (Files.exists(target)) {
-                if (Files.isDirectory(target)) {
-                    deleteDirectory(target);
-                } else {
-                    Files.delete(target);
-                }
-            }
-            
-            Files.move(item, target, StandardCopyOption.REPLACE_EXISTING);
-        }
-        
-        // Delete empty wrapper folder
-        Files.delete(wrapperFolder);
+
+        // 3. Clean up the empty intermediate "wrapper" folders
+        cleanupEmptyWrappers(studentDir);
         System.out.println("   ✅ Structure flattened successfully");
     }
+}
     
     /**
      * Finds the newest ZIP file in a directory
@@ -321,4 +264,74 @@ public class UnzipService {
                 }
             });
     }
+
+    /**
+ * findTrueRoot - Recursively locates the core project directory
+ * * PURPOSE:
+ * - Digs through nested folders until it finds the actual question files or folders
+ * - Handles student errors like: submission.zip/final_version/john_doe/Q1/
+ * * STRATEGY:
+ * 1. Scans current directory for any item matching the "Q" pattern (Q1, Q1.java, etc.)
+ * 2. If found, returns this path as the "True Root"
+ * 3. If NOT found, checks if there is exactly one subfolder
+ * 4. If exactly one folder exists, recurses into that folder to keep "digging"
+ * * @param currentPath The directory to search within
+ * @return Path to the directory containing Q-items, or null if structure is unrecognizable
+ * @throws IOException if directory access fails
+ */
+private Path findTrueRoot(Path currentPath) throws IOException {
+    // Check if current directory contains Q folders (Q1/) OR Q files (Q1.java)
+    try (DirectoryStream<Path> stream = Files.newDirectoryStream(currentPath)) {
+        for (Path item : stream) {
+            String name = item.getFileName().toString();
+            // Regex matches "Q" followed by digits (e.g., Q1, Q1a, Q1.java)
+            if (name.matches("^Q\\d+.*$")) {
+                return currentPath; 
+            }
+        }
+    }
+
+    // Fallback: If no Q-items found, look deeper if there's exactly one subfolder
+    List<Path> subfolders = new ArrayList<>();
+    try (DirectoryStream<Path> stream = Files.newDirectoryStream(currentPath)) {
+        for (Path item : stream) {
+            // Only count directories, ignoring hidden system files like .DS_Store
+            if (Files.isDirectory(item) && !item.getFileName().toString().startsWith(".")) {
+                subfolders.add(item);
+            }
+        }
+    }
+
+    // Only recurse if there's a single clear path to follow
+    if (subfolders.size() == 1) {
+        return findTrueRoot(subfolders.get(0));
+    }
+
+    return null;
+}
+
+/**
+ * cleanupEmptyWrappers - Removes redundant folders after flattening
+ * * PURPOSE:
+ * - After moving Q1 up to the root, the old "wrapper" folders (like "final") are empty
+ * - This method identifies and deletes those non-essential directories
+ * * SAFETY:
+ * - It specifically ignores folders named "Q1", "Q2", etc., to avoid deleting student work
+ * - Uses the existing recursive deleteDirectory method for thorough cleanup
+ * * @param studentDir The student's root folder in output/extracted/
+ * @throws IOException if deletion fails
+ */
+private void cleanupEmptyWrappers(Path studentDir) throws IOException {
+    try (DirectoryStream<Path> stream = Files.newDirectoryStream(studentDir)) {
+        for (Path item : stream) {
+            String name = item.getFileName().toString();
+            
+            // If it's a directory but NOT a question folder, it's a wrapper to be deleted
+            if (Files.isDirectory(item) && !name.matches("^Q\\d+$")) {
+                // Uses your existing recursive delete helper
+                deleteDirectory(item);
+            }
+        }
+    }
+}
 }
