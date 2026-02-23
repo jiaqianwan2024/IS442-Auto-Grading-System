@@ -4,14 +4,15 @@ import com.autogradingsystem.PathConfig;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 
 /**
- * TesterInjector - Copies Tester Files to Student Folders
- * 
- * PURPOSE:
+ * TesterInjector - Copies Tester Files (and their dependencies) to Student Folders
+ *
+ * EDGE CASES HAND * PURPOSE:
  * - Copies tester files from resources/input/testers/ to student folders
  * - Enables student code and tester to be compiled together
  * - Supports both development (filesystem) and production (JAR) deployment
@@ -37,94 +38,132 @@ import java.nio.file.StandardCopyOption;
  * @version 4.0 (Spring Boot Microservices Structure)
  */
 public class TesterInjector {
-    
+
     /**
-     * Copies tester file to student's question folder
-     * 
-     * DEPLOYMENT MODES:
-     * 
-     * Mode 1: Development (filesystem)
-     * - Testers are in: resources/input/testers/Q1aTester.java
-     * - Copy directly from filesystem
-     * 
-     * Mode 2: Production (JAR)
-     * - Testers are in: JAR:/resources/input/testers/Q1aTester.java
-     * - Extract from JAR using classpath loading
-     * 
-     * AUTOMATICALLY DETECTS:
-     * - Tries filesystem first
-     * - Falls back to classpath if file not on filesystem
-     * - Works in both development and production
-     * 
-     * @param testerFile Tester filename (e.g., "Q1aTester.java")
-     * @param destinationFolder Student's question folder (e.g., data/extracted/ping.lee.2023/Q1/)
-     * @throws IOException if tester cannot be copied
+     * Copies the tester .java file AND any non-Java dependency files from the same
+     * question folder in the template (e.g., persons.txt, students.txt) into the
+     * student's question folder.
+     *
+     * WHY COPY DATA FILES?
+     * Some testers read from files like "persons.txt" using a relative path.
+     * If those files aren't in the student's folder, the tester crashes at runtime
+     * even though it compiled fine.
+     *
+     * @param testerFile        Tester filename (e.g., "Q1aTester.java")
+     * @param destinationFolder Student's question folder
+     * @param questionFolder    Question folder name (e.g., "Q1") — used to locate data files
+     * @throws IOException if tester cannot be found or copied
      */
-    public void copyTester(String testerFile, Path destinationFolder) throws IOException {
-        
-        // Build source path in resources/input/testers/
-        Path testerSource = PathConfig.INPUT_TESTERS.resolve(testerFile);
-        
-        // Build destination path in student's folder
-        Path testerDestination = destinationFolder.resolve(testerFile);
-        
-        // Try filesystem copy first (development mode)
-        if (Files.exists(testerSource)) {
-            Files.copy(testerSource, testerDestination, StandardCopyOption.REPLACE_EXISTING);
-            return;
-        }
-        
-        // Fallback: Load from classpath (production/JAR mode)
-        String resourcePath = "testers/" + testerFile;
-        
-        try (InputStream inputStream = getClass().getClassLoader().getResourceAsStream(resourcePath)) {
-            
-            if (inputStream == null) {
-                throw new IOException(
-                    "Tester file not found: " + testerFile + "\n" +
-                    "Searched in:\n" +
-                    "  - Filesystem: " + testerSource + "\n" +
-                    "  - Classpath: " + resourcePath + "\n" +
-                    "Please ensure tester exists in resources/input/testers/"
-                );
-            }
-            
-            // Copy from JAR to filesystem
-            Files.copy(inputStream, testerDestination, StandardCopyOption.REPLACE_EXISTING);
+    public void copyTester(String testerFile, Path destinationFolder, String questionFolder)
+            throws IOException {
+
+        // Guards
+        if (testerFile == null || testerFile.isBlank())
+            throw new IllegalArgumentException("testerFile must not be blank");
+        if (destinationFolder == null)
+            throw new IllegalArgumentException("destinationFolder must not be null");
+
+        // Auto-create destination if it doesn't exist
+        Files.createDirectories(destinationFolder);
+
+        // Copy the tester .java file
+        copyFile(testerFile, PathConfig.INPUT_TESTERS, destinationFolder);
+
+        // Copy data files (non-Java files) from the template question folder
+        if (questionFolder != null && !questionFolder.isBlank()) {
+            copyDataFiles(questionFolder, destinationFolder);
         }
     }
-    
+
     /**
-     * Checks if a tester file exists
-     * 
-     * USEFUL FOR:
-     * - Validation before copying
-     * - Checking tester availability
-     * 
-     * @param testerFile Tester filename to check
-     * @return true if tester exists (filesystem or classpath), false otherwise
+     * Convenience overload — no data file copying (backwards compatible).
+     */
+    public void copyTester(String testerFile, Path destinationFolder) throws IOException {
+        copyTester(testerFile, destinationFolder, null);
+    }
+
+    /**
+     * Returns true if the tester file exists on filesystem or classpath.
      */
     public boolean testerExists(String testerFile) {
-        
-        // Check filesystem first
-        Path testerPath = PathConfig.INPUT_TESTERS.resolve(testerFile);
-        if (Files.exists(testerPath)) {
-            return true;
+        if (testerFile == null || testerFile.isBlank()) return false;
+
+        Path path = PathConfig.INPUT_TESTERS.resolve(testerFile);
+        if (Files.exists(path)) return true;
+
+        try (InputStream s = getClass().getClassLoader()
+                .getResourceAsStream("testers/" + testerFile)) {
+            return s != null;
+        } catch (IOException e) {
+            return false;
         }
-        
-        // Check classpath
-        String resourcePath = "testers/" + testerFile;
-        InputStream stream = getClass().getClassLoader().getResourceAsStream(resourcePath);
-        
-        if (stream != null) {
-            try {
-                stream.close();
-            } catch (IOException e) {
-                // Ignore
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Private helpers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Copies a single file from sourceDir to destinationFolder.
+     * Tries filesystem first, then classpath (JAR mode).
+     */
+    private void copyFile(String filename, Path sourceDir, Path destinationFolder)
+            throws IOException {
+
+        Path source = sourceDir.resolve(filename);
+        Path dest   = destinationFolder.resolve(filename);
+
+        if (Files.exists(source)) {
+            Files.copy(source, dest, StandardCopyOption.REPLACE_EXISTING);
+            return;
+        }
+
+        // Fallback: classpath (JAR deployment)
+        String resourcePath = "testers/" + filename;
+        try (InputStream in = getClass().getClassLoader().getResourceAsStream(resourcePath)) {
+            if (in == null) {
+                throw new IOException(
+                    "Tester not found: " + filename + "\n"
+                    + "  Filesystem: " + source + "\n"
+                    + "  Classpath:  " + resourcePath + "\n"
+                    + "Ensure the file exists in resources/input/testers/");
             }
-            return true;
+            Files.copy(in, dest, StandardCopyOption.REPLACE_EXISTING);
         }
-        
-        return false;
+    }
+
+    /**
+     * Copies non-Java files (e.g., .txt, .csv) from the template question folder
+     * into the student's question folder.
+     *
+     * EDGE CASE: testers that do FileReader("persons.txt") need the file co-located.
+     * If the template has Q2/persons.txt, we copy it to the student's Q2/ folder.
+     */
+    private void copyDataFiles(String questionFolder, Path destinationFolder) {
+        // Template question folder path
+        Path templateQuestionDir = PathConfig.INPUT_TEMPLATE.resolve(questionFolder);
+        if (!Files.exists(templateQuestionDir)) return;
+
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(templateQuestionDir)) {
+            for (Path file : stream) {
+                String name = file.getFileName().toString();
+                // Skip .java and .class — only copy data/resource files
+                if (name.endsWith(".java") || name.endsWith(".class")) continue;
+                if (Files.isDirectory(file)) continue;
+
+                Path dest = destinationFolder.resolve(name);
+                try {
+                    Files.copy(file, dest, StandardCopyOption.REPLACE_EXISTING);
+                } catch (IOException e) {
+                    // Non-fatal — log and continue
+                    System.out.println("[TesterInjector] ⚠️  Could not copy data file "
+                            + name + ": " + e.getMessage());
+                }
+            }
+        } catch (IOException e) {
+            // Template folder unreadable — non-fatal, student may not need data files
+            System.out.println("[TesterInjector] ⚠️  Could not read template folder for "
+                    + questionFolder + ": " + e.getMessage());
+        }
     }
 }

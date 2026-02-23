@@ -3,10 +3,16 @@ package com.autogradingsystem.execution.service;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 /**
- * CompilerService - Compiles Java Files
+ * CompilerService - Compiles Java Files in a Student Folder
  * 
  * PURPOSE:
  * - Compiles all .java files in a directory
@@ -32,149 +38,182 @@ import java.nio.file.Path;
  * - Removed SAVE_ERROR_LOGS constant (unused)
  * - Error suppression already implemented
  * - Package updated
- * 
- * @author IS442 Team
- * @version 4.0 (Spring Boot Microservices Structure)
  */
 public class CompilerService {
-    
+
+    /** Max time to wait for javac before killing it */
+    private static final int COMPILER_TIMEOUT_SECONDS = 30;
+
     /**
-     * Compiles all .java files in the specified directory
-     * 
-     * COMMAND EXECUTED:
-     * javac -d {workingDir} {workingDir}/*.java
-     * 
-     * FLAGS:
-     * -d {workingDir} : Output .class files to same directory
-     * 
-     * CROSS-PLATFORM:
-     * - Windows: Uses "cmd /c javac ..."
-     * - Mac/Linux: Uses "javac ..." directly
-     * 
-     * ERROR HANDLING:
-     * - Errors are captured but not displayed (FIX 2)
-     * - Returns false if compilation fails
-     * - Calling code logs concise failure message
-     * 
+     * Compiles all .java files in the given directory.
+     *
+     * WORKFLOW:
+     * 1. Check .java files exist
+     * 2. Strip package declarations (edge case: students submitting with packages)
+     * 3. Run javac on all files
+     * 4. Return success/failure
+     *
      * @param workingDir Directory containing .java files
-     * @return true if compilation succeeded, false if failed
+     * @return true if compilation succeeded
      */
     public boolean compile(Path workingDir) {
-        
-        try {
-            // Build javac command
-            String javacCommand = buildJavacCommand(workingDir);
-            
-            // Execute compilation
-            ProcessBuilder pb = new ProcessBuilder();
-            
-            if (isWindows()) {
-                // Windows: cmd /c javac ...
-                pb.command("cmd", "/c", javacCommand);
-            } else {
-                // Mac/Linux: javac ...
-                pb.command("sh", "-c", javacCommand);
+
+        // Guard: directory must exist
+        if (workingDir == null || !Files.exists(workingDir)) {
+            System.out.println("[Compiler] ❌ Directory does not exist: " + workingDir);
+            return false;
+        }
+
+        // Collect .java files
+        List<Path> javaFiles = collectJavaFiles(workingDir);
+        if (javaFiles.isEmpty()) {
+            System.out.println("[Compiler] ❌ No .java files found in: " + workingDir);
+            return false;
+        }
+
+        // EDGE CASE: Strip package declarations so default-package compilation works.
+        // Students sometimes include "package com.xxx;" which breaks flat compilation.
+        stripPackageDeclarations(javaFiles);
+
+        // Run javac
+        return runJavac(workingDir, javaFiles);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Private helpers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** Collects all *.java files in the directory (non-recursive). */
+    private List<Path> collectJavaFiles(Path dir) {
+        List<Path> files = new ArrayList<>();
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir, "*.java")) {
+            for (Path f : stream) files.add(f);
+        } catch (IOException e) {
+            System.out.println("[Compiler] ⚠️  Could not list directory: " + e.getMessage());
+        }
+        return files;
+    }
+
+    /**
+     * Removes "package ...;" lines from all Java files.
+     *
+     * WHY: Students may include package declarations. When we compile everything
+     * flat in the same directory without the matching package folder structure,
+     * javac fails with "class X is public, should be declared in a file named X.java"
+     * or similar cross-package errors.
+     *
+     * SAFE: Only the first occurrence of a line matching /^\s*package\s+.*;/ is removed.
+     * A backup is NOT made — this is a temp working folder that gets wiped each run.
+     */
+    private void stripPackageDeclarations(List<Path> javaFiles) {
+        for (Path file : javaFiles) {
+            try {
+                List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
+                boolean changed = false;
+
+                for (int i = 0; i < lines.size(); i++) {
+                    String trimmed = lines.get(i).trim();
+                    if (trimmed.startsWith("package ") && trimmed.endsWith(";")) {
+                        lines.set(i, "// [package declaration removed by auto-grader]");
+                        changed = true;
+                        break; // Only one package declaration per file
+                    }
+                }
+
+                if (changed) {
+                    Files.write(file, lines, StandardCharsets.UTF_8);
+                }
+
+            } catch (IOException e) {
+                // Non-fatal — if we can't strip it, javac will show the error
+                System.out.println("[Compiler] ⚠️  Could not strip package from "
+                        + file.getFileName() + ": " + e.getMessage());
             }
-            
+        }
+    }
+
+    /**
+     * Runs javac on all collected .java files.
+     *
+     * FLAGS:
+     * -d {dir}         → output .class files into same directory
+     * -encoding UTF-8  → handle non-ASCII identifiers/comments (edge case)
+     * -nowarn          → suppress warnings, show only errors
+     */
+    private boolean runJavac(Path workingDir, List<Path> javaFiles) {
+        try {
+            // Build command: javac -d <dir> -encoding UTF-8 -nowarn <file1> <file2> ...
+            String dirPath = workingDir.toAbsolutePath().toString();
+            StringBuilder cmd = new StringBuilder();
+            cmd.append("javac -d \"").append(dirPath)
+               .append("\" -encoding UTF-8 -nowarn");
+
+            for (Path f : javaFiles) {
+                cmd.append(" \"").append(f.toAbsolutePath()).append("\"");
+            }
+
+            ProcessBuilder pb = new ProcessBuilder();
+            if (isWindows()) {
+                pb.command("cmd", "/c", cmd.toString());
+            } else {
+                pb.command("sh", "-c", cmd.toString());
+            }
             pb.directory(workingDir.toFile());
-            
-            // Start process
+
             Process process = pb.start();
-            
-            // Capture error output (but don't display it - FIX 2)
+
+            // Capture errors (suppressed from console — FIX 2)
             int errorCount = captureErrors(process);
-            
-            // Wait for completion
-            int exitCode = process.waitFor();
-            
-            // Log compilation result
+
+            // EDGE CASE: Compiler hangs (e.g., annotation processor loops)
+            boolean completed = process.waitFor(COMPILER_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            if (!completed) {
+                process.destroyForcibly();
+                System.out.println("[Compiler] ❌ Compilation timed out after "
+                        + COMPILER_TIMEOUT_SECONDS + "s");
+                return false;
+            }
+
+            int exitCode = process.exitValue();
             if (exitCode == 0) {
                 System.out.println("[Compiler] ✅ Compilation Success");
                 return true;
             } else {
-                // Concise error message (FIX 2 - no error flood)
                 System.out.println("[Compiler] ❌ Compilation failed (" + errorCount + " error(s))");
                 return false;
             }
-            
-        } catch (IOException | InterruptedException e) {
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt(); // restore flag
+            System.out.println("[Compiler] ❌ Compilation interrupted");
+            return false;
+        } catch (IOException e) {
             System.out.println("[Compiler] ❌ Compilation error: " + e.getMessage());
             return false;
         }
     }
-    
+
     /**
-     * Builds the javac command for compiling all .java files
-     * 
-     * COMMAND FORMAT:
-     * javac -d {directory} {directory}/*.java
-     * 
-     * EXAMPLE:
-     * javac -d /data/extracted/ping.lee.2023/Q1 /data/extracted/ping.lee.2023/Q1/*.java
-     * 
-     * @param workingDir Directory containing .java files
-     * @return javac command string
-     */
-    private String buildJavacCommand(Path workingDir) {
-        
-        String dirPath = workingDir.toAbsolutePath().toString();
-        
-        // Build command: javac -d {dir} {dir}/*.java
-        return "javac -d \"" + dirPath + "\" \"" + dirPath + "\"/*.java";
-    }
-    
-    /**
-     * Captures error output and counts errors
-     * 
-     * ERROR SUPPRESSION (FIX 2):
-     * - Reads all error output from stderr
-     * - Counts number of error lines
-     * - Does NOT print errors to console
-     * - Prevents error flood
-     * 
-     * WHY SUPPRESS?
-     * - Student syntax errors can generate 30+ error lines
-     * - Floods console and makes output unreadable
-     * - We only need to know: compiled or failed
-     * - Detailed errors not helpful for automated grading
-     * 
-     * @param process Compilation process
-     * @return Number of error lines
+     * Reads stderr from the compiler process and counts error lines.
+     * Output is NOT printed (FIX 2 — suppress error flood).
      */
     private int captureErrors(Process process) {
-        
         int errorCount = 0;
-        
-        try (BufferedReader errorReader = new BufferedReader(
+        try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(process.getErrorStream()))) {
-            
             String line;
-            while ((line = errorReader.readLine()) != null) {
-                // Count errors but don't print them (FIX 2)
+            while ((line = reader.readLine()) != null) {
                 if (line.contains("error:") || line.contains("Error:")) {
                     errorCount++;
                 }
             }
-            
         } catch (IOException e) {
-            // Ignore - best effort counting
+            // Best-effort
         }
-        
-        return errorCount > 0 ? errorCount : 1;  // At least 1 error if failed
+        return Math.max(errorCount, 1);
     }
-    
-    /**
-     * Checks if running on Windows
-     * 
-     * USED FOR:
-     * - Choosing correct command format
-     * - Windows uses: cmd /c javac
-     * - Mac/Linux uses: sh -c javac
-     * 
-     * @return true if Windows, false otherwise
-     */
+
     private boolean isWindows() {
-        String os = System.getProperty("os.name").toLowerCase();
-        return os.contains("win");
+        return System.getProperty("os.name").toLowerCase().contains("win");
     }
 }

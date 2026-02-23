@@ -5,7 +5,7 @@ import java.util.regex.Pattern;
 
 /**
  * OutputParser - Parses Scores from Tester Output
- * 
+ *
  * PURPOSE:
  * - Extracts numeric score from tester output
  * - Expects score on last line of output
@@ -36,164 +36,130 @@ import java.util.regex.Pattern;
  * @author IS442 Team
  * @version 4.0 (Spring Boot Microservices Structure)
  */
+ 
 public class OutputParser {
-    
+
     /**
-     * Regex pattern to match numbers (integer or decimal)
-     * 
-     * PATTERN EXPLANATION:
-     * (\\d+(\\.\\d+)?)
-     * - \\d+ = one or more digits (e.g., "3" or "10")
-     * - (\\.\\d+)? = optional decimal part (e.g., ".5" or ".75")
-     * - Full match examples: "3", "3.0", "10.5", "0.75"
-     * 
-     * CAPTURES:
-     * - Group 1: Complete number (e.g., "3.0")
-     * - This is what we extract and parse
+     * Matches a signed decimal/integer.
+     * Examples matched: "3", "3.0", "0.75", "-1.0", "10"
      */
-    private static final Pattern NUMBER_PATTERN = Pattern.compile("(\\d+(\\.\\d+)?)");
-    
+    private static final Pattern NUMBER_PATTERN = Pattern.compile("-?\\d+(\\.\\d+)?");
+
     /**
-     * Parses score from tester output
-     * 
-     * ALGORITHM:
-     * 1. Split output by newlines
-     * 2. Get last non-empty line
-     * 3. Find first number in that line
-     * 4. Parse as double
-     * 5. Return score (or 0.0 if parsing fails)
-     * 
-     * EXAMPLES:
-     * 
-     * Input: "Test 1: PASS\nTest 2: PASS\n3.0"
-     * Output: 3.0
-     * 
-     * Input: "Test 1: FAIL\n0"
-     * Output: 0.0
-     * 
-     * Input: "Score: 2.5/3.0"
-     * Output: 2.5 (first number found)
-     * 
-     * Input: "ERROR: No score"
-     * Output: 0.0 (no number found)
-     * 
-     * EDGE CASES HANDLED:
-     * - Empty output → 0.0
-     * - No numbers found → 0.0
-     * - Multiple numbers on last line → Uses first number
-     * - Decimal scores → Parsed correctly
-     * - Integer scores → Converted to double (3 → 3.0)
-     * 
-     * @param output Complete output from tester execution
-     * @return Parsed score as double (0.0 if parsing fails)
+     * Matches explicit score labels, case-insensitive.
+     * Examples: "Score: 3.0", "Total: 3.0", "Points: 3.0", "Result: 3.0"
+     */
+    private static final Pattern SCORE_LABEL_PATTERN =
+            Pattern.compile("(?i)(?:score|total|points?|result)\\s*[=:]\\s*(-?\\d+(\\.\\d+)?)");
+
+    /**
+     * Parses the numeric score from tester output.
+     *
+     * STRATEGY (in order of priority):
+     * 1. If output is TIMEOUT/ERROR → return 0.0 immediately
+     * 2. Scan all non-empty lines from BOTTOM UP for an explicit score label
+     *    (e.g., "Score: 3.0") — most reliable signal
+     * 3. Fall back to last non-empty line, take the LAST number on it
+     * 4. If nothing found → 0.0
+     * 5. Floor result at 0.0 (negative scores not allowed)
+     *
+     * @param output Raw tester output string
+     * @return Parsed score ≥ 0.0
      */
     public double parseScore(String output) {
-        
-        // Handle null or empty output
-        if (output == null || output.trim().isEmpty()) {
-            return 0.0;
-        }
-        
-        // Split output into lines
-        String[] lines = output.split("\n");
-        
-        if (lines.length == 0) {
-            return 0.0;
-        }
-        
-        // Get last line (where score should be)
-        String lastLine = lines[lines.length - 1].trim();
-        
-        if (lastLine.isEmpty()) {
-            // Last line empty - try second-to-last
-            if (lines.length > 1) {
-                lastLine = lines[lines.length - 2].trim();
-            } else {
-                return 0.0;
+
+        if (output == null || output.isBlank()) return 0.0;
+
+        // EDGE CASE: timeout or error strings — no score to parse
+        String upper = output.toUpperCase();
+        if (upper.startsWith("TIMEOUT") || upper.startsWith("ERROR")) return 0.0;
+
+        // Normalise line endings (Windows \r\n → \n)
+        String normalised = output.replace("\r\n", "\n").replace("\r", "\n");
+        String[] lines = normalised.split("\n");
+
+        // Pass 1: Look for an explicit score label anywhere in the output (bottom-up)
+        for (int i = lines.length - 1; i >= 0; i--) {
+            String line = lines[i].trim();
+            if (line.isEmpty()) continue;
+
+            Matcher labelMatcher = SCORE_LABEL_PATTERN.matcher(line);
+            if (labelMatcher.find()) {
+                double val = parseDouble(labelMatcher.group(1));
+                return Math.max(val, 0.0);
             }
         }
-        
-        // Find first number in last line
-        Matcher matcher = NUMBER_PATTERN.matcher(lastLine);
-        
-        if (matcher.find()) {
-            try {
-                // Extract and parse the number
-                String scoreStr = matcher.group(1);
-                return Double.parseDouble(scoreStr);
-                
-            } catch (NumberFormatException e) {
-                // Parsing failed - return 0.0
-                return 0.0;
+
+        // Pass 2: Fall back to last non-empty line — take the LAST number found
+        for (int i = lines.length - 1; i >= 0; i--) {
+            String line = lines[i].trim();
+            if (line.isEmpty()) continue;
+
+            Double lastNumber = findLastNumber(line);
+            if (lastNumber != null) {
+                return Math.max(lastNumber, 0.0);
             }
         }
-        
-        // No number found
+
         return 0.0;
     }
-    
+
     /**
-     * Validates that output contains a parseable score
-     * 
-     * USEFUL FOR:
-     * - Pre-validation before parsing
-     * - Checking tester output format
-     * 
-     * @param output Tester output to validate
-     * @return true if output contains a parseable score, false otherwise
+     * Returns true if the output contains a parseable score.
      */
     public boolean hasValidScore(String output) {
-        
-        if (output == null || output.trim().isEmpty()) {
-            return false;
+        if (output == null || output.isBlank()) return false;
+        String upper = output.toUpperCase();
+        if (upper.startsWith("TIMEOUT") || upper.startsWith("ERROR")) return false;
+
+        String normalised = output.replace("\r\n", "\n").replace("\r", "\n");
+        String[] lines = normalised.split("\n");
+
+        for (int i = lines.length - 1; i >= 0; i--) {
+            String line = lines[i].trim();
+            if (line.isEmpty()) continue;
+            if (SCORE_LABEL_PATTERN.matcher(line).find()) return true;
+            if (findLastNumber(line) != null) return true;
         }
-        
-        String[] lines = output.split("\n");
-        if (lines.length == 0) {
-            return false;
-        }
-        
-        String lastLine = lines[lines.length - 1].trim();
-        
-        Matcher matcher = NUMBER_PATTERN.matcher(lastLine);
-        return matcher.find();
+        return false;
     }
-    
+
     /**
-     * Extracts all numbers from output (for debugging)
-     * 
-     * USEFUL FOR:
-     * - Debugging score parsing issues
-     * - Understanding tester output format
-     * 
-     * @param output Tester output
-     * @return Array of all numbers found in output
+     * Returns every number found in the output (useful for debugging).
      */
     public double[] extractAllNumbers(String output) {
-        
-        if (output == null || output.trim().isEmpty()) {
-            return new double[0];
-        }
-        
-        Matcher matcher = NUMBER_PATTERN.matcher(output);
-        
+        if (output == null || output.isBlank()) return new double[0];
         java.util.List<Double> numbers = new java.util.ArrayList<>();
-        
-        while (matcher.find()) {
-            try {
-                double num = Double.parseDouble(matcher.group(1));
-                numbers.add(num);
-            } catch (NumberFormatException e) {
-                // Skip invalid numbers
-            }
+        Matcher m = NUMBER_PATTERN.matcher(output);
+        while (m.find()) {
+            Double d = parseDoubleOrNull(m.group());
+            if (d != null) numbers.add(d);
         }
-        
-        // Convert List to array
-        double[] result = new double[numbers.size()];
-        for (int i = 0; i < numbers.size(); i++) {
-            result[i] = numbers.get(i);
+        return numbers.stream().mapToDouble(Double::doubleValue).toArray();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Private helpers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** Returns the LAST number found on a line, or null if none. */
+    private Double findLastNumber(String line) {
+        Matcher m = NUMBER_PATTERN.matcher(line);
+        Double last = null;
+        while (m.find()) {
+            Double d = parseDoubleOrNull(m.group());
+            if (d != null) last = d;
         }
-        
-        return result;
+        return last;
+    }
+
+    private double parseDouble(String s) {
+        try { return Double.parseDouble(s); }
+        catch (NumberFormatException e) { return 0.0; }
+    }
+
+    private Double parseDoubleOrNull(String s) {
+        try { return Double.parseDouble(s); }
+        catch (NumberFormatException e) { return null; }
     }
 }
