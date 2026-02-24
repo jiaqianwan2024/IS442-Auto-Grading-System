@@ -5,109 +5,95 @@ import com.autogradingsystem.model.GradingResult;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.List;
-import java.util.Map;
+import java.nio.file.*;
+import java.util.*;
 
 /**
- * ScoreSheetExporter - Writes Final Scores into the Official Score Sheet CSV
+ * ScoreSheetExporter
  *
- * PURPOSE:
- * - Reads the original IS442-ScoreSheet.csv from config/
- * - Fills in "Calculated Final Grade Numerator" for each matched student
- * - Writes updated CSV to resources/output/
- * - Preserves ALL original columns, formatting, and # prefixes exactly
+ * Produces the OFFICIAL score sheet CSV:
+ *   - Copies original IS442-ScoreSheet.csv structure
+ *   - Fills numerator (total score) for each student
+ *   - Appends individual per-question score columns
  *
- * OUTPUT FILE:
- * resources/output/IS442-ScoreSheet-Updated-{timestamp}.csv
- *
- * MATCHING STRATEGY:
- * - Strips "#" prefix from Username column (e.g., "#ping.lee.2023" → "ping.lee.2023")
- * - Looks up total score from grading results by username
- * - Unmatched students (not graded) → numerator left blank
- *
- * EDGE CASES HANDLED:
- * - Student in CSV but not in grading results → blank numerator preserved
- * - Student graded but not in CSV → ignored (not our row to fill)
- * - Missing output directory → auto-created
- * - Header row detection → skipped for score lookup
- * - Windows \r\n line endings → handled via BufferedReader
+ * Output: resources/output/reports/IS442-ScoreSheet-Updated-{timestamp}.csv
  */
 public class ScoreSheetExporter {
 
-    /** Column index of Username in the CSV (0-based) */
-    private static final int COL_USERNAME = 1;
-
-    /** Column index of Calculated Final Grade Numerator (0-based) */
+    private static final int COL_USERNAME  = 1;
     private static final int COL_NUMERATOR = 5;
 
-    /**
-     * Exports updated score sheet to resources/output/.
-     *
-     * @param resultsByStudent Map of username → list of GradingResult
-     * @return Path to the written output file
-     * @throws IOException if reading/writing fails
-     */
     public Path export(Map<String, List<GradingResult>> resultsByStudent) throws IOException {
 
-        // Ensure reports directory exists
-        Path outputDir = PathConfig.OUTPUT_EXTRACTED.getParent().resolve("reports");
+        Path outputDir = PathConfig.OUTPUT_BASE.resolve("reports").toAbsolutePath();
         Files.createDirectories(outputDir);
+        Path outputFile = outputDir.resolve("IS442-ScoreSheet-Updated.csv");
 
-        // Build timestamped output filename
-        String timestamp = LocalDateTime.now()
-                .format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
-        Path outputFile = outputDir.resolve("IS442-ScoreSheet-Updated-" + timestamp + ".csv");
+        // Collect question IDs in natural order
+        List<String> questionOrder = new ArrayList<>();
+        Set<String>  qidSet        = new LinkedHashSet<>();
+        for (List<GradingResult> results : resultsByStudent.values())
+            for (GradingResult r : results)
+                qidSet.add(r.getTask().getQuestionId());
+        questionOrder.addAll(qidSet);
+        questionOrder.sort(ScoreSheetExporter::naturalCompare);
 
-        // Calculate total score per student
-        Map<String, Double> totals = computeTotals(resultsByStudent);
+        // Compute totals and per-question scores per student
+        Map<String, Double>              totals      = new LinkedHashMap<>();
+        Map<String, Map<String, Double>> qScoreMap   = new LinkedHashMap<>();
 
-        // Read original CSV, fill numerator, write to output
-        try (
-            BufferedReader reader = new BufferedReader(
-                new InputStreamReader(
-                    Files.newInputStream(PathConfig.CSV_SCORESHEET), StandardCharsets.UTF_8));
-            BufferedWriter writer = new BufferedWriter(
-                new OutputStreamWriter(
-                    Files.newOutputStream(outputFile), StandardCharsets.UTF_8))
-        ) {
+        for (Map.Entry<String, List<GradingResult>> entry : resultsByStudent.entrySet()) {
+            double total = 0.0;
+            Map<String, Double> qScores = new LinkedHashMap<>();
+            for (GradingResult r : entry.getValue()) {
+                total += r.getScore();
+                qScores.put(r.getTask().getQuestionId(), r.getScore());
+            }
+            totals.put(entry.getKey(), total);
+            qScoreMap.put(entry.getKey(), qScores);
+        }
+
+        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(
+                Files.newOutputStream(outputFile), StandardCharsets.UTF_8));
+             BufferedReader reader = new BufferedReader(new InputStreamReader(
+                Files.newInputStream(PathConfig.CSV_SCORESHEET.toAbsolutePath()),
+                StandardCharsets.UTF_8))) {
+
             String line;
-            boolean firstLine = true;
+            boolean isHeader = true;
 
             while ((line = reader.readLine()) != null) {
+                String[] cols = line.split(",", -1);
 
-                if (firstLine) {
-                    // Write header unchanged
+                if (isHeader) {
                     writer.write(line);
+                    for (String qid : questionOrder) writer.write("," + qid);
                     writer.newLine();
-                    firstLine = false;
+                    isHeader = false;
                     continue;
                 }
 
-                // Split preserving all columns
-                String[] cols = line.split(",", -1);  // -1 keeps trailing empty fields
-
+                // Fill numerator column
                 if (cols.length > COL_USERNAME) {
-                    // Strip # prefix from username to match grading results
-                    String rawUsername = cols[COL_USERNAME].trim();
-                    String username = rawUsername.startsWith("#")
-                            ? rawUsername.substring(1)
-                            : rawUsername;
-
+                    String raw      = cols[COL_USERNAME].trim();
+                    String username = raw.startsWith("#") ? raw.substring(1) : raw;
                     if (totals.containsKey(username)) {
-                        double score = totals.get(username);
-                        // Format as integer if whole number (e.g. 20.0 → "20"), else decimal
-                        cols[COL_NUMERATOR] = score == Math.floor(score)
-                                ? String.valueOf((int) score)
-                                : String.valueOf(score);
+                        double t = totals.get(username);
+                        cols[COL_NUMERATOR] = t == Math.floor(t)
+                                ? String.valueOf((int) t) : String.format("%.2f", t);
                     }
                 }
 
                 writer.write(String.join(",", cols));
+
+                // Append per-question scores
+                String raw      = cols.length > COL_USERNAME ? cols[COL_USERNAME].trim() : "";
+                String username = raw.startsWith("#") ? raw.substring(1) : raw;
+                Map<String, Double> qScores = qScoreMap.getOrDefault(username, Collections.emptyMap());
+                for (String qid : questionOrder) {
+                    double s = qScores.getOrDefault(qid, 0.0);
+                    writer.write("," + fmtNum(s));
+                }
                 writer.newLine();
             }
         }
@@ -115,20 +101,24 @@ public class ScoreSheetExporter {
         return outputFile;
     }
 
-    /**
-     * Sums all question scores per student from grading results.
-     *
-     * @param resultsByStudent Grouped results map
-     * @return Map of username → total score
-     */
-    private Map<String, Double> computeTotals(Map<String, List<GradingResult>> resultsByStudent) {
-        Map<String, Double> totals = new java.util.LinkedHashMap<>();
-        for (Map.Entry<String, List<GradingResult>> entry : resultsByStudent.entrySet()) {
-            double total = entry.getValue().stream()
-                    .mapToDouble(GradingResult::getScore)
-                    .sum();
-            totals.put(entry.getKey(), total);
+    static String fmtNum(double v) {
+        return v == Math.floor(v) ? String.valueOf((int) v) : String.format("%.2f", v);
+    }
+
+    static int naturalCompare(String a, String b) {
+        int i = 0, j = 0;
+        while (i < a.length() && j < b.length()) {
+            char ca = a.charAt(i), cb = b.charAt(j);
+            if (Character.isDigit(ca) && Character.isDigit(cb)) {
+                int na = 0, nb = 0;
+                while (i < a.length() && Character.isDigit(a.charAt(i))) na = na * 10 + (a.charAt(i++) - '0');
+                while (j < b.length() && Character.isDigit(b.charAt(j))) nb = nb * 10 + (b.charAt(j++) - '0');
+                if (na != nb) return na - nb;
+            } else {
+                if (ca != cb) return ca - cb;
+                i++; j++;
+            }
         }
-        return totals;
+        return a.length() - b.length();
     }
 }
