@@ -66,7 +66,20 @@ public class TemplateDiscovery {
         
         try {
             // Extract template ZIP
-            ZipFileProcessor.unzip(templateZip, tempDir);
+            // NEW-A fix: catch ZipException separately to give a friendly message when
+            // the ZIP is password-protected or corrupted, instead of showing a raw stack trace.
+            try {
+                ZipFileProcessor.unzip(templateZip, tempDir);
+            } catch (java.util.zip.ZipException e) {
+                throw new IOException(
+                    "Failed to read template ZIP: " + templateZip.getFileName() + "\n" +
+                    "Possible causes:\n" +
+                    "  - ZIP file is password protected (please remove the password)\n" +
+                    "  - ZIP file is corrupted or incomplete (please re-export)\n" +
+                    "  - File is not a valid ZIP (e.g. renamed .docx or .pdf)\n" +
+                    "Original error: " + e.getMessage()
+                );
+            }
             
             // Handle nested structure (find the actual root)
             Path rootDir = findRootDirectory(tempDir);
@@ -80,11 +93,23 @@ public class TemplateDiscovery {
                     "Expected folders like Q1/, Q2/, Q3/ containing .java files"
                 );
             }
+
+            // TD-2 fix: Q folders were found but may all be empty (e.g. instructor
+            // zipped the template before adding any .java files). isEmpty() only checks
+            // if the map has keys - it doesn't check if the file lists are empty.
+            // ExamStructure.isValid() checks that at least one Q folder has files.
+            ExamStructure examStructure = new ExamStructure(questionFiles);
+            if (!examStructure.isValid()) {
+                throw new IOException(
+                    "Template Q folders exist but contain no .java files!\n" +
+                    "Found folders: " + questionFiles.keySet() + "\n" +
+                    "Please ensure each Q folder contains its .java source files."
+                );
+            }
             
             System.out.println("   ✅ Template Discovery Complete. Discovered " + questionFiles.size() + " question folder(s).");
 
-            // Build and return ExamStructure
-            return new ExamStructure(questionFiles);
+            return examStructure;
             
         } finally {
             // Cleanup temporary directory
@@ -114,18 +139,27 @@ public class TemplateDiscovery {
             return tempDir;
         }
         
-        // Look one level deeper
+        // Look one level deeper - skip __MACOSX and hidden OS folders (TD-3 fix)
+        // Mac ZIPs often contain both RenameToYourUsername/ AND __MACOSX/ at root.
+        // Without this skip, findRootDirectory() sees 2 subdirs and wrongly throws
+        // IOException("Invalid template structure!") even though the ZIP is valid.
         List<Path> subdirs = new ArrayList<>();
         
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(tempDir)) {
             for (Path item : stream) {
                 if (Files.isDirectory(item)) {
+                    String dirName = item.getFileName().toString();
+                    // Skip macOS system folders and hidden directories
+                    if (dirName.equals("__MACOSX") || dirName.startsWith(".")) {
+                        System.out.println("      🙈 Skipping OS folder: " + dirName);
+                        continue;
+                    }
                     subdirs.add(item);
                 }
             }
         }
         
-        // Check if there's exactly one subdirectory with Q folders
+        // Check if there's exactly one subdirectory (after skipping OS folders) with Q folders
         if (subdirs.size() == 1 && hasQuestionFolders(subdirs.get(0))) {
             System.out.println("      📂 Deep nesting detected. Flattening from: " + subdirs.get(0).getFileName());
             return subdirs.get(0);
@@ -134,7 +168,8 @@ public class TemplateDiscovery {
         throw new IOException(
             "Invalid template structure!\n" +
             "Expected: Template ZIP should contain Q1/, Q2/, Q3/ folders\n" +
-            "Or: Template ZIP → folder → Q1/, Q2/, Q3/"
+            "Or: Template ZIP → folder → Q1/, Q2/, Q3/\n" +
+            "Found subdirectories: " + subdirs
         );
     }
     
@@ -154,8 +189,10 @@ public class TemplateDiscovery {
                 if (Files.isDirectory(item)) {
                     String name = item.getFileName().toString();
                     
-                    // Check if name matches Q pattern (Q1, Q2, Q3, etc.)
-                    if (name.matches("(?i)(Q|Task|Part)?\\d+.*")) { 
+                    // Strict match: Q + non-zero digit + any digits (Q1, Q2, Q10)
+                    // ^Q[1-9]\d*$ also rejects Q01, Q00 (leading zeros) which would
+                    // collide with Q1 in QuestionComparator (both strip to digit 1)
+                    if (name.matches("^Q[1-9]\\d*$")) { 
                         return true; 
                     }
                 }
@@ -193,8 +230,10 @@ public class TemplateDiscovery {
                 if (Files.isDirectory(item)) {
                     String folderName = item.getFileName().toString();
                     
-                    // Check if this is a Q folder
-                    if (folderName.matches("(?i)(Q|Task|Part)?\\d+.*")) {
+                    // Strict match: Q + non-zero digit + any digits (Q1, Q2, Q10)
+                    // ^Q[1-9]\d*$ also rejects Q01, Q00 (leading zeros) which would
+                    // collide with Q1 in QuestionComparator (both strip to digit 1)
+                    if (folderName.matches("^Q[1-9]\\d*$")) {
                         
                         // List all .java files in this Q folder
                         List<String> javaFiles = new ArrayList<>();

@@ -71,6 +71,17 @@ public class DiscoveryController {
         
         // Build grading plan
         GradingPlan plan = planBuilder.buildPlan(examStructure, testerMap);
+
+        // DC-2 fix: validate the plan has at least one task before returning.
+        // If 0 tasks were built, the entire execution phase will silently grade nobody.
+        // Throw here so Main.java gets a clear error rather than a confusing empty run.
+        if (plan.getTaskCount() == 0) {
+            throw new IOException(
+                "Discovery failed: Grading plan contains 0 tasks!\n" +
+                "No tester files could be matched to template question files.\n" +
+                "Check that tester filenames follow the convention: Q1aTester.java for Q1a.java"
+            );
+        }
         
         return plan;
     }

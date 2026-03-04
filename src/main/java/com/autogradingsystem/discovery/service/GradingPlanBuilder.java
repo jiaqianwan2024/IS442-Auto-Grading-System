@@ -6,8 +6,10 @@ import com.autogradingsystem.model.GradingTask;
 import com.autogradingsystem.model.GradingPlan;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * GradingPlanBuilder - Matches Testers to Questions and Builds Grading Plan
@@ -69,10 +71,17 @@ public class GradingPlanBuilder {
         List<GradingTask> tasks = new ArrayList<>();
         Map<String, List<String>> questionFiles = structure.getQuestionFiles();
 
+        // GPB-2 fix: track question IDs that already have a task to prevent duplicates.
+        // Without this, both Q1a.java AND Q1a.class would each match Q1aTester and create
+        // two GradingTask objects - causing ExecutionController to grade Q1a twice per student.
+        // Priority: .java is preferred over .class (processed first due to alphabetical sort).
+        Set<String> assignedTaskIds = new HashSet<>();
+
         System.out.println("   🔍 Finalizing Grading Plan...");
 
         for (String questionFolder : questionFiles.keySet()) {
             List<String> filesInFolder = questionFiles.get(questionFolder);
+            int tasksBeforeFolder = tasks.size(); // snapshot before processing this folder
 
             for (String fileName : filesInFolder) {
                 // 1. Silently skip system junk
@@ -99,92 +108,100 @@ public class GradingPlanBuilder {
 
                 // 5. Categorize based on match result
                 if (matchedTester != null) {
+                    // GPB-2 fix: check if this question ID already has a task assigned.
+                    // This prevents both Q1a.java and Q1a.class from creating duplicate tasks.
+                    if (assignedTaskIds.contains(templateName.toLowerCase())) {
+                        System.out.println("      ⚠️  [DUPLICATE] " + fileName + ": Task for '" + templateName + "' already assigned (preferring .java over .class). Skipping.");
+                        continue;
+                    }
                     // Use the template's exact casing for the Task ID
                     tasks.add(new GradingTask(templateName, matchedTester, questionFolder, fileName));
+                    assignedTaskIds.add(templateName.toLowerCase());
                     System.out.println("      ✅ [TASK] " + templateName + ": Matched with answer key " + matchedTester + ".");
                 } else {
                     System.out.println("      💡 [HELPER] " + templateName + ": Supporting code found. Used for compilation only.");
                 }
             }
+
+            // NEW-E fix: warn if an entire Q folder produced 0 gradable tasks.
+            // Without this, a missing Q4Tester shows individual [HELPER] lines per file
+            // but no folder-level signal that the whole question was skipped.
+            // This helps instructors quickly spot a missing tester for an entire question.
+            int tasksFromFolder = tasks.size() - tasksBeforeFolder;
+            boolean folderHadGradableFiles = filesInFolder.stream()
+                .anyMatch(f -> f.toLowerCase().endsWith(".java") || f.toLowerCase().endsWith(".class"));
+            if (folderHadGradableFiles && tasksFromFolder == 0) {
+                System.out.println("      ⚠️  [WARNING] " + questionFolder + ": Found gradable files but no matching tester. "
+                    + "Entire folder skipped. Ensure a tester like '"
+                    + questionFolder + "Tester.java' exists in the testers directory.");
+            }
         }
         
+        // GPB-1 fix: warn clearly if no tasks were matched instead of silently
+        // returning an empty plan. Without this, the program runs to completion
+        // grading nobody and showing no results - very hard to diagnose.
+        if (tasks.isEmpty()) {
+            System.out.println("   ⚠️  WARNING: 0 gradable tasks could be mapped!");
+            System.out.println("      Check that tester filenames match template filenames.");
+            System.out.println("      Example: Q1a.java in template needs Q1aTester.java in testers/");
+        }
+
         System.out.println("   🏁 Successfully mapped " + tasks.size() + " gradable tasks.");
         return new GradingPlan(tasks);
     }
     
     /**
-     * Extracts question ID from Java filename
-     * * LOGIC:
-     * - Remove ".java" extension
-     * - What's left is the question ID
-     * * EXAMPLES:
-     * - Q1a.java → Q1a ✅
-     * - Q1b.java → Q1b ✅
-     * - Q2a.java → Q2a ✅
-     * - Q3.java → Q3 ✅
-     * - ShapeComparator.java → ShapeComparator ✅
-     * - NotJava.txt → null ❌ (doesn't end with .java)
-     * * VALIDATION:
-     * - Returns null if filename doesn't end with ".java"
-     * - This should never happen (TemplateDiscovery already filters)
-     * - But defensive programming is good practice
-     * * @param filename Java filename
-     * @return Question ID, or null if not a .java file
-     */
-    private String extractQuestionId(String filename) {
-        // 1. Find the position of the last dot
-        int lastDot = filename.lastIndexOf('.');
-        
-        // 2. If no dot is found, it's not a valid file
-        if (lastDot == -1) return null;
-        
-        // 3. Get the raw name (e.g., "Q1a")
-        String rawName = filename.substring(0, lastDot);
-        
-        // 4. FORMATTING LOGIC: Must match TesterDiscovery (Q + lowercase)
-        // Checks if the name starts with Q/q and has content after it
-        if (rawName.length() > 1 && Character.toLowerCase(rawName.charAt(0)) == 'q') {
-            return "Q" + rawName.substring(1).toLowerCase();
-        }
-        
-        // Fallback for files that don't follow the Qx pattern
-        return rawName.toLowerCase();
-    }
-    
-    /**
      * Validates that exam structure and tester map are compatible
-     * * CHECKS:
+     * 
+     * CHECKS:
      * - At least one question file exists
      * - At least one tester exists
      * - At least one match possible
-     * * This is a pre-check before building plan
-     * Helps catch configuration errors early
-     * * @param structure ExamStructure to validate
+     * 
+     * CONSISTENCY NOTE:
+     * - Uses the same inline dot-strip + case-insensitive lookup logic as buildPlan()
+     * - Previously called a private extractQuestionId() with different logic, which
+     *   could cause isCompatible() and buildPlan() to disagree on matches. Removed.
+     * 
+     * @param structure ExamStructure to validate
      * @param testerMap TesterMap to validate
      * @return true if compatible, false otherwise
      */
     public boolean isCompatible(ExamStructure structure, TesterMap testerMap) {
-        
+
         // Check structure has questions
         if (structure.getQuestionFiles().isEmpty()) {
             return false;
         }
-        
+
         // Check tester map has testers
         if (testerMap.getTesterMapping().isEmpty()) {
             return false;
         }
-        
-        // Check if at least one match exists
+
+        // Check if at least one match exists using the SAME logic as buildPlan()
         for (List<String> files : structure.getQuestionFiles().values()) {
             for (String file : files) {
-                String questionId = extractQuestionId(file);
-                if (questionId != null && testerMap.hasTester(questionId)) {
-                    return true;  // Found at least one match
+                // Skip system files (mirrors buildPlan step 1)
+                if (file.equalsIgnoreCase(".DS_Store") || file.contains("__MACOSX")) continue;
+
+                // Skip non-code files (mirrors buildPlan step 2)
+                String fileLower = file.toLowerCase();
+                if (!fileLower.endsWith(".java") && !fileLower.endsWith(".class")) continue;
+
+                // Extract template name using same inline logic as buildPlan (step 3)
+                int dotIndex = file.lastIndexOf('.');
+                String templateName = (dotIndex == -1) ? file : file.substring(0, dotIndex);
+
+                // Case-insensitive lookup - mirrors buildPlan step 4
+                for (String registeredId : testerMap.getTesterMapping().keySet()) {
+                    if (registeredId.equalsIgnoreCase(templateName)) {
+                        return true; // At least one match found
+                    }
                 }
             }
         }
-        
-        return false;  // No matches found
+
+        return false; // No matches found
     }
 }

@@ -66,7 +66,7 @@ public class ExamStructure {
     public ExamStructure(Map<String, List<String>> questionFiles) {
         
         // Create defensive copy with unmodifiable collections
-        Map<String, List<String>> copy = new HashMap<>();
+        Map<String, List<String>> copy = new LinkedHashMap<>();
         
         for (Map.Entry<String, List<String>> entry : questionFiles.entrySet()) {
             // Make each file list unmodifiable
