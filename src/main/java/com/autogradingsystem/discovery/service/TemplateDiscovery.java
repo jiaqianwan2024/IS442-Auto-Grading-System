@@ -6,6 +6,7 @@ import com.autogradingsystem.extraction.service.ZipFileProcessor;
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * TemplateDiscovery - Discovers Exam Structure from Template ZIP
@@ -60,6 +61,19 @@ public class TemplateDiscovery {
     public ExamStructure discoverStructure(Path templateZip) throws IOException {
         
         System.out.println("   🔍 Scanning Template ZIP: " + templateZip.getFileName());
+
+        // [Fix-16] Reject suspiciously large ZIPs before extraction.
+        // A legitimate template is never more than a few MB. A 50MB+ file is
+        // a ZIP bomb candidate or simply the wrong file. Avoids filling disk.
+        final long MAX_ZIP_BYTES = 50L * 1024 * 1024; // 50 MB
+        long zipSize = Files.size(templateZip);
+        if (zipSize > MAX_ZIP_BYTES) {
+            throw new IOException(
+                "Template ZIP is too large to be a valid exam template: "
+                + String.format("%.1f MB", zipSize / (1024.0 * 1024.0)) + "\n"
+                + "Maximum allowed size is 50 MB. Please verify this is the correct file."
+            );
+        }
 
         // Create temporary directory for extraction
         Path tempDir = Files.createTempDirectory("template-discovery");
@@ -118,38 +132,59 @@ public class TemplateDiscovery {
     }
     
     /**
-     * Finds the root directory containing Q folders
-     * Handles nested ZIP structures automatically
-     * * LOGIC:
-     * 1. If tempDir directly contains Q folders → return tempDir
-     * 2. If tempDir has one subfolder containing Q folders → return subfolder
-     * 3. Otherwise → throw exception (invalid structure)
-     * * WHY NEEDED?
-     * - Some LMS systems add extra wrapper folder when downloading
-     * - Template.zip contains RenameToYourUsername/ which contains Q1/, Q2/
-     * - We want to find where Q folders actually are
-     * * @param tempDir Temporary extraction directory
-     * @return Path to directory containing Q folders
-     * @throws IOException if structure is invalid
+     * Finds the root directory containing Q folders.
+     * Handles arbitrarily deep nesting automatically (Fix 2 — v2.5).
+     *
+     * LOGIC:
+     * 1. If currentDir directly contains Q folders → return currentDir
+     * 2. Collect real subdirectories (skip __MACOSX, hidden folders — TD-3 fix)
+     * 3. If exactly one real subdir → recurse into it
+     * 4. If zero or 2+ real subdirs with no Q folders → throw with clear message
+     *
+     * WHY RECURSIVE?
+     * - v2.4 only looked one level deep: tempDir → one subfolder
+     * - Some LMS exports or manual zips produce deeper nesting:
+     *     template.zip/exported/final/RenameToYourUsername/Q1/
+     * - This method now follows the single-subfolder chain at any depth,
+     *   matching the same logic already used by UnzipService.findTrueRoot()
+     *   on the student submission side.
+     *
+     * @param currentDir Directory to search from (called initially with tempDir)
+     * @return Path to the deepest directory that directly contains Q folders
+     * @throws IOException if structure cannot be resolved (0 Q folders anywhere,
+     *                     or ambiguous fork with 2+ subdirs and no Q folders)
      */
-    private Path findRootDirectory(Path tempDir) throws IOException {
-        
-        // Check if tempDir directly has Q folders
-        if (hasQuestionFolders(tempDir)) {
-            return tempDir;
+    // [Fix-4] Maximum wrapper nesting depth before we give up.
+    // Prevents StackOverflowError from a malicious or accidental ZIP with thousands
+    // of nested empty folders. 20 levels is far more than any real LMS produces.
+    private static final int MAX_NESTING_DEPTH = 20;
+
+    private Path findRootDirectory(Path currentDir) throws IOException {
+        return findRootDirectory(currentDir, 0);
+    }
+
+    private Path findRootDirectory(Path currentDir, int depth) throws IOException {
+        if (depth > MAX_NESTING_DEPTH) {
+            throw new IOException(
+                "Template ZIP has too many nested wrapper folders (>" + MAX_NESTING_DEPTH + " levels).\n"
+                + "This is likely a ZIP bomb or an incorrectly structured archive.\n"
+                + "Please ensure the template has at most a few wrapper folders before Q1/, Q2/ etc."
+            );
         }
-        
-        // Look one level deeper - skip __MACOSX and hidden OS folders (TD-3 fix)
-        // Mac ZIPs often contain both RenameToYourUsername/ AND __MACOSX/ at root.
-        // Without this skip, findRootDirectory() sees 2 subdirs and wrongly throws
-        // IOException("Invalid template structure!") even though the ZIP is valid.
+
+        // Base case: this directory directly contains Q folders
+        if (hasQuestionFolders(currentDir)) {
+            return currentDir;
+        }
+
+        // Collect real subdirectories — skip __MACOSX and hidden OS folders (TD-3 fix).
+        // Mac ZIPs place __MACOSX alongside the real wrapper folder; without this skip,
+        // findRootDirectory() sees 2 subdirs and wrongly throws even on valid ZIPs.
         List<Path> subdirs = new ArrayList<>();
-        
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(tempDir)) {
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(currentDir)) {
             for (Path item : stream) {
                 if (Files.isDirectory(item)) {
                     String dirName = item.getFileName().toString();
-                    // Skip macOS system folders and hidden directories
                     if (dirName.equals("__MACOSX") || dirName.startsWith(".")) {
                         System.out.println("      🙈 Skipping OS folder: " + dirName);
                         continue;
@@ -158,18 +193,45 @@ public class TemplateDiscovery {
                 }
             }
         }
-        
-        // Check if there's exactly one subdirectory (after skipping OS folders) with Q folders
-        if (subdirs.size() == 1 && hasQuestionFolders(subdirs.get(0))) {
-            System.out.println("      📂 Deep nesting detected. Flattening from: " + subdirs.get(0).getFileName());
-            return subdirs.get(0);
+
+        // Recursive case: exactly one real subdir — follow the chain
+        if (subdirs.size() == 1) {
+            System.out.println("      📂 Wrapper folder detected, going deeper: "
+                + subdirs.get(0).getFileName());
+            return findRootDirectory(subdirs.get(0), depth + 1);  // recurse with depth counter [Fix-4]
         }
-        
+
+        // T-08 fix: check if MULTIPLE subdirs each have Q folders — ambiguous fork.
+        // e.g. ZIP has both sectionA/Q1/ and sectionB/Q1/ — we cannot guess which is correct.
+        // Give a specific message that names the conflicting branches so the instructor
+        // knows exactly what to fix, rather than a generic "invalid structure" error.
+        List<Path> branchesWithQ = subdirs.stream()
+            .filter(d -> { try { return hasQuestionFolders(d); } catch (IOException e) { return false; } })
+            .collect(Collectors.toList());
+
+        if (branchesWithQ.size() > 1) {
+            throw new IOException(
+                "Ambiguous template structure — multiple folders each contain Q folders!\n" +
+                "Cannot determine which branch is the real exam root.\n" +
+                "Conflicting branches found in '" + currentDir.getFileName() + "':\n" +
+                branchesWithQ.stream()
+                    .map(p -> "  - " + p.getFileName())
+                    .collect(Collectors.joining("\n")) + "\n" +
+                "Please restructure so only one folder branch leads to Q1/, Q2/, Q3/."
+            );
+        }
+
+        // Dead end: 0 subdirs means no Q folders anywhere in this branch;
+        // 2+ subdirs with none having Q folders means ambiguous with no solution.
         throw new IOException(
             "Invalid template structure!\n" +
             "Expected: Template ZIP should contain Q1/, Q2/, Q3/ folders\n" +
-            "Or: Template ZIP → folder → Q1/, Q2/, Q3/\n" +
-            "Found subdirectories: " + subdirs
+            "  (at any depth, as long as each level has exactly one subfolder)\n" +
+            "Found " + subdirs.size() + " subfolder(s) with no Q folders at: '"
+                + currentDir.getFileName() + "'\n" +
+            "Subfolders found: " + subdirs.stream()
+                .map(p -> p.getFileName().toString())
+                .collect(Collectors.joining(", "))
         );
     }
     
@@ -203,66 +265,165 @@ public class TemplateDiscovery {
     }
     
     /**
-     * Scans root directory for Q folders and lists .java files in each
-     * * WORKFLOW:
-     * 1. Find all Q folders (Q1, Q2, Q3, etc.)
-     * 2. For each Q folder:
-     * a. List all .java files
-     * b. Sort files alphabetically
-     * c. Store in map: Question → File list
-     * 3. Sort questions numerically (Q1 before Q2 before Q10)
-     * * SORTING LOGIC:
-     * - Uses natural sort order: Q1, Q2, Q3, ..., Q9, Q10, Q11
-     * - Not alphabetical: Q1, Q10, Q11, Q2 (wrong!)
-     * - Extracts number from Qxx and sorts numerically
-     * * @param rootDir Root directory containing Q folders
-     * @return Map of question folder → list of .java files
+     * Scans root directory for Q folders and lists relevant files in each.
+     *
+     * WORKFLOW:
+     * 1. Find all Q folders (Q1, Q2, Q3, etc.) directly under rootDir
+     * 2. For each Q folder: recursively collect all .java, .class, .txt files
+     *    at any depth inside the folder (Fix 1 — v2.5)
+     * 3. Sort files alphabetically so .java comes before .class for same name
+     * 4. Sort questions numerically (Q1 before Q2 before Q10)
+     *
+     * WHY RECURSIVE FILE COLLECTION?
+     * - v2.4 used a flat DirectoryStream — only files directly in Q1/ were seen.
+     * - Some submissions organise files in subfolders:
+     *     Q1/src/Q1a.java  or  Q1/solution/Q1a.java
+     * - These were completely invisible before; now they are collected and logged.
+     * - A [NESTED] warning is printed so the instructor knows the file came from
+     *   a subfolder (useful for spotting non-standard structure).
+     *
+     * @param rootDir Root directory containing Q folders
+     * @return Map of question folder to sorted list of files found (any depth)
      * @throws IOException if scanning fails
      */
     private Map<String, List<String>> scanForQuestions(Path rootDir) throws IOException {
-        
-        // Use TreeMap with custom comparator for natural sorting
+
+        // TreeMap with custom comparator for natural Q1, Q2, Q10 ordering
         Map<String, List<String>> questionFiles = new TreeMap<>(new QuestionComparator());
-        
+
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(rootDir)) {
             for (Path item : stream) {
-                
+
                 if (Files.isDirectory(item)) {
                     String folderName = item.getFileName().toString();
-                    
-                    // Strict match: Q + non-zero digit + any digits (Q1, Q2, Q10)
-                    // ^Q[1-9]\d*$ also rejects Q01, Q00 (leading zeros) which would
-                    // collide with Q1 in QuestionComparator (both strip to digit 1)
-                    if (folderName.matches("^Q[1-9]\\d*$")) {
-                        
-                        // List all .java files in this Q folder
-                        List<String> javaFiles = new ArrayList<>();
-                        
-                        try (DirectoryStream<Path> fileStream = Files.newDirectoryStream(item, "{*.java,*.class,*.txt}")) {
-                            for (Path file : fileStream) {
-                                javaFiles.add(file.getFileName().toString());
-                            }
-                        }
-                        
-                        // Sort files alphabetically
-                        Collections.sort(javaFiles);
-                        
-                        // Store in map
-                        questionFiles.put(folderName, javaFiles);
 
-                        // LOG: Discovery of folder and contents
-                        System.out.println("      📁 Found Question Folder: [" + folderName + "] with " + javaFiles.size() + " file(s)");
-                        for (String javaFile : javaFiles) {
-                            System.out.println("         📄 Expected File: " + javaFile);
+                    // Strict match: Q + non-zero digit + more digits (Q1, Q2, Q10)
+                    // ^Q[1-9]\d*$ rejects Q01, Q00 (leading zeros collide in QuestionComparator)
+                    if (folderName.matches("^Q[1-9]\\d*$")) {
+
+                        // Recursively collect all relevant files inside this Q folder
+                        List<String> files = collectFilesRecursively(item, item);
+
+                        // Sort alphabetically: .java before .class for same base name
+                        Collections.sort(files);
+
+                        questionFiles.put(folderName, files);
+
+                        System.out.println("      📁 Found Question Folder: [" + folderName + "] with " + files.size() + " file(s)");
+                        for (String f : files) {
+                            System.out.println("         📄 Expected File: " + f);
                         }
                     }
                 }
             }
         }
-        
+
         return questionFiles;
     }
-    
+
+    /**
+     * Recursively collects .java, .class, and .txt files from a Q folder,
+     * including files in any subfolders. (Fix 1 — v2.5)
+     *
+     * FILE NAMING IN OUTPUT:
+     * - Files directly in the Q folder → stored as plain filename ("Q1a.java")
+     * - Files in subfolders → stored as relative path ("src/Q1a.java") and a
+     *   [NESTED] warning is logged so the instructor can see the unusual structure.
+     *
+     * SKIPS:
+     * - .DS_Store and __MACOSX entries (macOS junk)
+     * - Hidden files (names starting with '.')
+     *
+     * @param qFolderRoot The top-level Q folder (used to compute relative paths)
+     * @param currentDir  Directory currently being scanned (equals qFolderRoot on first call)
+     * @return List of file path strings relative to qFolderRoot
+     * @throws IOException if directory reading fails
+     */
+    // [Fix-17] Maximum files to collect per Q folder. A real exam question never
+    // has hundreds of .java files — hitting this limit signals a malformed template.
+    private static final int MAX_FILES_PER_QUESTION = 50;
+
+    /**
+     * Collects .java, .class, and .txt files from a Q folder at any depth.
+     * [Fix-5] Replaced manual recursion with Files.walk(maxDepth) to eliminate
+     * the StackOverflowError risk from deeply nested Q subfolders.
+     * [Fix-17] Stops collecting after MAX_FILES_PER_QUESTION files and warns.
+     *
+     * FILE NAMING IN OUTPUT:
+     * - Files directly in Q folder  → plain filename  ("Q1a.java")
+     * - Files in subfolders         → relative path   ("src/Q1a.java") + [NESTED] warning
+     *
+     * SKIPS: .DS_Store, __MACOSX, hidden files, Q-named subfolders (T-36), nested ZIPs (T-13)
+     *
+     * @param qFolderRoot Top-level Q folder (used to compute relative paths and detect nesting)
+     * @param ignored     Previously the currentDir for manual recursion — kept for signature
+     *                    compatibility but unused; Files.walk handles traversal internally.
+     * @return List of file path strings (plain names or relative paths from qFolderRoot)
+     * @throws IOException if directory reading fails
+     */
+    private List<String> collectFilesRecursively(Path qFolderRoot, Path ignored) throws IOException {
+        List<String> collected = new ArrayList<>();
+
+        // Walk up to MAX_NESTING_DEPTH levels inside the Q folder.
+        // Files.walk visits directories depth-first; we filter for regular files only.
+        Files.walk(qFolderRoot, MAX_NESTING_DEPTH)
+            .filter(Files::isRegularFile)
+            .forEach(entry -> {
+                String name = entry.getFileName().toString();
+
+                // Skip OS junk and hidden files
+                if (name.equals(".DS_Store") || name.contains("__MACOSX") || name.startsWith(".")) {
+                    return;
+                }
+
+                // T-13 fix: warn on nested ZIPs
+                if (name.toLowerCase().endsWith(".zip")) {
+                    System.out.println("         ⚠️  [ZIP-IN-ZIP] Nested ZIP skipped: "
+                        + qFolderRoot.relativize(entry).toString().replace("\\", "/")
+                        + " — extract its contents manually.");
+                    return;
+                }
+
+                // T-36 fix: skip files whose immediate parent is a Q-named folder
+                // (other than qFolderRoot itself) — those belong to a sibling question.
+                Path parent = entry.getParent();
+                if (!parent.equals(qFolderRoot)) {
+                    String parentName = parent.getFileName().toString();
+                    if (parentName.matches("^Q[1-9]\\d*$")) {
+                        System.out.println("         ⚠️  [SKIP-Q-FOLDER] Skipping file in Q-named subfolder '"
+                            + parentName + "': " + name);
+                        return;
+                    }
+                }
+
+                String lower = name.toLowerCase();
+                if (!lower.endsWith(".java") && !lower.endsWith(".class") && !lower.endsWith(".txt")) {
+                    return;
+                }
+
+                // [Fix-17] Cap files per Q folder
+                if (collected.size() >= MAX_FILES_PER_QUESTION) {
+                    if (collected.size() == MAX_FILES_PER_QUESTION) {
+                        System.out.println("         ⚠️  [TOO-MANY-FILES] " + qFolderRoot.getFileName()
+                            + " has more than " + MAX_FILES_PER_QUESTION
+                            + " files — stopping collection. Please review the template.");
+                    }
+                    return;
+                }
+
+                String relativePath = qFolderRoot.relativize(entry).toString().replace("\\", "/");
+                boolean isNested = !entry.getParent().equals(qFolderRoot);
+                if (isNested) {
+                    System.out.println("         ⚠️  [NESTED] File in subfolder: " + relativePath
+                        + " (expected directly in Q folder — will still be processed)");
+                    collected.add(relativePath);
+                } else {
+                    collected.add(name);
+                }
+            });
+
+        return collected;
+    }
     /**
      * Recursively deletes a directory and all its contents
      * * @param directory Directory to delete
@@ -279,7 +440,10 @@ public class TemplateDiscovery {
                 try {
                     Files.delete(path);
                 } catch (IOException e) {
-                    // Ignore - best effort cleanup
+                    // [Fix-6] Log instead of silently swallowing — on Windows a locked file
+                    // causes silent temp directory accumulation that is hard to diagnose.
+                    System.err.println("   [WARN] Could not delete temp file (will be cleaned by OS on reboot): "
+                        + path.getFileName() + " — " + e.getMessage());
                 }
             });
     }
@@ -316,13 +480,13 @@ public class TemplateDiscovery {
          * @return Question number (e.g., 10)
          */
         private int extractQuestionNumber(String questionFolder) {
+            // [Fix-10] substring(1) is correct, fast, and unambiguous for "Q10" -> 10.
+            // Old replaceAll("\\D+","") stripped ALL non-digits — "Version2Q10" -> "210".
+            // The regex gate ^Q[1-9]\d*$ ensures only valid "Qn" names reach here.
             try {
-                // Use Regex to pull only the digits out of the folder name
-                // This handles "Q1", "Task10", or even "1" correctly
-                String digits = questionFolder.replaceAll("\\D+", ""); 
-                return digits.isEmpty() ? 0 : Integer.parseInt(digits);
+                return Integer.parseInt(questionFolder.substring(1));
             } catch (NumberFormatException e) {
-                return 0; // Safe fallback so the program never crashes
+                return 0;
             }
         }
     }
