@@ -93,18 +93,14 @@ public class GradingPlanBuilder {
                     continue;
                 }
 
-                // 3. Extract the name exactly as written in the template (e.g., "Q1a")
-                int dotIndex = fileName.lastIndexOf('.');
-                String templateName = (dotIndex == -1) ? fileName : fileName.substring(0, dotIndex);
+                // 3. Extract clean question ID from filename.
+                //    resolveTemplateId() handles both flat ("Q1a.java") and nested
+                //    ("src/Q1a.java") paths consistently in one place. [Fix-9: DRY]
+                String templateName = resolveTemplateId(fileName);
 
-                // 4. DYNAMIC MATCHING: Find the tester in the map (Case-Insensitive)
-                String matchedTester = null;
-                for (String registeredId : testerMap.getTesterMapping().keySet()) {
-                    if (registeredId.equalsIgnoreCase(templateName)) {
-                        matchedTester = testerMap.getTesterMapping().get(registeredId);
-                        break;
-                    }
-                }
+                // 4. O(1) tester lookup via pre-normalised lowercase key. [Fix-2]
+                //    TesterMap now stores all keys in lowercase so direct get() works.
+                String matchedTester = testerMap.getTesterMapping().get(templateName.toLowerCase());
 
                 // 5. Categorize based on match result
                 if (matchedTester != null) {
@@ -169,39 +165,48 @@ public class GradingPlanBuilder {
      */
     public boolean isCompatible(ExamStructure structure, TesterMap testerMap) {
 
-        // Check structure has questions
-        if (structure.getQuestionFiles().isEmpty()) {
-            return false;
-        }
+        if (structure.getQuestionFiles().isEmpty()) return false;
+        if (testerMap.getTesterMapping().isEmpty()) return false;
 
-        // Check tester map has testers
-        if (testerMap.getTesterMapping().isEmpty()) {
-            return false;
-        }
-
-        // Check if at least one match exists using the SAME logic as buildPlan()
+        // Uses resolveTemplateId() + O(1) lowercase get() — identical logic to buildPlan().
+        // [Fix-1: stale T-27 bug in old isCompatible] [Fix-9: DRY] [Fix-2: O(1) lookup]
         for (List<String> files : structure.getQuestionFiles().values()) {
             for (String file : files) {
-                // Skip system files (mirrors buildPlan step 1)
                 if (file.equalsIgnoreCase(".DS_Store") || file.contains("__MACOSX")) continue;
-
-                // Skip non-code files (mirrors buildPlan step 2)
                 String fileLower = file.toLowerCase();
                 if (!fileLower.endsWith(".java") && !fileLower.endsWith(".class")) continue;
 
-                // Extract template name using same inline logic as buildPlan (step 3)
-                int dotIndex = file.lastIndexOf('.');
-                String templateName = (dotIndex == -1) ? file : file.substring(0, dotIndex);
-
-                // Case-insensitive lookup - mirrors buildPlan step 4
-                for (String registeredId : testerMap.getTesterMapping().keySet()) {
-                    if (registeredId.equalsIgnoreCase(templateName)) {
-                        return true; // At least one match found
-                    }
+                String templateName = resolveTemplateId(file);
+                if (testerMap.getTesterMapping().containsKey(templateName.toLowerCase())) {
+                    return true;
                 }
             }
         }
+        return false;
+    }
 
-        return false; // No matches found
+    /**
+     * Extracts a clean question ID from a filename, handling both flat and nested paths.
+     *
+     * EXAMPLES:
+     *   "Q1a.java"      → "Q1a"   (flat, direct in Q folder)
+     *   "src/Q1a.java"  → "Q1a"   (nested, T-27 fix)
+     *   "Q1a.class"     → "Q1a"
+     *   "Q1a"           → "Q1a"   (no extension)
+     *
+     * Used by both buildPlan() and isCompatible() to guarantee they always
+     * agree on what constitutes a valid match. [Fix-9: DRY, Fix-1: consistency]
+     *
+     * @param fileName raw filename or relative path from ExamStructure file list
+     * @return base name without extension and without any leading path segments
+     */
+    private String resolveTemplateId(String fileName) {
+        // Strip leading path segments (e.g. "src/Q1a.java" → "Q1a.java")
+        String baseName = fileName.contains("/")
+            ? fileName.substring(fileName.lastIndexOf('/') + 1)
+            : fileName;
+        // Strip extension
+        int dotIndex = baseName.lastIndexOf('.');
+        return (dotIndex == -1) ? baseName : baseName.substring(0, dotIndex);
     }
 }

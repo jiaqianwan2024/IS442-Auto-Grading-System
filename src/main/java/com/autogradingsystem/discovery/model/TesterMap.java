@@ -65,10 +65,15 @@ public class TesterMap {
      * @param testerMapping Map of question ID → tester filename
      */
     public TesterMap(Map<String, String> testerMapping) {
-        // Create defensive unmodifiable copy
-        this.testerMapping = Collections.unmodifiableMap(
-            new HashMap<>(testerMapping)
-        );
+        // [Fix-2] Normalise all keys to lowercase so GradingPlanBuilder can use O(1)
+        // HashMap.get(id.toLowerCase()) instead of an O(n) equalsIgnoreCase() scan.
+        // [Fix-3] Use LinkedHashMap to preserve registration order — toString() and
+        // log output are now deterministic across runs.
+        Map<String, String> normalised = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : testerMapping.entrySet()) {
+            normalised.put(entry.getKey().toLowerCase(), entry.getValue());
+        }
+        this.testerMapping = Collections.unmodifiableMap(normalised);
     }
     
     // ================================================================
