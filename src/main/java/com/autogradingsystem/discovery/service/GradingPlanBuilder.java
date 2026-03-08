@@ -5,6 +5,7 @@ import com.autogradingsystem.discovery.model.TesterMap;
 import com.autogradingsystem.model.GradingTask;
 import com.autogradingsystem.model.GradingPlan;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -13,171 +14,181 @@ import java.util.Set;
 
 /**
  * GradingPlanBuilder - Matches Testers to Questions and Builds Grading Plan
- * * PURPOSE:
- * - Takes discovered exam structure and testers
- * - Matches each question file with its corresponding tester
- * - Builds complete GradingPlan with all GradingTask objects
- * * MATCHING LOGIC:
- * - Question file: Q1a.java → Question ID: Q1a
- * - Tester file: Q1aTester.java → Question ID: Q1a
- * - Match: Q1a == Q1a → Create GradingTask ✅
- * * HANDLES EDGE CASES:
- * - Question without tester → Warning + Skip
- * - Tester without question → Ignored (not used)
- * - Helper files → Ignored (not graded directly)
- * * CHANGES FROM v3.0:
- * - Removed verbose logging (handled by DiscoveryController/Main.java)
- * - Keeps important warnings (missing testers)
- * - Cleaner method signatures
- * * @author IS442 Team
- * @version 4.0 (Spring Boot Microservices Structure)
+ *
+ * PURPOSE:
+ * - Takes discovered exam structure and tester map
+ * - Matches each template question file with its corresponding tester
+ * - Builds a complete GradingPlan with all GradingTask objects
+ *
+ * MATCHING LOGIC:
+ * - Question file : Q1a.java  -> Question ID: Q1a
+ * - Tester file   : Q1aTester.java -> Question ID: Q1a
+ * - Match: Q1a == Q1a (case-insensitive) -> Create GradingTask
+ *
+ * CHANGES IN v2.7:
+ * - resolveTemplateId() private helper introduced (DRY fix):
+ *     strips leading path segments ("src/Q1a.java" -> "Q1a") then extension.
+ *     Used by BOTH buildPlan() and isCompatible() so they can never disagree.
+ * - O(1) tester lookup via HashMap.get(id.toLowerCase()) instead of O(n) loop.
+ *     TesterMap keys are already normalised to lowercase by TesterDiscovery.
+ * - assignedTaskIds Set prevents both Q1a.java AND Q1a.class from creating
+ *     two GradingTask objects (double-score bug). .java wins; .class is [DUPLICATE].
+ * - Per-folder [WARNING] when a Q folder has gradable files but produced 0 tasks.
+ * - Empty-plan guard: if tasks.isEmpty() after all folders, logs a clear message
+ *     and throws IOException — execution phase never runs with nothing to grade.
+ * - isCompatible() uses resolveTemplateId() + lowercase get(), identical to buildPlan().
+ *
+ * @author IS442 Team
+ * @version 2.7
  */
 public class GradingPlanBuilder {
-    
+
     /**
-     * Builds complete grading plan from exam structure and testers
-     * * WORKFLOW:
-     * 1. For each question folder (Q1, Q2, Q3):
-     * a. For each .java file in folder:
-     * i. Extract question ID from filename
-     * ii. Look up tester for this question ID
-     * iii. If tester found → Create GradingTask
-     * iv. If no tester → Warn and skip
-     * 2. Collect all GradingTask objects
-     * 3. Build and return GradingPlan
-     * * EXAMPLE:
-     * * ExamStructure:
-     * Q1: [Q1a.java, Q1b.java]
-     * Q2: [Q2a.java, Q2b.java]
-     * Q3: [Q3.java, ShapeComparator.java]
-     * * TesterMap:
-     * Q1a → Q1aTester.java
-     * Q1b → Q1bTester.java
-     * Q2a → Q2aTester.java
-     * Q2b → Q2bTester.java
-     * Q3 → Q3Tester.java
-     * * Output GradingPlan contains:
-     * GradingTask(Q1a, Q1aTester.java, Q1, Q1a.java)
-     * GradingTask(Q1b, Q1bTester.java, Q1, Q1b.java)
-     * GradingTask(Q2a, Q2aTester.java, Q2, Q2a.java)
-     * GradingTask(Q2b, Q2bTester.java, Q2, Q2b.java)
-     * GradingTask(Q3, Q3Tester.java, Q3, Q3.java)
-     * [ShapeComparator.java skipped - no tester]
-     * * @param structure ExamStructure discovered from template
-     * @param testerMap TesterMap discovered from testers directory
-     * @return GradingPlan containing all matched grading tasks
+     * Builds complete grading plan from exam structure and testers.
+     *
+     * WORKFLOW:
+     * 1. For each question folder in ExamStructure (Q1, Q2, Q3):
+     *    a. For each file in the folder:
+     *       i.  Skip system junk (.DS_Store, __MACOSX)
+     *       ii. Skip data files (.txt, .csv) — log as [DATA FILE]
+     *       iii.Extract question ID via resolveTemplateId()
+     *       iv. O(1) tester lookup (case-insensitive via lowercase key)
+     *       v.  If already assigned -> log [DUPLICATE] and skip
+     *       vi. If matched -> create GradingTask, mark ID as assigned
+     *       vii.If no match -> log [HELPER] (used for compilation only)
+     *    b. After each folder: if it had gradable files but 0 tasks, log [WARNING]
+     * 2. After all folders: if 0 tasks total, log clear message and throw IOException
+     *
+     * @param structure ExamStructure from TemplateDiscovery
+     * @param testerMap TesterMap from TesterDiscovery
+     * @return GradingPlan with all matched tasks
+     * @throws IOException if no tasks could be matched
      */
-    public GradingPlan buildPlan(ExamStructure structure, TesterMap testerMap) {
+    public GradingPlan buildPlan(ExamStructure structure, TesterMap testerMap)
+            throws IOException {
+
         List<GradingTask> tasks = new ArrayList<>();
         Map<String, List<String>> questionFiles = structure.getQuestionFiles();
 
-        // GPB-2 fix: track question IDs that already have a task to prevent duplicates.
-        // Without this, both Q1a.java AND Q1a.class would each match Q1aTester and create
-        // two GradingTask objects - causing ExecutionController to grade Q1a twice per student.
-        // Priority: .java is preferred over .class (processed first due to alphabetical sort).
+        // Tracks which question IDs already have a GradingTask.
+        // Prevents Q1a.java AND Q1a.class from both creating tasks (double-score bug).
+        // .java is processed first (alphabetical sort in TemplateDiscovery), so it wins.
         Set<String> assignedTaskIds = new HashSet<>();
 
-        System.out.println("   🔍 Finalizing Grading Plan...");
+        System.out.println("   \uD83D\uDD0D Finalizing Grading Plan...");
 
         for (String questionFolder : questionFiles.keySet()) {
             List<String> filesInFolder = questionFiles.get(questionFolder);
-            int tasksBeforeFolder = tasks.size(); // snapshot before processing this folder
+            int tasksBeforeFolder = tasks.size();
 
             for (String fileName : filesInFolder) {
-                // 1. Silently skip system junk
-                if (fileName.equalsIgnoreCase(".DS_Store") || fileName.contains("__MACOSX")) continue;
 
-                // 2. Identify Data Files (.txt, .csv, etc.)
-                if (!fileName.toLowerCase().endsWith(".java") && !fileName.toLowerCase().endsWith(".class")) {
-                    System.out.println("      ℹ️  [DATA FILE] " + fileName + ": Required dependency for " + questionFolder + ".");
+                // 1. Skip OS/system junk silently
+                if (fileName.equalsIgnoreCase(".DS_Store")
+                        || fileName.contains("__MACOSX")) continue;
+
+                // 2. Skip data files — they are dependencies, not gradeable submissions
+                String lower = fileName.toLowerCase();
+                if (!lower.endsWith(".java") && !lower.endsWith(".class")) {
+                    System.out.println("      \u2139\uFE0F  [DATA FILE] " + fileName
+                        + ": Required dependency for " + questionFolder + ".");
                     continue;
                 }
 
-                // 3. Extract clean question ID from filename.
+                // 3. Resolve clean question ID.
                 //    resolveTemplateId() handles both flat ("Q1a.java") and nested
-                //    ("src/Q1a.java") paths consistently in one place. [Fix-9: DRY]
+                //    ("src/Q1a.java") paths.  Single source of truth — same method
+                //    used by isCompatible() below.
                 String templateName = resolveTemplateId(fileName);
 
-                // 4. O(1) tester lookup via pre-normalised lowercase key. [Fix-2]
-                //    TesterMap now stores all keys in lowercase so direct get() works.
-                String matchedTester = testerMap.getTesterMapping().get(templateName.toLowerCase());
+                // 4. O(1) tester lookup.
+                //    TesterDiscovery normalises all keys to lowercase, so we look up
+                //    with lowercase to guarantee a match regardless of original casing.
+                String matchedTester = testerMap.getTesterMapping()
+                        .get(templateName.toLowerCase());
 
-                // 5. Categorize based on match result
+                // 5. Categorise
                 if (matchedTester != null) {
-                    // GPB-2 fix: check if this question ID already has a task assigned.
-                    // This prevents both Q1a.java and Q1a.class from creating duplicate tasks.
+
+                    // Guard: skip if this question ID already has a task (.java wins)
                     if (assignedTaskIds.contains(templateName.toLowerCase())) {
-                        System.out.println("      ⚠️  [DUPLICATE] " + fileName + ": Task for '" + templateName + "' already assigned (preferring .java over .class). Skipping.");
+                        System.out.println("      \u26A0\uFE0F  [DUPLICATE] " + fileName
+                            + ": Task for '" + templateName
+                            + "' already assigned (preferring .java). Skipping.");
                         continue;
                     }
-                    // Use the template's exact casing for the Task ID
-                    tasks.add(new GradingTask(templateName, matchedTester, questionFolder, fileName));
+
+                    tasks.add(new GradingTask(templateName, matchedTester,
+                            questionFolder, fileName));
                     assignedTaskIds.add(templateName.toLowerCase());
-                    System.out.println("      ✅ [TASK] " + templateName + ": Matched with answer key " + matchedTester + ".");
+                    System.out.println("      \u2705 [TASK] " + templateName
+                        + ": Matched with answer key " + matchedTester + ".");
+
                 } else {
-                    System.out.println("      💡 [HELPER] " + templateName + ": Supporting code found. Used for compilation only.");
+                    System.out.println("      \uD83D\uDCA1 [HELPER] " + templateName
+                        + ": Supporting code found. Used for compilation only.");
                 }
             }
 
-            // NEW-E fix: warn if an entire Q folder produced 0 gradable tasks.
-            // Without this, a missing Q4Tester shows individual [HELPER] lines per file
-            // but no folder-level signal that the whole question was skipped.
-            // This helps instructors quickly spot a missing tester for an entire question.
+            // Folder-level warning: gradable files were present but nothing matched.
+            // Helps instructors spot a completely missing tester for a whole question.
             int tasksFromFolder = tasks.size() - tasksBeforeFolder;
             boolean folderHadGradableFiles = filesInFolder.stream()
-                .anyMatch(f -> f.toLowerCase().endsWith(".java") || f.toLowerCase().endsWith(".class"));
+                .anyMatch(f -> f.toLowerCase().endsWith(".java")
+                             || f.toLowerCase().endsWith(".class"));
+
             if (folderHadGradableFiles && tasksFromFolder == 0) {
-                System.out.println("      ⚠️  [WARNING] " + questionFolder + ": Found gradable files but no matching tester. "
-                    + "Entire folder skipped. Ensure a tester like '"
-                    + questionFolder + "Tester.java' exists in the testers directory.");
+                System.out.println("      \u26A0\uFE0F  [WARNING] " + questionFolder
+                    + ": Found gradable files but no matching tester. "
+                    + "Entire folder skipped. "
+                    + "Ensure a tester like '" + questionFolder + "Tester.java' "
+                    + "exists in the testers directory.");
             }
         }
-        
-        // GPB-1 fix: warn clearly if no tasks were matched instead of silently
-        // returning an empty plan. Without this, the program runs to completion
-        // grading nobody and showing no results - very hard to diagnose.
+
+        // Empty-plan guard: never let execution run with zero tasks
         if (tasks.isEmpty()) {
-            System.out.println("   ⚠️  WARNING: 0 gradable tasks could be mapped!");
+            System.out.println("   \u26A0\uFE0F  WARNING: 0 gradable tasks could be mapped!");
             System.out.println("      Check that tester filenames match template filenames.");
             System.out.println("      Example: Q1a.java in template needs Q1aTester.java in testers/");
+            throw new IOException(
+                "Grading plan is empty — no template files matched any tester.\n" +
+                "Ensure tester names follow the convention: Q<n>[a-z]Tester.java\n" +
+                "Example: Q1aTester.java matches Q1a.java in the template."
+            );
         }
 
-        System.out.println("   🏁 Successfully mapped " + tasks.size() + " gradable tasks.");
+        System.out.println("   \uD83C\uDFC1 Successfully mapped " + tasks.size()
+            + " gradable task(s).");
         return new GradingPlan(tasks);
     }
-    
+
     /**
-     * Validates that exam structure and tester map are compatible
-     * 
-     * CHECKS:
-     * - At least one question file exists
-     * - At least one tester exists
-     * - At least one match possible
-     * 
-     * CONSISTENCY NOTE:
-     * - Uses the same inline dot-strip + case-insensitive lookup logic as buildPlan()
-     * - Previously called a private extractQuestionId() with different logic, which
-     *   could cause isCompatible() and buildPlan() to disagree on matches. Removed.
-     * 
+     * Pre-check: returns true if at least one tester-question match is possible.
+     *
+     * Uses exactly the same resolveTemplateId() + lowercase get() logic as buildPlan()
+     * so that isCompatible() and buildPlan() can never disagree about what matches.
+     *
      * @param structure ExamStructure to validate
      * @param testerMap TesterMap to validate
-     * @return true if compatible, false otherwise
+     * @return true if at least one match found, false otherwise
      */
     public boolean isCompatible(ExamStructure structure, TesterMap testerMap) {
 
         if (structure.getQuestionFiles().isEmpty()) return false;
         if (testerMap.getTesterMapping().isEmpty()) return false;
 
-        // Uses resolveTemplateId() + O(1) lowercase get() — identical logic to buildPlan().
-        // [Fix-1: stale T-27 bug in old isCompatible] [Fix-9: DRY] [Fix-2: O(1) lookup]
         for (List<String> files : structure.getQuestionFiles().values()) {
             for (String file : files) {
-                if (file.equalsIgnoreCase(".DS_Store") || file.contains("__MACOSX")) continue;
+                if (file.equalsIgnoreCase(".DS_Store")
+                        || file.contains("__MACOSX")) continue;
+
                 String fileLower = file.toLowerCase();
                 if (!fileLower.endsWith(".java") && !fileLower.endsWith(".class")) continue;
 
                 String templateName = resolveTemplateId(file);
-                if (testerMap.getTesterMapping().containsKey(templateName.toLowerCase())) {
+                if (testerMap.getTesterMapping()
+                        .containsKey(templateName.toLowerCase())) {
                     return true;
                 }
             }
@@ -185,28 +196,35 @@ public class GradingPlanBuilder {
         return false;
     }
 
+    // ================================================================
+    // PRIVATE HELPER
+    // ================================================================
+
     /**
-     * Extracts a clean question ID from a filename, handling both flat and nested paths.
+     * Resolves a raw filename (or relative path) to a clean question ID.
      *
-     * EXAMPLES:
-     *   "Q1a.java"      → "Q1a"   (flat, direct in Q folder)
-     *   "src/Q1a.java"  → "Q1a"   (nested, T-27 fix)
-     *   "Q1a.class"     → "Q1a"
-     *   "Q1a"           → "Q1a"   (no extension)
+     * STEP 1 — strip path prefix:
+     *   "src/Q1a.java"  ->  "Q1a.java"
+     *   "Q1a.java"      ->  "Q1a.java"  (unchanged)
      *
-     * Used by both buildPlan() and isCompatible() to guarantee they always
-     * agree on what constitutes a valid match. [Fix-9: DRY, Fix-1: consistency]
+     * STEP 2 — strip extension:
+     *   "Q1a.java"  ->  "Q1a"
+     *   "Q1a.class" ->  "Q1a"
+     *   "Q1a"       ->  "Q1a"  (no dot, returned as-is)
      *
-     * @param fileName raw filename or relative path from ExamStructure file list
-     * @return base name without extension and without any leading path segments
+     * This is the single source of truth for filename -> questionId conversion.
+     * Both buildPlan() and isCompatible() call this method so they always agree.
+     *
+     * @param fileName raw filename or relative path from ExamStructure
+     * @return clean question ID (e.g. "Q1a")
      */
     private String resolveTemplateId(String fileName) {
-        // Strip leading path segments (e.g. "src/Q1a.java" → "Q1a.java")
+        // Strip any leading path segments
         String baseName = fileName.contains("/")
             ? fileName.substring(fileName.lastIndexOf('/') + 1)
             : fileName;
         // Strip extension
-        int dotIndex = baseName.lastIndexOf('.');
-        return (dotIndex == -1) ? baseName : baseName.substring(0, dotIndex);
+        int dot = baseName.lastIndexOf('.');
+        return (dot == -1) ? baseName : baseName.substring(0, dot);
     }
 }

@@ -5,6 +5,7 @@ import com.autogradingsystem.extraction.model.ValidationResult.Status;
 
 import java.io.IOException;
 import java.nio.file.*;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -262,8 +263,21 @@ public class StudentValidator {
                 // Scan each Java file
                 for (Path javaFile : javaFiles) {
                     
-                    // Read file line by line
-                    for (String line : Files.readAllLines(javaFile)) {
+                    // Read file line by line.
+                    // Files.readAllLines() defaults to UTF-8 and throws
+                    // MalformedInputException if the file contains non-UTF-8 bytes
+                    // (e.g. student used a Chinese/Malay character or smart quote).
+                    // We fall back to ISO-8859-1, which accepts every possible byte
+                    // value and never throws — so Layer 3 always completes.
+                    List<String> lines;
+                    try {
+                        lines = Files.readAllLines(javaFile,
+                                java.nio.charset.StandardCharsets.UTF_8);
+                    } catch (java.nio.charset.MalformedInputException e) {
+                        lines = Files.readAllLines(javaFile,
+                                java.nio.charset.StandardCharsets.ISO_8859_1);
+                    }
+                    for (String line : lines) {
                         
                         Matcher matcher = authorPattern.matcher(line);
                         
