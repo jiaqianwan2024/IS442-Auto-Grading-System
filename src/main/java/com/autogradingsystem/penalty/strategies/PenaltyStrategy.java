@@ -1,6 +1,6 @@
 package com.autogradingsystem.penalty.strategies;
 
-import com.autogradingsystem.penalty.GradingResult;
+import com.autogradingsystem.penalty.model.PenaltyGradingResult;
 
 /**
  * Strategy interface for penalty calculations.
@@ -16,5 +16,5 @@ public interface PenaltyStrategy {
      * @param result The GradingResult containing information about the submission
      * @return The deduction amount (should be non-negative)
      */
-    double calculateDeduction(GradingResult result);
+    double calculateDeduction(PenaltyGradingResult result);
 }
