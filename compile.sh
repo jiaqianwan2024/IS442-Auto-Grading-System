@@ -19,7 +19,6 @@ javac -d bin -cp "$CP" \
   src/main/java/com/autogradingsystem/penalty/model/*.java \
   src/main/java/com/autogradingsystem/penalty/strategies/*.java \
   src/main/java/com/autogradingsystem/penalty/service/*.java \
-  src/main/java/com/autogradingsystem/penalty/*.java \
   src/main/java/com/autogradingsystem/extraction/controller/*.java \
   src/main/java/com/autogradingsystem/discovery/controller/*.java \
   src/main/java/com/autogradingsystem/execution/controller/*.java \
