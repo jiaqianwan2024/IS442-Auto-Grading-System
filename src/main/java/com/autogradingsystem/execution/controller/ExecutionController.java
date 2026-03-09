@@ -17,22 +17,21 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Stream; // <-- ADDED MISSING IMPORT
 
 /**
  * ExecutionController - Orchestrates Phase 3 (Grading Execution)
-* PURPOSE:
+ * PURPOSE:
  * - Coordinates grading execution workflow
  * - Acts as entry point for execution service
  * - Called by Main.java during grading phase
- * 
- * RESPONSIBILITIES:
+ * * RESPONSIBILITIES:
  * - Load all students from extracted directory
  * - Execute grading for each student and task
  * - Compile student code + testers
  * - Run testers and capture output
  * - Parse scores and create results
  */
-
 public class ExecutionController {
 
     private final TesterInjector testerInjector;
@@ -88,44 +87,65 @@ public class ExecutionController {
 
     private GradingResult gradeTask(Student student, GradingTask task) throws IOException {
 
-        // Use the student's actual rootPath directly, not PathConfig reconstruction
-        Path questionFolder = student.getRootPath().resolve(task.getStudentFolder());
-        Path javaFile       = questionFolder.resolve(task.getStudentFile());
-        String classFileName = task.getStudentFile().replace(".java", ".class");
-        Path classFile       = questionFolder.resolve(classFileName);
+        // Strategy: locate the student's file using a two-step approach.
+        //   Step 1 - Exact path lookup (fast, covers correct submissions):
+        //            student/<Q1>/<Q1a.java>
+        //   Step 2 - Recursive case-insensitive search across entire student folder.
+        //            Handles: wrong Q folder, nested subfolders, wrong casing.
+        //            e.g. Q2/Q1a.java, Q1/src/Q1a.java, q1a.java
 
-        boolean hasJava  = Files.exists(javaFile);
+        Path   studentRoot   = student.getRootPath();
+        String expectedFile  = task.getStudentFile();                   // e.g. "Q1a.java"
+        String expectedClass = expectedFile.replace(".java", ".class"); // e.g. "Q1a.class"
+
+        // Step 1 - exact path
+        Path questionFolder = studentRoot.resolve(task.getStudentFolder());
+        Path javaFile       = questionFolder.resolve(expectedFile);
+        Path classFile      = questionFolder.resolve(expectedClass);
+
+        boolean hasJava = Files.exists(javaFile);
         boolean hasClass = Files.exists(classFile);
 
-        // ── FILE NOT FOUND ──────────────────────────────────────────────────
+        // Step 2 - recursive fallback if exact path failed
+        if (!hasJava && !hasClass) {
+            Path foundJava  = findFileRecursive(studentRoot, expectedFile);
+            Path foundClass = findFileRecursive(studentRoot, expectedClass);
+
+            if (foundJava != null) {
+                javaFile       = foundJava;
+                questionFolder = foundJava.getParent();
+                hasJava        = true;
+                System.out.println("      ⚠️  [RELOCATED] " + expectedFile
+                    + " found at: " + studentRoot.relativize(foundJava)
+                    + " (expected: " + task.getStudentFolder() + "/" + expectedFile + ")");
+            } else if (foundClass != null) {
+                classFile      = foundClass;
+                questionFolder = foundClass.getParent();
+                hasClass       = true;
+                System.out.println("      ⚠️  [RELOCATED] " + expectedClass
+                    + " found at: " + studentRoot.relativize(foundClass)
+                    + " (expected: " + task.getStudentFolder() + "/" + expectedClass + ")");
+            }
+        }
+
+        // FILE NOT FOUND - file not found anywhere in student folder
         if (!hasJava && !hasClass) {
             return new GradingResult(
                 student, task, 0.0,
-                buildFileNotFoundMessage(task.getStudentFile(), questionFolder),
+                buildFileNotFoundMessage(expectedFile, studentRoot),
                 "FILE_NOT_FOUND"
             );
         }
 
-        // ── INJECT TESTER + DATA FILES ──────────────────────────────────────
         try {
             testerInjector.copyTester(task.getTesterFile(), questionFolder, task.getStudentFolder());
         } catch (IOException e) {
-            return new GradingResult(
-                student, task, 0.0,
-                "Tester copy failed: " + e.getMessage(),
-                "TESTER_COPY_FAILED"
-            );
+            return new GradingResult(student, task, 0.0, "Tester copy failed.", "TESTER_COPY_FAILED");
         }
 
-        // ── COMPILE (skip if .class-only submission) ────────────────────────
         if (hasJava) {
-            boolean compiled = compilerService.compile(questionFolder);
-            if (!compiled) {
-                return new GradingResult(
-                    student, task, 0.0,
-                    "Compilation failed — check student code for syntax errors or package declarations.",
-                    "COMPILATION_FAILED"
-                );
+            if (!compilerService.compile(questionFolder)) {
+                return new GradingResult(student, task, 0.0, "Compilation failed.", "COMPILATION_FAILED");
             }
         }
 
@@ -133,33 +153,37 @@ public class ExecutionController {
         String testerClass = task.getTesterFile().replace(".java", "");
         String output = processRunner.runTester(testerClass, questionFolder);
 
+        // ── PARSE SCORE & APPLY RUBRIC CLAMP ────────────────────────────────
+        double rawScore = outputParser.parseScore(output);
+        
+        // Hardcoded rubric to prevent infinite loop score inflation
+        double maxAllowed = 0.0;
+        switch (task.getQuestionId().toUpperCase()) {
+            case "Q1A": maxAllowed = 3.0; break;
+            case "Q1B": maxAllowed = 3.0; break;
+            case "Q2A": maxAllowed = 5.0; break;
+            case "Q2B": maxAllowed = 5.0; break;
+            case "Q3":  maxAllowed = 4.0; break;
+        }
+        
+        // Clamp the score so it never exceeds the max allowed
+        double finalScore = Math.min(rawScore, maxAllowed);
+
         // ── DETECT RUNTIME FAILURES ─────────────────────────────────────────
-        if (output != null && output.toUpperCase().startsWith("TIMEOUT")) {
-            return new GradingResult(student, task, 0.0, output, "TIMEOUT");
+        if (output != null && output.toUpperCase().contains("TIMEOUT")) {
+            return new GradingResult(student, task, finalScore, output, "TIMEOUT");
         }
-        if (output != null && output.toUpperCase().startsWith("ERROR")) {
-            return new GradingResult(student, task, 0.0, output, "RUNTIME_ERROR");
+        if (output != null && output.toUpperCase().contains("ERROR")) {
+            return new GradingResult(student, task, finalScore, output, "RUNTIME_ERROR");
         }
 
-        // ── PARSE SCORE ─────────────────────────────────────────────────────
-        double score = outputParser.parseScore(output);
-        return new GradingResult(student, task, score, output);
+        return new GradingResult(student, task, finalScore, output, "COMPLETED");
     }
-
+    
     // ─────────────────────────────────────────────────────────────────────────
     // Private: helpers
     // ─────────────────────────────────────────────────────────────────────────
 
-    /**
-     * Scans OUTPUT_EXTRACTED and returns one Student per subdirectory.
-     *
-     * EDGE CASES:
-     * - Skips __MACOSX folders created by macOS ZIP tools
-     * - Strips date prefixes like "2023-2024-" from folder names so the
-     *   student ID matches the username in the score sheet
-     * - Uses the actual folder Path as rootPath so gradeTask() never
-     *   needs to re-resolve through PathConfig
-     */
     /**
      * Scans OUTPUT_EXTRACTED and returns one Student per subdirectory.
      */
@@ -228,11 +252,6 @@ public class ExecutionController {
 
     /**
      * Strips leading YYYY- or YYYY-YYYY- prefixes from folder names.
-     *
-     * EXAMPLES:
-     * "2023-2024-chee.teo.2022" → "chee.teo.2022"
-     * "2024-david.2024"         → "david.2024"
-     * "chee.teo.2022"           → "chee.teo.2022" (unchanged)
      */
     private String stripDatePrefix(String folderName) {
         String result = folderName.replaceFirst("^(\\d{4}-)+", "");
@@ -273,6 +292,24 @@ public class ExecutionController {
         return sb.toString();
     }
 
+    // ── RESTORED MISSING METHOD ─────────────────────────────────────────────
+    /**
+     * Recursively searches for a file by name (case-insensitive) within a directory tree.
+     * Used as a fallback when the exact expected path doesn't exist.
+     */
+    private Path findFileRecursive(Path root, String filename) {
+        try (Stream<Path> walk = Files.walk(root)) {
+            return walk
+                .filter(Files::isRegularFile)
+                .filter(p -> p.getFileName().toString().equalsIgnoreCase(filename))
+                .findFirst()
+                .orElse(null);
+        } catch (IOException e) {
+            return null; // Non-fatal: if walk fails, treat as not found
+        }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     /** Prints a concise one-line result per task, plus the raw tester output. */
     private void logTaskResult(GradingTask task, GradingResult result) {
         String symbol;
@@ -294,13 +331,9 @@ public class ExecutionController {
                 + result.getStatus() + ")");
 
         // --- NEW CODE TO SHOW EXPECTED/ACTUAL OUTPUT ---
-        // If there is captured output from the tester, print it to the terminal
         if (result.getOutput() != null && !result.getOutput().trim().isEmpty()) {
             System.out.println("      --- Tester Output ---");
-            
-            // This prints the actual Expected / Actual lines from your tester file
             System.out.println(result.getOutput()); 
-            
             System.out.println("      ---------------------");
         }
     }
