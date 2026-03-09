@@ -112,24 +112,27 @@ public class TesterInjector {
 
         Path source = sourceDir.resolve(filename);
         Path dest   = destinationFolder.resolve(filename);
+        String content;
 
+        // 1. Read the master file
         if (Files.exists(source)) {
-            Files.copy(source, dest, StandardCopyOption.REPLACE_EXISTING);
-            return;
+            content = Files.readString(source);
+        } else {
+            String resourcePath = "testers/" + filename;
+            try (InputStream in = getClass().getClassLoader().getResourceAsStream(resourcePath)) {
+                if (in == null) throw new IOException("Tester not found: " + filename);
+                content = new String(in.readAllBytes());
+            }
         }
 
-        // Fallback: classpath (JAR deployment)
-        String resourcePath = "testers/" + filename;
-        try (InputStream in = getClass().getClassLoader().getResourceAsStream(resourcePath)) {
-            if (in == null) {
-                throw new IOException(
-                    "Tester not found: " + filename + "\n"
-                    + "  Filesystem: " + source + "\n"
-                    + "  Classpath:  " + resourcePath + "\n"
-                    + "Ensure the file exists in resources/input/testers/");
-            }
-            Files.copy(in, dest, StandardCopyOption.REPLACE_EXISTING);
-        }
+        // 2. THE NINJA MOVE: Inject partial score tracking
+        String injectedContent = content.replaceAll(
+            "(?i)(score\\s*\\+=\\s*[^;]+;)", 
+            "$1 System.out.println(\"PARTIAL_SCORE:\" + score); System.out.flush();"
+        );
+
+        // 3. Write injected code to student folder
+        Files.writeString(dest, injectedContent);
     }
 
     /**

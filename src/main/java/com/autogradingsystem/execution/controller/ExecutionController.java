@@ -89,76 +89,45 @@ public class ExecutionController {
 
     private GradingResult gradeTask(Student student, GradingTask task) throws IOException {
 
-        // Strategy: locate the student's file using a two-step approach.
-        //   Step 1 - Exact path lookup (fast, covers correct submissions):
-        //            student/<Q1>/<Q1a.java>
-        //   Step 2 - Recursive case-insensitive search across entire student folder.
-        //            Handles: wrong Q folder, nested subfolders, wrong casing.
-        //            e.g. Q2/Q1a.java, Q1/src/Q1a.java, q1a.java
+        Path studentRoot = student.getRootPath();
+        String expectedFile = task.getStudentFile();
+        String expectedClass = expectedFile.replace(".java", ".class"); 
 
-        Path   studentRoot   = student.getRootPath();
-        String expectedFile  = task.getStudentFile();                   // e.g. "Q1a.java"
-        String expectedClass = expectedFile.replace(".java", ".class"); // e.g. "Q1a.class"
-
-        // Step 1 - exact path
         Path questionFolder = studentRoot.resolve(task.getStudentFolder());
-        Path javaFile       = questionFolder.resolve(expectedFile);
-        Path classFile      = questionFolder.resolve(expectedClass);
+        Path javaFile = questionFolder.resolve(expectedFile);
+        Path classFile = questionFolder.resolve(expectedClass);
 
-        boolean hasJava  = Files.exists(javaFile);
+        boolean hasJava = Files.exists(javaFile);
         boolean hasClass = Files.exists(classFile);
 
-        // Step 2 - recursive fallback if exact path failed
         if (!hasJava && !hasClass) {
-            Path foundJava  = findFileRecursive(studentRoot, expectedFile);
+            Path foundJava = findFileRecursive(studentRoot, expectedFile);
             Path foundClass = findFileRecursive(studentRoot, expectedClass);
 
             if (foundJava != null) {
-                javaFile       = foundJava;
+                javaFile = foundJava;
                 questionFolder = foundJava.getParent();
-                hasJava        = true;
-                System.out.println("      \u26a0\ufe0f  [RELOCATED] " + expectedFile
-                    + " found at: " + studentRoot.relativize(foundJava)
-                    + " (expected: " + task.getStudentFolder() + "/" + expectedFile + ")");
+                hasJava = true;
             } else if (foundClass != null) {
-                classFile      = foundClass;
+                classFile = foundClass;
                 questionFolder = foundClass.getParent();
-                hasClass       = true;
-                System.out.println("      \u26a0\ufe0f  [RELOCATED] " + expectedClass
-                    + " found at: " + studentRoot.relativize(foundClass)
-                    + " (expected: " + task.getStudentFolder() + "/" + expectedClass + ")");
+                hasClass = true;
             }
         }
 
-        // FILE NOT FOUND - file not found anywhere in student folder
         if (!hasJava && !hasClass) {
-            return new GradingResult(
-                student, task, 0.0,
-                buildFileNotFoundMessage(expectedFile, studentRoot),
-                "FILE_NOT_FOUND"
-            );
+            return new GradingResult(student, task, 0.0, "File not found.", "FILE_NOT_FOUND");
         }
 
-        // ── INJECT TESTER + DATA FILES ──────────────────────────────────────
         try {
             testerInjector.copyTester(task.getTesterFile(), questionFolder, task.getStudentFolder());
         } catch (IOException e) {
-            return new GradingResult(
-                student, task, 0.0,
-                "Tester copy failed: " + e.getMessage(),
-                "TESTER_COPY_FAILED"
-            );
+            return new GradingResult(student, task, 0.0, "Tester copy failed.", "TESTER_COPY_FAILED");
         }
 
-        // ── COMPILE (skip if .class-only submission) ────────────────────────
         if (hasJava) {
-            boolean compiled = compilerService.compile(questionFolder);
-            if (!compiled) {
-                return new GradingResult(
-                    student, task, 0.0,
-                    "Compilation failed — check student code for syntax errors or package declarations.",
-                    "COMPILATION_FAILED"
-                );
+            if (!compilerService.compile(questionFolder)) {
+                return new GradingResult(student, task, 0.0, "Compilation failed.", "COMPILATION_FAILED");
             }
         }
 
@@ -166,19 +135,34 @@ public class ExecutionController {
         String testerClass = task.getTesterFile().replace(".java", "");
         String output = processRunner.runTester(testerClass, questionFolder);
 
+        // ── PARSE SCORE & APPLY RUBRIC CLAMP ────────────────────────────────
+        double rawScore = outputParser.parseScore(output);
+        
+        // Hardcoded rubric to prevent infinite loop score inflation
+        double maxAllowed = 0.0;
+        switch (task.getQuestionId().toUpperCase()) {
+            case "Q1A": maxAllowed = 3.0; break;
+            case "Q1B": maxAllowed = 3.0; break;
+            case "Q2A": maxAllowed = 5.0; break;
+            case "Q2B": maxAllowed = 5.0; break;
+            case "Q3":  maxAllowed = 4.0; break;
+        }
+        
+        // Clamp the score so it never exceeds the max allowed
+        double finalScore = Math.min(rawScore, maxAllowed);
+
         // ── DETECT RUNTIME FAILURES ─────────────────────────────────────────
-        if (output != null && output.toUpperCase().startsWith("TIMEOUT")) {
-            return new GradingResult(student, task, 0.0, output, "TIMEOUT");
+        if (output != null && output.toUpperCase().contains("TIMEOUT")) {
+            // CRITICAL FIX: We now pass finalScore instead of hardcoding 0.0
+            return new GradingResult(student, task, finalScore, output, "TIMEOUT");
         }
-        if (output != null && output.toUpperCase().startsWith("ERROR")) {
-            return new GradingResult(student, task, 0.0, output, "RUNTIME_ERROR");
+        if (output != null && output.toUpperCase().contains("ERROR")) {
+            return new GradingResult(student, task, finalScore, output, "RUNTIME_ERROR");
         }
 
-        // ── PARSE SCORE ─────────────────────────────────────────────────────
-        double score = outputParser.parseScore(output);
-        return new GradingResult(student, task, score, output);
+        return new GradingResult(student, task, finalScore, output, "COMPLETED");
     }
-
+    
     // ─────────────────────────────────────────────────────────────────────────
     // Private: helpers
     // ─────────────────────────────────────────────────────────────────────────
