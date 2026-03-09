@@ -1,6 +1,6 @@
 package com.autogradingsystem.penalty.strategies;
 
-import com.autogradingsystem.penalty.GradingResult;
+import com.autogradingsystem.penalty.model.PenaltyGradingResult;
 
 /**
  * Penalty strategy for structural violations.
@@ -16,11 +16,11 @@ public class StructuralPenalty implements PenaltyStrategy {
     private static final double DEDUCTION_PERCENTAGE = 0.10;
 
     @Override
-    public double calculateDeduction(GradingResult result) {
+    public double calculateDeduction(PenaltyGradingResult result) {
         // Check if any structural requirement is violated
         boolean hasStructuralViolation = !result.isNamingCorrect() ||
-                                         !result.isHasProperHierarchy() ||
-                                         !result.isHasHeaders();
+                                         !result.hasProperHierarchy() ||
+                                         !result.hasHeaders();
 
         if (hasStructuralViolation) {
             return result.getMaxPossibleScore() * DEDUCTION_PERCENTAGE;

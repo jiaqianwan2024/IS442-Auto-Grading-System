@@ -160,6 +160,9 @@ public class ExecutionController {
      * - Uses the actual folder Path as rootPath so gradeTask() never
      *   needs to re-resolve through PathConfig
      */
+    /**
+     * Scans OUTPUT_EXTRACTED and returns one Student per subdirectory.
+     */
     private List<Student> loadStudents() throws IOException {
         List<Student> students = new ArrayList<>();
 
@@ -171,16 +174,56 @@ public class ExecutionController {
 
                 String folderName = dir.getFileName().toString();
 
-                // Skip __MACOSX and other hidden/system folders
+                // Skip __MACOSX - This is crucial for Windows machines!
                 if (folderName.startsWith("__") || folderName.startsWith(".")) continue;
 
-                // Strip leading date prefixes e.g. "2023-2024-chee.teo.2022" → "chee.teo.2022"
+                // Strip leading date prefixes
                 String studentId = stripDatePrefix(folderName);
 
-                students.add(new Student(studentId, dir));
+                // --- FIX: Handle Nested Folders ---
+                Path actualRoot = findActualStudentRoot(dir);
+
+                students.add(new Student(studentId, actualRoot));
             }
         }
         return students;
+    }
+
+    /** Helper: Searches for the actual folder containing the Q1, Q2 directories. */
+    private Path findActualStudentRoot(Path dir) throws IOException {
+        // 1. If the current directory already has Q folders, we are good.
+        if (hasQuestionFolders(dir)) {
+            return dir;
+        }
+
+        // 2. If not, look exactly one level deeper for the true root (e.g., chee.teo.2022)
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
+            for (Path subDir : stream) {
+                if (Files.isDirectory(subDir) && !subDir.getFileName().toString().startsWith("__")) {
+                    return subDir; // Use this nested folder as the real root
+                }
+            }
+        }
+        return dir; // Fallback
+    }
+
+    /** * Helper: Dynamically checks if a directory contains ANY question folders 
+     * by looking for folders that start with "Q" followed by a number (e.g., Q1, Q4, Q10).
+     */
+    private boolean hasQuestionFolders(Path dir) throws IOException {
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
+            for (Path entry : stream) {
+                if (Files.isDirectory(entry)) {
+                    String folderName = entry.getFileName().toString();
+                    
+                    // Regex: ^Q\\d+.* means "Starts with Q, followed by at least 1 digit, then anything"
+                    if (folderName.matches("^Q\\d+.*")) {
+                        return true; // Found a question folder!
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     /**
@@ -230,7 +273,7 @@ public class ExecutionController {
         return sb.toString();
     }
 
-    /** Prints a concise one-line result per task. */
+    /** Prints a concise one-line result per task, plus the raw tester output. */
     private void logTaskResult(GradingTask task, GradingResult result) {
         String symbol;
         switch (result.getStatus()) {
@@ -245,8 +288,20 @@ public class ExecutionController {
             default:                   symbol = "ℹ️ "; break;
         }
 
+        // Print the summary line
         System.out.println("   📝 " + task.getQuestionId() + "... "
                 + symbol + " " + result.getScore() + " points ("
                 + result.getStatus() + ")");
+
+        // --- NEW CODE TO SHOW EXPECTED/ACTUAL OUTPUT ---
+        // If there is captured output from the tester, print it to the terminal
+        if (result.getOutput() != null && !result.getOutput().trim().isEmpty()) {
+            System.out.println("      --- Tester Output ---");
+            
+            // This prints the actual Expected / Actual lines from your tester file
+            System.out.println(result.getOutput()); 
+            
+            System.out.println("      ---------------------");
+        }
     }
 }

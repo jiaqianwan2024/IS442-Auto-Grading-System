@@ -1,27 +1,61 @@
 package com.autogradingsystem.penalty.controller;
 
-import com.autogradingsystem.penalty.service.PenaltyCalculator;
+import com.autogradingsystem.penalty.model.PenaltyGradingResult;
+import com.autogradingsystem.penalty.model.ProcessedScore;
+import com.autogradingsystem.penalty.service.PenaltyService;
+import com.autogradingsystem.penalty.strategies.CompilationPenalty;
+import com.autogradingsystem.penalty.strategies.StructuralPenalty;
 
+import java.util.List;
+
+/**
+ * Entry-point controller for the penalty module.
+ *
+ * Responsibilities:
+ * - Configure default strategies for strategy-based penalties
+ * - Expose high-level methods for single-question and per-student processing
+ * - Keep orchestration logic out of calculator/strategy classes
+ */
 public class PenaltyController {
-    private PenaltyCalculator calculator;
+    public static final String DEFAULT_PENALTIES_CSV = "resources/input/penalties.csv";
+
+    private final PenaltyService penaltyService;
 
     public PenaltyController() {
-        this.calculator = new PenaltyCalculator();
-        // Adjust this path if your CSV is elsewhere
-        this.calculator.loadExternalPenalties("resources/input/penalties.csv");
+        this.penaltyService = new PenaltyService()
+                .registerStrategy(new StructuralPenalty())
+                .registerStrategy(new CompilationPenalty());
     }
 
-    // Step 1: Called for EACH question
-    public double calculateQuestionScore(String qName, double raw, boolean struct, boolean head, boolean comp) {
-        return calculator.calculateQuestionScore(qName, raw, struct, head, comp);
+    /**
+     * Applies configured strategy-based deductions to one result.
+     */
+    public ProcessedScore processSingleResult(PenaltyGradingResult result) {
+        return penaltyService.processPenalties(result);
     }
 
-    // Step 2: Called once at the end for the student
-    public double computeFinalTotal(String id, double totalPoints) {
-        return calculator.calculateFinalTotal(id, totalPoints);
+    /**
+     * Applies per-question deductions and then external/global deductions from default CSV.
+     */
+    public ProcessedScore processStudentResults(String studentId, List<PenaltyGradingResult> questionResults) {
+        return processStudentResults(studentId, questionResults, DEFAULT_PENALTIES_CSV);
     }
 
-    public String getPenaltyReport() {
-        return calculator.getFullReport();
+    /**
+     * Applies per-question deductions and then external/global deductions from given CSV.
+     */
+    public ProcessedScore processStudentResults(
+            String studentId,
+            List<PenaltyGradingResult> questionResults,
+            String penaltiesCsvPath) {
+        return penaltyService.processPenaltiesWithGlobalDeductions(
+                studentId,
+                questionResults,
+                penaltiesCsvPath
+        );
+    }
+
+    public int getConfiguredStrategyCount() {
+        return penaltyService.getStrategyCount();
     }
 }
