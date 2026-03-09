@@ -17,22 +17,21 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Stream; // <-- ADDED MISSING IMPORT
 
 /**
  * ExecutionController - Orchestrates Phase 3 (Grading Execution)
-* PURPOSE:
+ * PURPOSE:
  * - Coordinates grading execution workflow
  * - Acts as entry point for execution service
  * - Called by Main.java during grading phase
- * 
- * RESPONSIBILITIES:
+ * * RESPONSIBILITIES:
  * - Load all students from extracted directory
  * - Execute grading for each student and task
  * - Compile student code + testers
  * - Run testers and capture output
  * - Parse scores and create results
  */
-
 public class ExecutionController {
 
     private final TesterInjector testerInjector;
@@ -116,14 +115,14 @@ public class ExecutionController {
                 javaFile       = foundJava;
                 questionFolder = foundJava.getParent();
                 hasJava        = true;
-                System.out.println("      \u26a0\ufe0f  [RELOCATED] " + expectedFile
+                System.out.println("      ⚠️  [RELOCATED] " + expectedFile
                     + " found at: " + studentRoot.relativize(foundJava)
                     + " (expected: " + task.getStudentFolder() + "/" + expectedFile + ")");
             } else if (foundClass != null) {
                 classFile      = foundClass;
                 questionFolder = foundClass.getParent();
                 hasClass       = true;
-                System.out.println("      \u26a0\ufe0f  [RELOCATED] " + expectedClass
+                System.out.println("      ⚠️  [RELOCATED] " + expectedClass
                     + " found at: " + studentRoot.relativize(foundClass)
                     + " (expected: " + task.getStudentFolder() + "/" + expectedClass + ")");
             }
@@ -172,7 +171,6 @@ public class ExecutionController {
 
         // ── DETECT RUNTIME FAILURES ─────────────────────────────────────────
         if (output != null && output.toUpperCase().contains("TIMEOUT")) {
-            // CRITICAL FIX: We now pass finalScore instead of hardcoding 0.0
             return new GradingResult(student, task, finalScore, output, "TIMEOUT");
         }
         if (output != null && output.toUpperCase().contains("ERROR")) {
@@ -186,16 +184,6 @@ public class ExecutionController {
     // Private: helpers
     // ─────────────────────────────────────────────────────────────────────────
 
-    /**
-     * Scans OUTPUT_EXTRACTED and returns one Student per subdirectory.
-     *
-     * EDGE CASES:
-     * - Skips __MACOSX folders created by macOS ZIP tools
-     * - Strips date prefixes like "2023-2024-" from folder names so the
-     *   student ID matches the username in the score sheet
-     * - Uses the actual folder Path as rootPath so gradeTask() never
-     *   needs to re-resolve through PathConfig
-     */
     /**
      * Scans OUTPUT_EXTRACTED and returns one Student per subdirectory.
      */
@@ -264,11 +252,6 @@ public class ExecutionController {
 
     /**
      * Strips leading YYYY- or YYYY-YYYY- prefixes from folder names.
-     *
-     * EXAMPLES:
-     * "2023-2024-chee.teo.2022" → "chee.teo.2022"
-     * "2024-david.2024"         → "david.2024"
-     * "chee.teo.2022"           → "chee.teo.2022" (unchanged)
      */
     private String stripDatePrefix(String folderName) {
         String result = folderName.replaceFirst("^(\\d{4}-)+", "");
@@ -309,6 +292,24 @@ public class ExecutionController {
         return sb.toString();
     }
 
+    // ── RESTORED MISSING METHOD ─────────────────────────────────────────────
+    /**
+     * Recursively searches for a file by name (case-insensitive) within a directory tree.
+     * Used as a fallback when the exact expected path doesn't exist.
+     */
+    private Path findFileRecursive(Path root, String filename) {
+        try (Stream<Path> walk = Files.walk(root)) {
+            return walk
+                .filter(Files::isRegularFile)
+                .filter(p -> p.getFileName().toString().equalsIgnoreCase(filename))
+                .findFirst()
+                .orElse(null);
+        } catch (IOException e) {
+            return null; // Non-fatal: if walk fails, treat as not found
+        }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     /** Prints a concise one-line result per task, plus the raw tester output. */
     private void logTaskResult(GradingTask task, GradingResult result) {
         String symbol;
@@ -330,13 +331,9 @@ public class ExecutionController {
                 + result.getStatus() + ")");
 
         // --- NEW CODE TO SHOW EXPECTED/ACTUAL OUTPUT ---
-        // If there is captured output from the tester, print it to the terminal
         if (result.getOutput() != null && !result.getOutput().trim().isEmpty()) {
             System.out.println("      --- Tester Output ---");
-            
-            // This prints the actual Expected / Actual lines from your tester file
             System.out.println(result.getOutput()); 
-            
             System.out.println("      ---------------------");
         }
     }
