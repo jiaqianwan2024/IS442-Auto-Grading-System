@@ -1,21 +1,13 @@
-package com.autogradingsystem.penalty;
+package com.autogradingsystem.penalty.model;
 
 /**
- * Represents the final score after all penalties have been applied.
- * This is the output of the PenaltyService.
+ * Represents score details after all penalties are applied.
  */
 public class ProcessedScore {
-    private double rawScore;
-    private double totalDeduction;
-    private double finalScore;
+    private final double rawScore;
+    private final double totalDeduction;
+    private final double finalScore;
 
-    /**
-     * Constructs a ProcessedScore with the calculated values.
-     *
-     * @param rawScore        The original score before penalties
-     * @param totalDeduction  The total amount deducted from penalties
-     * @param finalScore      The final score after deductions (guaranteed >= 0)
-     */
     public ProcessedScore(double rawScore, double totalDeduction, double finalScore) {
         this.rawScore = rawScore;
         this.totalDeduction = totalDeduction;
