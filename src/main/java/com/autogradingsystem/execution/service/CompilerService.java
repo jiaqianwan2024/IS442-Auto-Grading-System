@@ -108,7 +108,14 @@ public class CompilerService {
     private void stripPackageDeclarations(List<Path> javaFiles) {
         for (Path file : javaFiles) {
             try {
-                List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
+                // Fall back to ISO-8859-1 if the file has non-UTF-8 bytes
+                // (mirrors the same fix in StudentValidator.extractUsernameFromComments)
+                List<String> lines;
+                try {
+                    lines = Files.readAllLines(file, StandardCharsets.UTF_8);
+                } catch (java.nio.charset.MalformedInputException e) {
+                    lines = Files.readAllLines(file, java.nio.charset.StandardCharsets.ISO_8859_1);
+                }
                 boolean changed = false;
 
                 for (int i = 0; i < lines.size(); i++) {
@@ -145,7 +152,13 @@ public class CompilerService {
             // Build command: javac -d <dir> -encoding UTF-8 -nowarn <file1> <file2> ...
             String dirPath = workingDir.toAbsolutePath().toString();
             StringBuilder cmd = new StringBuilder();
-            cmd.append("javac -d \"").append(dirPath)
+            // -cp ensures pre-compiled helper .class files in the same folder
+            // (e.g. DataException.class, Shape.class) are on the classpath.
+            // Without this, javac only searches the default bootclasspath and
+            // misses student-supplied .class dependencies even when they are
+            // sitting right next to the .java files being compiled.
+            cmd.append("javac -cp \"").append(dirPath)
+               .append("\" -d \"").append(dirPath)
                .append("\" -encoding UTF-8 -nowarn");
 
             for (Path f : javaFiles) {

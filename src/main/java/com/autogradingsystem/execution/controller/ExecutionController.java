@@ -17,6 +17,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Stream;
 
 /**
  * ExecutionController - Orchestrates Phase 3 (Grading Execution)
@@ -88,20 +89,52 @@ public class ExecutionController {
 
     private GradingResult gradeTask(Student student, GradingTask task) throws IOException {
 
-        // Use the student's actual rootPath directly, not PathConfig reconstruction
-        Path questionFolder = student.getRootPath().resolve(task.getStudentFolder());
-        Path javaFile       = questionFolder.resolve(task.getStudentFile());
-        String classFileName = task.getStudentFile().replace(".java", ".class");
-        Path classFile       = questionFolder.resolve(classFileName);
+        // Strategy: locate the student's file using a two-step approach.
+        //   Step 1 - Exact path lookup (fast, covers correct submissions):
+        //            student/<Q1>/<Q1a.java>
+        //   Step 2 - Recursive case-insensitive search across entire student folder.
+        //            Handles: wrong Q folder, nested subfolders, wrong casing.
+        //            e.g. Q2/Q1a.java, Q1/src/Q1a.java, q1a.java
+
+        Path   studentRoot   = student.getRootPath();
+        String expectedFile  = task.getStudentFile();                   // e.g. "Q1a.java"
+        String expectedClass = expectedFile.replace(".java", ".class"); // e.g. "Q1a.class"
+
+        // Step 1 - exact path
+        Path questionFolder = studentRoot.resolve(task.getStudentFolder());
+        Path javaFile       = questionFolder.resolve(expectedFile);
+        Path classFile      = questionFolder.resolve(expectedClass);
 
         boolean hasJava  = Files.exists(javaFile);
         boolean hasClass = Files.exists(classFile);
 
-        // ── FILE NOT FOUND ──────────────────────────────────────────────────
+        // Step 2 - recursive fallback if exact path failed
+        if (!hasJava && !hasClass) {
+            Path foundJava  = findFileRecursive(studentRoot, expectedFile);
+            Path foundClass = findFileRecursive(studentRoot, expectedClass);
+
+            if (foundJava != null) {
+                javaFile       = foundJava;
+                questionFolder = foundJava.getParent();
+                hasJava        = true;
+                System.out.println("      \u26a0\ufe0f  [RELOCATED] " + expectedFile
+                    + " found at: " + studentRoot.relativize(foundJava)
+                    + " (expected: " + task.getStudentFolder() + "/" + expectedFile + ")");
+            } else if (foundClass != null) {
+                classFile      = foundClass;
+                questionFolder = foundClass.getParent();
+                hasClass       = true;
+                System.out.println("      \u26a0\ufe0f  [RELOCATED] " + expectedClass
+                    + " found at: " + studentRoot.relativize(foundClass)
+                    + " (expected: " + task.getStudentFolder() + "/" + expectedClass + ")");
+            }
+        }
+
+        // FILE NOT FOUND - file not found anywhere in student folder
         if (!hasJava && !hasClass) {
             return new GradingResult(
                 student, task, 0.0,
-                buildFileNotFoundMessage(task.getStudentFile(), questionFolder),
+                buildFileNotFoundMessage(expectedFile, studentRoot),
                 "FILE_NOT_FOUND"
             );
         }
@@ -200,10 +233,11 @@ public class ExecutionController {
     private String buildFileNotFoundMessage(String expectedFile, Path folder) {
         StringBuilder sb = new StringBuilder();
         sb.append("File not found: ").append(expectedFile).append("\n");
-        sb.append("Expected at:   ").append(folder.toAbsolutePath()).append("\n");
+        sb.append("Searched in:   ").append(folder.toAbsolutePath()).append("\n");
+        sb.append("No match found after recursive case-insensitive search.\n");
 
         if (!Files.exists(folder)) {
-            sb.append("Folder does not exist — question may have been skipped in submission.");
+            sb.append("Student folder does not exist — submission may be missing or unrecognised.");
             return sb.toString();
         }
 
@@ -228,6 +262,32 @@ public class ExecutionController {
             }
         }
         return sb.toString();
+    }
+
+
+    /**
+     * Recursively searches for a file by name (case-insensitive) within a directory tree.
+     *
+     * Used as a fallback when the exact expected path doesn't exist, to handle:
+     *   - Files placed in the wrong Q folder (e.g. Q2/Q1a.java instead of Q1/Q1a.java)
+     *   - Files in subdirectories (e.g. Q1/src/Q1a.java)
+     *   - Wrong casing (e.g. q1a.java, Q1A.JAVA)
+     *
+     * @param root     Root directory to search from (student's extracted folder)
+     * @param filename Filename to look for (e.g. "Q1a.java")
+     * @return Path to the first match found, or null if not found
+     */
+    private Path findFileRecursive(Path root, String filename) {
+        try (Stream<Path> walk = Files.walk(root)) {
+            return walk
+                .filter(Files::isRegularFile)
+                .filter(p -> p.getFileName().toString()
+                              .equalsIgnoreCase(filename))
+                .findFirst()
+                .orElse(null);
+        } catch (IOException e) {
+            return null; // Non-fatal: if walk fails, treat as not found
+        }
     }
 
     /** Prints a concise one-line result per task. */
