@@ -17,7 +17,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Stream;
 
 /**
  * ExecutionController - Orchestrates Phase 3 (Grading Execution)
@@ -89,34 +88,54 @@ public class ExecutionController {
 
     private GradingResult gradeTask(Student student, GradingTask task) throws IOException {
 
-        Path studentRoot = student.getRootPath();
-        String expectedFile = task.getStudentFile();
-        String expectedClass = expectedFile.replace(".java", ".class"); 
+        // Strategy: locate the student's file using a two-step approach.
+        //   Step 1 - Exact path lookup (fast, covers correct submissions):
+        //            student/<Q1>/<Q1a.java>
+        //   Step 2 - Recursive case-insensitive search across entire student folder.
+        //            Handles: wrong Q folder, nested subfolders, wrong casing.
+        //            e.g. Q2/Q1a.java, Q1/src/Q1a.java, q1a.java
 
+        Path   studentRoot   = student.getRootPath();
+        String expectedFile  = task.getStudentFile();                   // e.g. "Q1a.java"
+        String expectedClass = expectedFile.replace(".java", ".class"); // e.g. "Q1a.class"
+
+        // Step 1 - exact path
         Path questionFolder = studentRoot.resolve(task.getStudentFolder());
-        Path javaFile = questionFolder.resolve(expectedFile);
-        Path classFile = questionFolder.resolve(expectedClass);
+        Path javaFile       = questionFolder.resolve(expectedFile);
+        Path classFile      = questionFolder.resolve(expectedClass);
 
         boolean hasJava = Files.exists(javaFile);
         boolean hasClass = Files.exists(classFile);
 
+        // Step 2 - recursive fallback if exact path failed
         if (!hasJava && !hasClass) {
-            Path foundJava = findFileRecursive(studentRoot, expectedFile);
+            Path foundJava  = findFileRecursive(studentRoot, expectedFile);
             Path foundClass = findFileRecursive(studentRoot, expectedClass);
 
             if (foundJava != null) {
-                javaFile = foundJava;
+                javaFile       = foundJava;
                 questionFolder = foundJava.getParent();
-                hasJava = true;
+                hasJava        = true;
+                System.out.println("      \u26a0\ufe0f  [RELOCATED] " + expectedFile
+                    + " found at: " + studentRoot.relativize(foundJava)
+                    + " (expected: " + task.getStudentFolder() + "/" + expectedFile + ")");
             } else if (foundClass != null) {
-                classFile = foundClass;
+                classFile      = foundClass;
                 questionFolder = foundClass.getParent();
-                hasClass = true;
+                hasClass       = true;
+                System.out.println("      \u26a0\ufe0f  [RELOCATED] " + expectedClass
+                    + " found at: " + studentRoot.relativize(foundClass)
+                    + " (expected: " + task.getStudentFolder() + "/" + expectedClass + ")");
             }
         }
 
+        // FILE NOT FOUND - file not found anywhere in student folder
         if (!hasJava && !hasClass) {
-            return new GradingResult(student, task, 0.0, "File not found.", "FILE_NOT_FOUND");
+            return new GradingResult(
+                student, task, 0.0,
+                buildFileNotFoundMessage(expectedFile, studentRoot),
+                "FILE_NOT_FOUND"
+            );
         }
 
         try {
@@ -177,6 +196,9 @@ public class ExecutionController {
      * - Uses the actual folder Path as rootPath so gradeTask() never
      *   needs to re-resolve through PathConfig
      */
+    /**
+     * Scans OUTPUT_EXTRACTED and returns one Student per subdirectory.
+     */
     private List<Student> loadStudents() throws IOException {
         List<Student> students = new ArrayList<>();
 
@@ -188,16 +210,56 @@ public class ExecutionController {
 
                 String folderName = dir.getFileName().toString();
 
-                // Skip __MACOSX and other hidden/system folders
+                // Skip __MACOSX - This is crucial for Windows machines!
                 if (folderName.startsWith("__") || folderName.startsWith(".")) continue;
 
-                // Strip leading date prefixes e.g. "2023-2024-chee.teo.2022" → "chee.teo.2022"
+                // Strip leading date prefixes
                 String studentId = stripDatePrefix(folderName);
 
-                students.add(new Student(studentId, dir));
+                // --- FIX: Handle Nested Folders ---
+                Path actualRoot = findActualStudentRoot(dir);
+
+                students.add(new Student(studentId, actualRoot));
             }
         }
         return students;
+    }
+
+    /** Helper: Searches for the actual folder containing the Q1, Q2 directories. */
+    private Path findActualStudentRoot(Path dir) throws IOException {
+        // 1. If the current directory already has Q folders, we are good.
+        if (hasQuestionFolders(dir)) {
+            return dir;
+        }
+
+        // 2. If not, look exactly one level deeper for the true root (e.g., chee.teo.2022)
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
+            for (Path subDir : stream) {
+                if (Files.isDirectory(subDir) && !subDir.getFileName().toString().startsWith("__")) {
+                    return subDir; // Use this nested folder as the real root
+                }
+            }
+        }
+        return dir; // Fallback
+    }
+
+    /** * Helper: Dynamically checks if a directory contains ANY question folders 
+     * by looking for folders that start with "Q" followed by a number (e.g., Q1, Q4, Q10).
+     */
+    private boolean hasQuestionFolders(Path dir) throws IOException {
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
+            for (Path entry : stream) {
+                if (Files.isDirectory(entry)) {
+                    String folderName = entry.getFileName().toString();
+                    
+                    // Regex: ^Q\\d+.* means "Starts with Q, followed by at least 1 digit, then anything"
+                    if (folderName.matches("^Q\\d+.*")) {
+                        return true; // Found a question folder!
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     /**
@@ -217,11 +279,10 @@ public class ExecutionController {
     private String buildFileNotFoundMessage(String expectedFile, Path folder) {
         StringBuilder sb = new StringBuilder();
         sb.append("File not found: ").append(expectedFile).append("\n");
-        sb.append("Searched in:   ").append(folder.toAbsolutePath()).append("\n");
-        sb.append("No match found after recursive case-insensitive search.\n");
+        sb.append("Expected at:   ").append(folder.toAbsolutePath()).append("\n");
 
         if (!Files.exists(folder)) {
-            sb.append("Student folder does not exist — submission may be missing or unrecognised.");
+            sb.append("Folder does not exist — question may have been skipped in submission.");
             return sb.toString();
         }
 
@@ -248,33 +309,7 @@ public class ExecutionController {
         return sb.toString();
     }
 
-
-    /**
-     * Recursively searches for a file by name (case-insensitive) within a directory tree.
-     *
-     * Used as a fallback when the exact expected path doesn't exist, to handle:
-     *   - Files placed in the wrong Q folder (e.g. Q2/Q1a.java instead of Q1/Q1a.java)
-     *   - Files in subdirectories (e.g. Q1/src/Q1a.java)
-     *   - Wrong casing (e.g. q1a.java, Q1A.JAVA)
-     *
-     * @param root     Root directory to search from (student's extracted folder)
-     * @param filename Filename to look for (e.g. "Q1a.java")
-     * @return Path to the first match found, or null if not found
-     */
-    private Path findFileRecursive(Path root, String filename) {
-        try (Stream<Path> walk = Files.walk(root)) {
-            return walk
-                .filter(Files::isRegularFile)
-                .filter(p -> p.getFileName().toString()
-                              .equalsIgnoreCase(filename))
-                .findFirst()
-                .orElse(null);
-        } catch (IOException e) {
-            return null; // Non-fatal: if walk fails, treat as not found
-        }
-    }
-
-    /** Prints a concise one-line result per task. */
+    /** Prints a concise one-line result per task, plus the raw tester output. */
     private void logTaskResult(GradingTask task, GradingResult result) {
         String symbol;
         switch (result.getStatus()) {
@@ -289,8 +324,20 @@ public class ExecutionController {
             default:                   symbol = "ℹ️ "; break;
         }
 
+        // Print the summary line
         System.out.println("   📝 " + task.getQuestionId() + "... "
                 + symbol + " " + result.getScore() + " points ("
                 + result.getStatus() + ")");
+
+        // --- NEW CODE TO SHOW EXPECTED/ACTUAL OUTPUT ---
+        // If there is captured output from the tester, print it to the terminal
+        if (result.getOutput() != null && !result.getOutput().trim().isEmpty()) {
+            System.out.println("      --- Tester Output ---");
+            
+            // This prints the actual Expected / Actual lines from your tester file
+            System.out.println(result.getOutput()); 
+            
+            System.out.println("      ---------------------");
+        }
     }
 }

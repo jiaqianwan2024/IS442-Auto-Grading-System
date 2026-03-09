@@ -1,6 +1,6 @@
 package com.autogradingsystem.penalty.strategies;
 
-import com.autogradingsystem.penalty.GradingResult;
+import com.autogradingsystem.penalty.model.PenaltyGradingResult;
 
 /**
  * Penalty strategy for compilation failures.
@@ -15,8 +15,8 @@ public class CompilationPenalty implements PenaltyStrategy {
     private static final double DEDUCTION_PERCENTAGE = 0.50;
 
     @Override
-    public double calculateDeduction(GradingResult result) {
-        if (result.isHasCompilationError()) {
+    public double calculateDeduction(PenaltyGradingResult result) {
+        if (result.hasCompilationError()) {
             return result.getMaxPossibleScore() * DEDUCTION_PERCENTAGE;
         }
 
