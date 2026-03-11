@@ -153,10 +153,27 @@ public class ExecutionController {
         String testerClass = task.getTesterFile().replace(".java", "");
         String output = processRunner.runTester(testerClass, questionFolder);
 
+        // ── DETECT RUNTIME FAILURES ─────────────────────────────────────────
+        if (output != null && output.toUpperCase().contains("TIMEOUT")) {
+            // Partial credit on timeout: OutputParser cannot be used here because
+            // the tester's final System.out.println(score) line never executed.
+            // Instead, count "Passed" lines — each one represents score += 1
+            // in the tester, so the count equals the true partial score.
+            long passed = output.lines()
+                .map(String::trim)
+                .filter(line -> line.equals("Passed"))
+                .count();
+            return new GradingResult(student, task, (double) passed, output, "TIMEOUT");
+        }
+        if (output != null && output.toUpperCase().contains("ERROR")) {
+            return new GradingResult(student, task, 0.0, output, "RUNTIME_ERROR");
+        }
+
         // ── PARSE SCORE & APPLY RUBRIC CLAMP ────────────────────────────────
+        // OutputParser scans bottom-up for a numeric score on the last line.
         double rawScore = outputParser.parseScore(output);
-        
-        // Hardcoded rubric to prevent infinite loop score inflation
+
+        // Hardcoded rubric clamp — prevents a buggy tester from inflating scores
         double maxAllowed = 0.0;
         switch (task.getQuestionId().toUpperCase()) {
             case "Q1A": maxAllowed = 3.0; break;
@@ -165,19 +182,8 @@ public class ExecutionController {
             case "Q2B": maxAllowed = 5.0; break;
             case "Q3":  maxAllowed = 4.0; break;
         }
-        
-        // Clamp the score so it never exceeds the max allowed
-        double finalScore = Math.min(rawScore, maxAllowed);
 
-        // ── DETECT RUNTIME FAILURES ─────────────────────────────────────────
-        if (output != null && output.toUpperCase().contains("TIMEOUT")) {
-            return new GradingResult(student, task, finalScore, output, "TIMEOUT");
-        }
-        if (output != null && output.toUpperCase().contains("ERROR")) {
-            return new GradingResult(student, task, finalScore, output, "RUNTIME_ERROR");
-        }
-
-        return new GradingResult(student, task, finalScore, output, "COMPLETED");
+        return new GradingResult(student, task, Math.min(rawScore, maxAllowed), output, "COMPLETED");
     }
     
     // ─────────────────────────────────────────────────────────────────────────
