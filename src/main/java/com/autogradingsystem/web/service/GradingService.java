@@ -1,12 +1,12 @@
-package com.autogradingsystem.service;
+package com.autogradingsystem.web.service;  // ← CHANGED PACKAGE
 
-import com.autogradingsystem.PathConfig;
-import com.autogradingsystem.extraction.controller.ExtractionController;
-import com.autogradingsystem.discovery.controller.DiscoveryController;
-import com.autogradingsystem.execution.controller.ExecutionController;
-import com.autogradingsystem.analysis.controller.AnalysisController;
-import com.autogradingsystem.model.GradingPlan;
-import com.autogradingsystem.model.GradingResult;
+import com.autogradingsystem.PathConfig;  // ← Core package (unchanged)
+import com.autogradingsystem.extraction.controller.ExtractionController;  // ← Backend (unchanged)
+import com.autogradingsystem.discovery.controller.DiscoveryController;  // ← Backend (unchanged)
+import com.autogradingsystem.execution.controller.ExecutionController;  // ← Backend (unchanged)
+import com.autogradingsystem.analysis.controller.AnalysisController;  // ← Backend (unchanged)
+import com.autogradingsystem.model.GradingPlan;  // ← Shared model (unchanged)
+import com.autogradingsystem.model.GradingResult;  // ← Shared model (unchanged)
 
 import org.springframework.stereotype.Service;
 
@@ -14,23 +14,25 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * GradingService - Wraps the existing grading pipeline for Spring Boot
+ * GradingService - Wraps the existing grading pipeline for Spring Boot web layer
  * 
- * PURPOSE:
- * - Bridges the web controller layer to the existing backend pipeline
- * - Orchestrates: Extraction → Discovery → Execution → Analysis
- * - Collects log messages so the web UI can display progress
+ * PACKAGE: com.autogradingsystem.web.service
+ * PURPOSE: Bridge between web controller and backend pipeline
  * 
  * ARCHITECTURE:
  * GradingController (web request)
- *     → GradingService (this class)
- *         → ExtractionController (Phase 1)
- *         → DiscoveryController  (Phase 2)
- *         → ExecutionController  (Phase 3)
- *         → AnalysisController   (Results)
+ *     → GradingService (this class - WEB LAYER)
+ *         → ExtractionController (Phase 1 - BACKEND)
+ *         → DiscoveryController  (Phase 2 - BACKEND)
+ *         → ExecutionController  (Phase 3 - BACKEND)
+ *         → AnalysisController   (Results - BACKEND)
+ * 
+ * LAYER SEPARATION:
+ * - WEB LAYER: GradingController, GradingService (this package)
+ * - BACKEND LAYER: extraction, discovery, execution, analysis (separate packages)
  * 
  * @author IS442 Team
- * @version 1.0
+ * @version 2.0 (Reorganized to web package)
  */
 @Service
 public class GradingService {
@@ -62,7 +64,7 @@ public class GradingService {
             PathConfig.ensureOutputDirectories();
 
             // ============================================================
-            // STEP 2: Extraction & Validation
+            // STEP 2: Extraction & Validation (BACKEND)
             // ============================================================
             report.addLog("Extracting and validating student submissions...");
             ExtractionController extractionController = new ExtractionController();
@@ -77,7 +79,7 @@ public class GradingService {
             report.setStudentCount(studentCount);
 
             // ============================================================
-            // STEP 3: Discovery & Planning
+            // STEP 3: Discovery & Planning (BACKEND)
             // ============================================================
             report.addLog("Discovering exam structure and testers...");
             DiscoveryController discoveryController = new DiscoveryController();
@@ -91,7 +93,7 @@ public class GradingService {
             report.addLog("Built grading plan with " + gradingPlan.getTaskCount() + " task(s).");
 
             // ============================================================
-            // STEP 4: Grading Execution
+            // STEP 4: Grading Execution (BACKEND)
             // ============================================================
             report.addLog("Running grading execution...");
             ExecutionController executionController = new ExecutionController();
@@ -100,7 +102,7 @@ public class GradingService {
             report.setResults(results);
 
             // ============================================================
-            // STEP 5: Analysis & Reporting
+            // STEP 5: Analysis & Reporting (BACKEND)
             // ============================================================
             report.addLog("Analyzing results and generating reports...");
             AnalysisController analysisController = new AnalysisController();
