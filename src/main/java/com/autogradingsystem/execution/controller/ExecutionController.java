@@ -151,37 +151,37 @@ public class ExecutionController {
 
         // ── RUN TESTER ──────────────────────────────────────────────────────
         String testerClass = task.getTesterFile().replace(".java", "");
-        String output = processRunner.runTester(testerClass, questionFolder);
+
+        // Q4Tester is special: it runs the student's own compile.sh / run.sh
+        // and needs to know WHERE the student's Q4 folder is (passed as args[0]).
+        // For all other questions, no extra arg is needed.
+        String q4Arg = null;
+        if (task.getQuestionId().equalsIgnoreCase("Q4")) {
+            q4Arg = questionFolder.toAbsolutePath().toString();
+        }
+        String output = processRunner.runTester(testerClass, questionFolder, q4Arg);
+
+        // ── DYNAMIC MAX SCORE ────────────────────────────────────────────────
+        // Sums actual values after "score +=" in the tester file, so Q4's
+        // "score += 6.0" correctly yields maxAllowed=6.0, not 1.0.
+        double maxAllowed = com.autogradingsystem.analysis.service.ScoreAnalyzer
+                                .getMaxScoreFromTester(task.getQuestionId());
 
         // ── DETECT RUNTIME FAILURES ─────────────────────────────────────────
         if (output != null && output.toUpperCase().contains("TIMEOUT")) {
-            // Partial credit on timeout: OutputParser cannot be used here because
-            // the tester's final System.out.println(score) line never executed.
-            // Instead, count "Passed" lines — each one represents score += 1
-            // in the tester, so the count equals the true partial score.
             long passed = output.lines()
                 .map(String::trim)
                 .filter(line -> line.equals("Passed"))
                 .count();
-            return new GradingResult(student, task, (double) passed, output, "TIMEOUT");
+            double clampedPartial = Math.min((double) passed, maxAllowed);
+            return new GradingResult(student, task, clampedPartial, output, "TIMEOUT");
         }
         if (output != null && output.toUpperCase().contains("ERROR")) {
             return new GradingResult(student, task, 0.0, output, "RUNTIME_ERROR");
         }
 
-        // ── PARSE SCORE & APPLY RUBRIC CLAMP ────────────────────────────────
-        // OutputParser scans bottom-up for a numeric score on the last line.
+        // ── PARSE SCORE & APPLY DYNAMIC CLAMP ───────────────────────────────
         double rawScore = outputParser.parseScore(output);
-
-        // Hardcoded rubric clamp — prevents a buggy tester from inflating scores
-        double maxAllowed = 0.0;
-        switch (task.getQuestionId().toUpperCase()) {
-            case "Q1A": maxAllowed = 3.0; break;
-            case "Q1B": maxAllowed = 3.0; break;
-            case "Q2A": maxAllowed = 5.0; break;
-            case "Q2B": maxAllowed = 5.0; break;
-            case "Q3":  maxAllowed = 4.0; break;
-        }
 
         return new GradingResult(student, task, Math.min(rawScore, maxAllowed), output, "COMPLETED");
     }

@@ -150,8 +150,10 @@ public class TesterInjector {
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(templateQuestionDir)) {
             for (Path file : stream) {
                 String name = file.getFileName().toString();
-                // Skip .java and .class — only copy data/resource files
-                if (name.endsWith(".java") || name.endsWith(".class")) continue;
+                // Skip .java — only copy data/resource files and pre-compiled .class dependencies
+                // NOTE: .class files ARE copied intentionally — Q3 needs Shape.class, Rectangle.class,
+                // Circle.class to be present alongside the student's code for compilation to succeed.
+                if (name.endsWith(".java")) continue;
                 if (Files.isDirectory(file)) continue;
 
                 Path dest = destinationFolder.resolve(name);
