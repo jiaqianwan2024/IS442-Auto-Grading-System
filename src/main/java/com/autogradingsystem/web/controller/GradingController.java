@@ -128,6 +128,9 @@ public class GradingController {
                 // Extract ZIP
                 extractZip(tempZip, testersDir);
                 
+                // NEW: Flatten the directory to remove wrapper folders
+                flattenDirectory(testersDir);
+                
                 // Delete temp ZIP
                 Files.deleteIfExists(tempZip);
                 
@@ -290,5 +293,42 @@ public class GradingController {
         } catch (IOException e) {
             return false;
         }
+    }
+
+    /**
+     * Flattens a directory by moving all nested files to the root,
+     * deleting macOS hidden files, and removing leftover empty directories.
+     */
+    private void flattenDirectory(Path rootDir) throws IOException {
+        // 1. Find all regular files no matter how deep they are nested
+        java.util.List<Path> allFiles = Files.walk(rootDir)
+                .filter(Files::isRegularFile)
+                .collect(java.util.stream.Collectors.toList());
+
+        // 2. Process every file
+        for (Path file : allFiles) {
+            String fileName = file.getFileName().toString();
+            
+            // NEW: Delete macOS metadata files and hidden files
+            if (fileName.startsWith(".")) {
+                Files.delete(file);
+                continue;
+            }
+
+            Path target = rootDir.resolve(fileName);
+            // Only move it if it isn't already in the root
+            if (!file.getParent().equals(rootDir)) {
+                Files.move(file, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+        }
+
+        // 3. Clean up and delete all the empty subdirectories
+        Files.walk(rootDir)
+                .filter(Files::isDirectory)
+                .filter(p -> !p.equals(rootDir))
+                .sorted((a, b) -> b.compareTo(a)) // Sort reverse to delete deepest folders first
+                .forEach(p -> {
+                    try { Files.delete(p); } catch (IOException e) {}
+                });
     }
 }
