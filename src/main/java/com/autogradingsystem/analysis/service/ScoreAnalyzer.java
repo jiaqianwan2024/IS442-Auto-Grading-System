@@ -141,38 +141,42 @@ public class ScoreAnalyzer {
      * @param questionId Question ID (e.g., "Q1a")
      * @return Inferred max score (0.0 if parsing fails)
      */
-    private static double getMaxScoreFromTester(String questionId) {
+    public static double getMaxScoreFromTester(String questionId) {
         
         try {
-            // Build tester filename
+            // Build tester filename: e.g. "Q4" -> "Q4Tester.java"
             String testerFilename = questionId + "Tester.java";
             
-            // Build path to tester
             Path testerPath = PathConfig.INPUT_TESTERS.resolve(testerFilename);
             
-            // Check if tester exists
             if (!Files.exists(testerPath)) {
-                // Tester not found - return 0.0
                 return 0.0;
             }
             
-            // Read tester file
             String testerContent = Files.readString(testerPath);
             
-            // Count occurrences of "score +="
-            Pattern pattern = Pattern.compile("score\\s*\\+=");
+            // SUM the actual numeric values after "score +=" instead of just counting lines.
+            // This correctly handles weighted tests like Q4's "score += 6.0" (sum=6.0)
+            // as well as standard testers with "score += 1" (sum = number of test cases).
+            //
+            // REGEX: score\s*\+=\s*([\d.]+)
+            //   score\s*\+=       matches "score +=" with optional whitespace
+            //   \s*([\d.]+)       captures the numeric value that follows
+            Pattern pattern = Pattern.compile("score\\s*\\+=\\s*([\\d.]+)");
             Matcher matcher = pattern.matcher(testerContent);
             
-            int count = 0;
+            double total = 0.0;
             while (matcher.find()) {
-                count++;
+                try {
+                    total += Double.parseDouble(matcher.group(1));
+                } catch (NumberFormatException ignored) {
+                    // Non-numeric value after +=, skip it
+                }
             }
             
-            // Return count as max score
-            return (double) count;
+            return total;
             
         } catch (IOException e) {
-            // Parsing failed - return 0.0
             return 0.0;
         }
     }

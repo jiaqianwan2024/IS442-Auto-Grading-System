@@ -49,6 +49,19 @@ public class ProcessRunner {
      * @return Full captured output, a TIMEOUT message, or an ERROR message
      */
     public String runTester(String testerClassName, Path workingDir) {
+        return runTester(testerClassName, workingDir, null);
+    }
+
+    /**
+     * Executes a tester class with an optional extra argument (used by Q4Tester
+     * which expects the student's Q4 folder path as args[0]).
+     *
+     * @param testerClassName Class name to run (e.g., "Q4Tester")
+     * @param workingDir      Directory containing compiled .class files
+     * @param extraArg        Optional argument passed to the tester's main(args) — may be null
+     * @return Full captured output, a TIMEOUT message, or an ERROR message
+     */
+    public String runTester(String testerClassName, Path workingDir, String extraArg) {
 
         // Guard: null or missing working directory
         if (workingDir == null || !workingDir.toFile().exists()) {
@@ -64,7 +77,7 @@ public class ProcessRunner {
         ExecutorService readerPool = Executors.newSingleThreadExecutor();
 
         try {
-            ProcessBuilder pb = buildProcessCommand(testerClassName, workingDir);
+            ProcessBuilder pb = buildProcessCommand(testerClassName, workingDir, extraArg);
             pb.redirectErrorStream(true); // merge stderr into stdout
             process = pb.start();
 
@@ -128,17 +141,60 @@ public class ProcessRunner {
     /**
      * Builds the ProcessBuilder command.
      * Sets memory cap via -Xmx to prevent student code from consuming all RAM.
+     * Includes any external JARs found in an external/ subfolder (needed for Q4).
+     * Passes extraArg to the tester's main(args) when provided (needed for Q4Tester).
      */
-    private ProcessBuilder buildProcessCommand(String testerClassName, Path workingDir) {
-        String cp = workingDir.toAbsolutePath().toString();
+    private ProcessBuilder buildProcessCommand(String testerClassName, Path workingDir, String extraArg) {
+        String cp = buildClasspath(workingDir);
         ProcessBuilder pb = new ProcessBuilder();
 
-        // FIX 2: Removed "cmd /c" for Windows. 
-        // Launching 'java' directly ensures process.destroyForcibly() kills the actual Java JVM!
-        pb.command("java", MAX_HEAP, "-cp", cp, testerClassName);
-        
+        // Build command list dynamically so extraArg can be optionally appended
+        java.util.List<String> cmd = new java.util.ArrayList<>();
+        cmd.add("java");
+        cmd.add(MAX_HEAP);
+        cmd.add("-cp");
+        cmd.add(cp);
+        cmd.add(testerClassName);
+
+        // Q4Tester needs the student's Q4 folder path passed as args[0]
+        // so it knows where to find compile.sh / run.sh
+        if (extraArg != null && !extraArg.isBlank()) {
+            cmd.add(extraArg);
+        }
+
+        pb.command(cmd);
         pb.directory(workingDir.toFile());
         return pb;
+    }
+
+    /**
+     * Builds the classpath string for the java command.
+     *
+     * STANDARD: just the workingDir (covers Q1–Q3).
+     * Q4 EXTRA:  also appends any *.jar files found recursively under
+     *            workingDir/external/ so Apache Commons is on the path.
+     *
+     * Example result on Linux:
+     *   /path/to/Q4:/path/to/Q4/external/apache/commons-collections4-4.4.jar
+     */
+    private String buildClasspath(Path workingDir) {
+        String sep = System.getProperty("path.separator"); // ":" on Mac/Linux, ";" on Windows
+        StringBuilder cp = new StringBuilder(workingDir.toAbsolutePath().toString());
+
+        // Look for external JARs (Q4 uses commons-collections4-4.4.jar)
+        Path externalDir = workingDir.resolve("external");
+        if (java.nio.file.Files.exists(externalDir)) {
+            try (java.util.stream.Stream<java.nio.file.Path> walk =
+                         java.nio.file.Files.walk(externalDir)) {
+                walk.filter(p -> p.toString().endsWith(".jar"))
+                    .forEach(jar -> cp.append(sep).append(jar.toAbsolutePath()));
+            } catch (java.io.IOException e) {
+                System.out.println("[ProcessRunner] ⚠️  Could not scan external/ for JARs: "
+                        + e.getMessage());
+            }
+        }
+
+        return cp.toString();
     }
 
     /**
