@@ -12,86 +12,45 @@ import java.util.regex.Pattern;
 
 /**
  * ScoreAnalyzer - Analyzes Grading Results and Infers Max Scores
- * 
- * PURPOSE:
+ * * PURPOSE:
  * - Infers maximum possible scores for each question
  * - Updates results with inferred max scores
  * - Groups results by student for reporting
  * - Calculates totals and statistics
- * 
- * MAX SCORE INFERENCE (FIX 3):
+ * * MAX SCORE INFERENCE (FIX 3):
  * Strategy 1: Use highest score achieved by any student
  * Strategy 2: If all students scored 0, parse tester file to count tests
- * 
- * WHY NEEDED?
+ * * WHY NEEDED?
  * - We don't hardcode max scores anywhere
  * - System must figure out max scores automatically
  * - Enables flexible exam structures (any number of tests per question)
- * 
- * CHANGES FROM v3.0:
+ * * CHANGES FROM v3.0:
  * - Moved from util/ to analysis.service/
  * - Updated to use PathConfig for tester paths
  * - All methods stay static (utility class pattern)
  * - No logging changes
- * 
- * @author IS442 Team
+ * * @author IS442 Team
  * @version 4.0 (Spring Boot Microservices Structure)
  */
 public class ScoreAnalyzer {
     
     /**
-     * Infers maximum scores for each question
-     * 
-     * STRATEGY:
-     * 1. Group all results by question ID
-     * 2. For each question:
-     *    a. Find highest score achieved by any student
-     *    b. If highest score > 0 → Use that as max score
-     *    c. If all students scored 0 → Parse tester file to count tests
-     * 3. Return map of question ID → max score
-     * 
-     * EXAMPLE:
-     * Results for Q1a: [3.0, 3.0, 1.0, 0.0, 3.0, 0.0]
-     * Highest: 3.0 → Max score = 3.0 ✅
-     * 
-     * Results for Q3: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-     * Highest: 0.0 → Parse Q3Tester.java → Count tests → Max score = 4.0 ✅
-     * 
-     * @param results List of all grading results
+     * Infers maximum scores for each question by ALWAYS parsing the Master Tester file.
+     * This avoids trusting untrusted student output (prevents Infinite Loop inflation)
+     * and accurately handles fractional scores like (3.0/12).
+     * * @param results List of all grading results
      * @return Map of question ID → max score
      */
     public static Map<String, Double> inferMaxScores(List<GradingResult> results) {
         
         Map<String, Double> maxScores = new HashMap<>();
         
-        // Group results by question ID
-        Map<String, List<GradingResult>> byQuestion = new HashMap<>();
-        
+        // Find all unique question IDs in this assessment
         for (GradingResult result : results) {
             String questionId = result.getQuestionId();
-            byQuestion.computeIfAbsent(questionId, k -> new ArrayList<>()).add(result);
-        }
-        
-        // Infer max score for each question
-        for (Map.Entry<String, List<GradingResult>> entry : byQuestion.entrySet()) {
-            
-            String questionId = entry.getKey();
-            List<GradingResult> questionResults = entry.getValue();
-            
-            // Find highest score achieved
-            double highestScore = questionResults.stream()
-                .mapToDouble(GradingResult::getScore)
-                .max()
-                .orElse(0.0);
-            
-            if (highestScore > 0) {
-                // At least one student got points → use highest score as max
-                maxScores.put(questionId, highestScore);
-                
-            } else {
-                // All students scored 0 → parse tester to count tests (FIX 3)
-                double inferredMax = getMaxScoreFromTester(questionId);
-                maxScores.put(questionId, inferredMax);
+            if (!maxScores.containsKey(questionId)) {
+                // ALWAYS parse the tester file to find the true mathematically perfect max score
+                maxScores.put(questionId, getMaxScoreFromTester(questionId));
             }
         }
         
@@ -100,103 +59,95 @@ public class ScoreAnalyzer {
     
     /**
      * Gets max score by parsing tester file (FIX 3)
-     * 
-     * WHEN USED:
+     * * WHEN USED:
      * - All students scored 0 on a question
      * - We need to know max possible score
      * - Parse tester file to count tests
-     * 
-     * PARSING STRATEGY:
+     * * PARSING STRATEGY:
      * 1. Build tester filename: Q1a → Q1aTester.java
      * 2. Read tester file from resources/input/testers/
      * 3. Count occurrences of "score +="
      * 4. Each "score +=" represents 1 test (usually 1 point)
      * 5. Return count as max score
-     * 
-     * EXAMPLE TESTER:
+     * * EXAMPLE TESTER:
      * ```
      * public class Q3Tester {
-     *   public static void main(String[] args) {
-     *     double score = 0;
-     *     if (test1()) score += 1;  // Found! Count = 1
-     *     if (test2()) score += 1;  // Found! Count = 2
-     *     if (test3()) score += 1;  // Found! Count = 3
-     *     if (test4()) score += 1;  // Found! Count = 4
-     *     System.out.println(score);
-     *   }
+     * public static void main(String[] args) {
+     * double score = 0;
+     * if (test1()) score += 1;  // Found! Count = 1
+     * if (test2()) score += 1;  // Found! Count = 2
+     * if (test3()) score += 1;  // Found! Count = 3
+     * if (test4()) score += 1;  // Found! Count = 4
+     * System.out.println(score);
+     * }
      * }
      * ```
      * Result: 4 occurrences → Max score = 4.0
-     * 
-     * ASSUMPTIONS:
+     * * ASSUMPTIONS:
      * - Each test awards 1 point
      * - Testers use "score +=" pattern
      * - This works for most standard testers
-     * 
-     * LIMITATIONS:
+     * * LIMITATIONS:
      * - Doesn't handle weighted tests (score += 2)
      * - Doesn't handle different patterns
      * - Best effort approach
-     * 
-     * @param questionId Question ID (e.g., "Q1a")
+     * * @param questionId Question ID (e.g., "Q1a")
      * @return Inferred max score (0.0 if parsing fails)
      */
     public static double getMaxScoreFromTester(String questionId) {
-        
         try {
-            // Build tester filename: e.g. "Q4" -> "Q4Tester.java"
-            String testerFilename = questionId + "Tester.java";
-            
+            // Ensure strict casing (e.g., q1a -> Q1a)
+            String formattedId = "Q" + questionId.substring(1).toLowerCase();
+            String testerFilename = formattedId + "Tester.java";
             Path testerPath = PathConfig.INPUT_TESTERS.resolve(testerFilename);
             
+            // Fallback for differently formatted tester names
             if (!Files.exists(testerPath)) {
-                return 0.0;
+                testerPath = PathConfig.INPUT_TESTERS.resolve(questionId + "Tester.java");
             }
+            if (!Files.exists(testerPath)) return 0.0;
             
             String testerContent = Files.readString(testerPath);
             
-            // SUM the actual numeric values after "score +=" instead of just counting lines.
-            // This correctly handles weighted tests like Q4's "score += 6.0" (sum=6.0)
-            // as well as standard testers with "score += 1" (sum = number of test cases).
-            //
-            // REGEX: score\s*\+=\s*([\d.]+)
-            //   score\s*\+=       matches "score +=" with optional whitespace
-            //   \s*([\d.]+)       captures the numeric value that follows
-            Pattern pattern = Pattern.compile("score\\s*\\+=\\s*([\\d.]+)");
-            Matcher matcher = pattern.matcher(testerContent);
+            // ── ADVANCED REGEX: Supports both "score += 6.0" and "score += (3.0/12)" ──
+            java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("score\\s*\\+=\\s*\\(?\\s*([0-9.]+)\\s*(?:/\\s*([0-9.]+))?\\s*\\)?");
+            java.util.regex.Matcher matcher = pattern.matcher(testerContent);
             
-            double total = 0.0;
+            double totalMax = 0.0;
             while (matcher.find()) {
-                try {
-                    total += Double.parseDouble(matcher.group(1));
-                } catch (NumberFormatException ignored) {
-                    // Non-numeric value after +=, skip it
+                double numerator = Double.parseDouble(matcher.group(1));
+                
+                // If there is a denominator (e.g., the "/12" in "3.0/12")
+                if (matcher.group(2) != null) {
+                    double denominator = Double.parseDouble(matcher.group(2));
+                    totalMax += (numerator / denominator);
+                } else {
+                    // It's a plain number like "6.0"
+                    totalMax += numerator;
                 }
             }
             
-            return total;
+            // Round to 2 decimal places to destroy floating-point artifacts like 3.9999996
+            return Math.round(totalMax * 100.0) / 100.0;
             
-        } catch (IOException e) {
+        } catch (Exception e) {
             return 0.0;
         }
     }
     
     /**
      * Updates all results with inferred max scores
-     * 
-     * WORKFLOW:
+     * * WORKFLOW:
      * 1. Infer max scores for all questions
      * 2. For each result:
-     *    a. Get max score for this question
-     *    b. Create new result with updated max score
+     * a. Get max score for this question
+     * b. Create new result with updated max score
      * 3. Return list of updated results
-     * 
-     * IMMUTABILITY:
+     * * IMMUTABILITY:
      * - Original results are unchanged
      * - Returns new list of new GradingResult objects
      * - Uses GradingResult.withMaxScore() method
-     * 
-     * @param results Original grading results
+     * * @param results Original grading results
      * @return Updated results with max scores
      */
     public static List<GradingResult> updateWithMaxScores(List<GradingResult> results) {
@@ -221,15 +172,12 @@ public class ScoreAnalyzer {
     
     /**
      * Calculates total score for a student
-     * 
-     * SUMS:
+     * * SUMS:
      * - All scores across all questions for one student
-     * 
-     * EXAMPLE:
+     * * EXAMPLE:
      * Student results: Q1a:3.0, Q1b:3.0, Q2a:5.0, Q2b:1.0, Q3:0.0
      * Total: 3.0 + 3.0 + 5.0 + 1.0 + 0.0 = 12.0
-     * 
-     * @param studentResults All results for one student
+     * * @param studentResults All results for one student
      * @return Total score
      */
     public static double calculateTotalScore(List<GradingResult> studentResults) {
@@ -240,15 +188,12 @@ public class ScoreAnalyzer {
     
     /**
      * Calculates total max score for a student
-     * 
-     * SUMS:
+     * * SUMS:
      * - All max scores across all questions
-     * 
-     * EXAMPLE:
+     * * EXAMPLE:
      * Max scores: Q1a:3.0, Q1b:3.0, Q2a:5.0, Q2b:5.0, Q3:4.0
      * Total max: 3.0 + 3.0 + 5.0 + 5.0 + 4.0 = 20.0
-     * 
-     * @param studentResults All results for one student
+     * * @param studentResults All results for one student
      * @return Total max score
      */
     public static double calculateTotalMaxScore(List<GradingResult> studentResults) {
@@ -259,26 +204,21 @@ public class ScoreAnalyzer {
     
     /**
      * Groups results by student username
-     * 
-     * GROUPS:
+     * * GROUPS:
      * - All results for each student together
-     * 
-     * RETURNS:
+     * * RETURNS:
      * Map of username → list of results
-     * 
-     * EXAMPLE:
+     * * EXAMPLE:
      * {
-     *   "ping.lee.2023": [Q1a result, Q1b result, Q2a result, Q2b result, Q3 result],
-     *   "chee.teo.2022": [Q1a result, Q1b result, Q2a result, Q2b result, Q3 result],
-     *   ...
+     * "ping.lee.2023": [Q1a result, Q1b result, Q2a result, Q2b result, Q3 result],
+     * "chee.teo.2022": [Q1a result, Q1b result, Q2a result, Q2b result, Q3 result],
+     * ...
      * }
-     * 
-     * USEFUL FOR:
+     * * USEFUL FOR:
      * - Displaying results per student
      * - Calculating per-student totals
      * - Generating student-specific reports
-     * 
-     * @param results All grading results
+     * * @param results All grading results
      * @return Map of username → student's results
      */
     public static Map<String, List<GradingResult>> groupByStudent(List<GradingResult> results) {
@@ -295,26 +235,21 @@ public class ScoreAnalyzer {
     
     /**
      * Groups results by question ID
-     * 
-     * GROUPS:
+     * * GROUPS:
      * - All results for each question together
-     * 
-     * RETURNS:
+     * * RETURNS:
      * Map of question ID → list of results
-     * 
-     * EXAMPLE:
+     * * EXAMPLE:
      * {
-     *   "Q1a": [ping's result, chee's result, david's result, ...],
-     *   "Q1b": [ping's result, chee's result, david's result, ...],
-     *   ...
+     * "Q1a": [ping's result, chee's result, david's result, ...],
+     * "Q1b": [ping's result, chee's result, david's result, ...],
+     * ...
      * }
-     * 
-     * USEFUL FOR:
+     * * USEFUL FOR:
      * - Analyzing question difficulty
      * - Finding which questions students struggled with
      * - Calculating per-question statistics
-     * 
-     * @param results All grading results
+     * * @param results All grading results
      * @return Map of question ID → question's results
      */
     public static Map<String, List<GradingResult>> groupByQuestion(List<GradingResult> results) {
@@ -331,15 +266,12 @@ public class ScoreAnalyzer {
     
     /**
      * Calculates average score for a question
-     * 
-     * CALCULATES:
+     * * CALCULATES:
      * - Mean score across all students for one question
-     * 
-     * EXAMPLE:
+     * * EXAMPLE:
      * Q1a scores: [3.0, 3.0, 1.0, 0.0, 3.0, 0.0]
      * Average: (3.0 + 3.0 + 1.0 + 0.0 + 3.0 + 0.0) / 6 = 1.67
-     * 
-     * @param questionResults All results for one question
+     * * @param questionResults All results for one question
      * @return Average score
      */
     public static double calculateAverageScore(List<GradingResult> questionResults) {
@@ -357,8 +289,7 @@ public class ScoreAnalyzer {
     
     /**
      * Counts how many students passed a question (score > 0)
-     * 
-     * @param questionResults All results for one question
+     * * @param questionResults All results for one question
      * @return Number of students who got at least some points
      */
     public static long countPassed(List<GradingResult> questionResults) {
@@ -369,8 +300,7 @@ public class ScoreAnalyzer {
     
     /**
      * Counts how many students got perfect score on a question
-     * 
-     * @param questionResults All results for one question
+     * * @param questionResults All results for one question
      * @return Number of students with perfect score
      */
     public static long countPerfect(List<GradingResult> questionResults) {
@@ -381,8 +311,7 @@ public class ScoreAnalyzer {
     
     /**
      * Counts how many students failed a question (score = 0)
-     * 
-     * @param questionResults All results for one question
+     * * @param questionResults All results for one question
      * @return Number of students with zero score
      */
     public static long countFailed(List<GradingResult> questionResults) {
