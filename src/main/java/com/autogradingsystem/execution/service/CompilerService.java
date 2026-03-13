@@ -79,6 +79,48 @@ public class CompilerService {
         return runJavac(workingDir, javaFiles);
     }
 
+    /**
+     * Compiles ONLY the specified target file + any tester files in the folder,
+     * ignoring other .java files that may have errors (e.g. broken Q1a shouldn't
+     * prevent Q1b from being compiled and graded).
+     *
+     * @param workingDir  the folder containing the files
+     * @param targetFile  the student file to compile (e.g. "Q1b.java")
+     * @return true if compilation succeeded
+     */
+    public boolean compileTargeted(Path workingDir, String targetFile) {
+        if (workingDir == null || !Files.exists(workingDir)) {
+            System.out.println("[Compiler] ❌ Directory does not exist: " + workingDir);
+            return false;
+        }
+
+        List<Path> javaFiles = new ArrayList<>();
+
+        // Always include the specific target file
+        Path target = workingDir.resolve(targetFile);
+        if (Files.exists(target)) javaFiles.add(target);
+
+        // Include any tester files (end with Tester.java)
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(workingDir, "*.java")) {
+            for (Path f : stream) {
+                String name = f.getFileName().toString();
+                if (name.endsWith("Tester.java") && !javaFiles.contains(f)) {
+                    javaFiles.add(f);
+                }
+            }
+        } catch (IOException e) {
+            System.out.println("[Compiler] ⚠️  Could not list directory: " + e.getMessage());
+        }
+
+        if (javaFiles.isEmpty()) {
+            System.out.println("[Compiler] ❌ Target file not found: " + targetFile);
+            return false;
+        }
+
+        stripPackageDeclarations(javaFiles);
+        return runJavac(workingDir, javaFiles);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Private helpers
     // ─────────────────────────────────────────────────────────────────────────
