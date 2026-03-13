@@ -155,6 +155,11 @@ public class TesterInjector {
                 // Circle.class to be present alongside the student's code for compilation to succeed.
                 if (name.endsWith(".java")) continue;
                 if (Files.isDirectory(file)) continue;
+                // CRITICAL: Never overwrite the student's own scripts with the template's empty stubs.
+                // The template ships compile.bat, compile.sh, run.bat, run.sh as 0-byte placeholders.
+                // Copying them here would silently destroy every student's Q4 scripts before grading.
+                if (name.equalsIgnoreCase("compile.bat") || name.equalsIgnoreCase("compile.sh")
+                        || name.equalsIgnoreCase("run.bat") || name.equalsIgnoreCase("run.sh")) continue;
 
                 Path dest = destinationFolder.resolve(name);
                 try {

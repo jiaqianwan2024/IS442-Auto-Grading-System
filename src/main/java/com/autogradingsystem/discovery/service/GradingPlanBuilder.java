@@ -144,13 +144,10 @@ public class GradingPlanBuilder {
                         .get(questionFolder.toLowerCase());
 
                 if (folderTester != null && !assignedTaskIds.contains(questionFolder.toLowerCase())) {
-                    String representativeFile = filesInFolder.stream()
-                        .filter(f -> f.toLowerCase().endsWith(".java"))
-                        .findFirst()
-                        .orElse(filesInFolder.get(0));
-                    if (representativeFile.contains("/")) {
-                        representativeFile = representativeFile.substring(representativeFile.lastIndexOf('/') + 1);
-                    }
+                    // Use the folder name itself (e.g. "Q4") as the representative file.
+                    // A name with no "." triggers Route 2 (script task) in ExecutionController,
+                    // which correctly sets the working directory to the Q4 root where compile.sh lives.
+                    String representativeFile = questionFolder;
                     tasks.add(new GradingTask(questionFolder, folderTester,
                             questionFolder, representativeFile));
                     assignedTaskIds.add(questionFolder.toLowerCase());
