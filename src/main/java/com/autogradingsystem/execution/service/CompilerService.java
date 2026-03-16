@@ -84,8 +84,8 @@ public class CompilerService {
      * ignoring other .java files that may have errors (e.g. broken Q1a shouldn't
      * prevent Q1b from being compiled and graded).
      *
-     * @param workingDir  the folder containing the files
-     * @param targetFile  the student file to compile (e.g. "Q1b.java")
+     * @param workingDir the folder containing the files
+     * @param targetFile the student file to compile (e.g. "Q1b.java")
      * @return true if compilation succeeded
      */
     public boolean compileTargeted(Path workingDir, String targetFile) {
@@ -98,7 +98,8 @@ public class CompilerService {
 
         // Always include the specific target file
         Path target = workingDir.resolve(targetFile);
-        if (Files.exists(target)) javaFiles.add(target);
+        if (Files.exists(target))
+            javaFiles.add(target);
 
         // Include any tester files (end with Tester.java)
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(workingDir, "*.java")) {
@@ -129,7 +130,8 @@ public class CompilerService {
     private List<Path> collectJavaFiles(Path dir) {
         List<Path> files = new ArrayList<>();
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir, "*.java")) {
-            for (Path f : stream) files.add(f);
+            for (Path f : stream)
+                files.add(f);
         } catch (IOException e) {
             System.out.println("[Compiler] ⚠️  Could not list directory: " + e.getMessage());
         }
@@ -141,11 +143,14 @@ public class CompilerService {
      *
      * WHY: Students may include package declarations. When we compile everything
      * flat in the same directory without the matching package folder structure,
-     * javac fails with "class X is public, should be declared in a file named X.java"
+     * javac fails with "class X is public, should be declared in a file named
+     * X.java"
      * or similar cross-package errors.
      *
-     * SAFE: Only the first occurrence of a line matching /^\s*package\s+.*;/ is removed.
-     * A backup is NOT made — this is a temp working folder that gets wiped each run.
+     * SAFE: Only the first occurrence of a line matching /^\s*package\s+.*;/ is
+     * removed.
+     * A backup is NOT made — this is a temp working folder that gets wiped each
+     * run.
      */
     private void stripPackageDeclarations(List<Path> javaFiles) {
         for (Path file : javaFiles) {
@@ -183,23 +188,15 @@ public class CompilerService {
 
     /**
      * Runs javac on all collected .java files.
-     *
-     * FLAGS:
-     * -d {dir}         → output .class files into same directory
-     * -encoding UTF-8  → handle non-ASCII identifiers/comments (edge case)
-     * -nowarn          → suppress warnings, show only errors
      */
     private boolean runJavac(Path workingDir, List<Path> javaFiles) {
         try {
-            // Build command: javac -cp <classpath> -d <dir> -encoding UTF-8 -nowarn <files...>
-            // Classpath = workingDir (for pre-compiled .class deps like Shape.class)
-            //           + any *.jar files under workingDir/external/ (Q4 Apache Commons)
             String dirPath = workingDir.toAbsolutePath().toString();
             String classpath = buildClasspath(workingDir, dirPath);
             StringBuilder cmd = new StringBuilder();
             cmd.append("javac -cp \"").append(classpath)
-               .append("\" -d \"").append(dirPath)
-               .append("\" -encoding UTF-8 -nowarn");
+                    .append("\" -d \"").append(dirPath)
+                    .append("\" -encoding UTF-8 -nowarn");
 
             for (Path f : javaFiles) {
                 cmd.append(" \"").append(f.toAbsolutePath()).append("\"");
@@ -215,15 +212,13 @@ public class CompilerService {
 
             Process process = pb.start();
 
-            // Capture errors (suppressed from console — FIX 2)
-            int errorCount = captureErrors(process);
+            // --- CHANGED: Capture full error text instead of just a count ---
+            String fullErrorReport = captureFullErrors(process);
 
-            // EDGE CASE: Compiler hangs (e.g., annotation processor loops)
             boolean completed = process.waitFor(COMPILER_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             if (!completed) {
                 process.destroyForcibly();
-                System.out.println("[Compiler] ❌ Compilation timed out after "
-                        + COMPILER_TIMEOUT_SECONDS + "s");
+                System.out.println("[Compiler] ❌ Compilation timed out");
                 return false;
             }
 
@@ -232,55 +227,50 @@ public class CompilerService {
                 System.out.println("[Compiler] ✅ Compilation Success");
                 return true;
             } else {
-                System.out.println("[Compiler] ❌ Compilation failed (" + errorCount + " error(s))");
+                // --- CHANGED: Print the actual errors to the console/logs ---
+                System.out.println("[Compiler] ❌ Compilation failed:");
+                System.out.println(fullErrorReport);
                 return false;
             }
 
         } catch (InterruptedException e) {
-            Thread.currentThread().interrupt(); // restore flag
-            System.out.println("[Compiler] ❌ Compilation interrupted");
+            Thread.currentThread().interrupt();
             return false;
         } catch (IOException e) {
-            System.out.println("[Compiler] ❌ Compilation error: " + e.getMessage());
             return false;
         }
     }
 
     /**
-     * Reads stderr from the compiler process and counts error lines.
-     * Output is NOT printed (FIX 2 — suppress error flood).
+     * Reads stderr and returns the full error message as a String.
+     * This ensures we see "Missing DataException" instead of just a count.
      */
-    private int captureErrors(Process process) {
-        int errorCount = 0;
+    private String captureFullErrors(Process process) {
+        StringBuilder sb = new StringBuilder();
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(process.getErrorStream()))) {
             String line;
             while ((line = reader.readLine()) != null) {
-                if (line.contains("error:") || line.contains("Error:")) {
-                    errorCount++;
-                }
+                // Indent the error for better readability in the logs
+                sb.append("    [javac] ").append(line).append("\n");
             }
         } catch (IOException e) {
-            // Best-effort
+            return "Could not read error stream: " + e.getMessage();
         }
-        return Math.max(errorCount, 1);
-    }
-
-    private boolean isWindows() {
-        return System.getProperty("os.name").toLowerCase().contains("win");
+        return sb.toString();
     }
 
     /**
      * Builds the javac classpath string.
      *
      * STANDARD (Q1–Q3): just the workingDir, so pre-compiled .class files
-     *   (DataException.class, Shape.class, etc.) are found by the compiler.
+     * (DataException.class, Shape.class, etc.) are found by the compiler.
      *
      * Q4 EXTRA: also appends any *.jar files found recursively under
-     *   workingDir/external/ so Apache Commons Collections is on the classpath.
+     * workingDir/external/ so Apache Commons Collections is on the classpath.
      *
      * Example on Linux:
-     *   /path/to/Q4:/path/to/Q4/external/apache/commons-collections4-4.4.jar
+     * /path/to/Q4:/path/to/Q4/external/apache/commons-collections4-4.4.jar
      *
      * @param workingDir the student's question folder
      * @param dirPath    pre-computed absolute path string of workingDir
@@ -294,7 +284,7 @@ public class CompilerService {
         if (Files.exists(externalDir)) {
             try (java.util.stream.Stream<Path> walk = Files.walk(externalDir)) {
                 walk.filter(p -> p.toString().endsWith(".jar"))
-                    .forEach(jar -> cp.append(sep).append(jar.toAbsolutePath()));
+                        .forEach(jar -> cp.append(sep).append(jar.toAbsolutePath()));
             } catch (IOException e) {
                 System.out.println("[Compiler] ⚠️  Could not scan external/ for JARs: "
                         + e.getMessage());
@@ -302,5 +292,9 @@ public class CompilerService {
         }
 
         return cp.toString();
+    }
+
+    private boolean isWindows() {
+        return System.getProperty("os.name").toLowerCase().contains("win");
     }
 }

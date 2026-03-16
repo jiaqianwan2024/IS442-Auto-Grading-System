@@ -1,0 +1,1150 @@
+============================================
+ IS442 AUTO-GRADING SYSTEM — CLI MODE
+============================================
+
+Running grading pipeline in console mode...
+No web server will start. Output shown below.
+
+[INFO] Scanning for projects...
+[INFO] 
+[INFO] ----------< com.autogradingsystem:IS442-Auto-Grading-System >-----------
+[INFO] Building IS442-Auto-Grading-System 1.0
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] >>> spring-boot:3.2.0:run (default-cli) > test-compile @ IS442-Auto-Grading-System >>>
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ IS442-Auto-Grading-System ---
+[INFO] Copying 1 resource from src/main/resources to target/classes
+[INFO] Copying 2 resources from src/main/resources to target/classes
+[INFO] 
+[INFO] --- compiler:3.11.0:compile (default-compile) @ IS442-Auto-Grading-System ---
+[INFO] Nothing to compile - all classes are up to date
+[INFO] 
+[INFO] --- resources:3.3.1:testResources (default-testResources) @ IS442-Auto-Grading-System ---
+[INFO] skip non existing resourceDirectory /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/src/test/resources
+[INFO] 
+[INFO] --- compiler:3.11.0:testCompile (default-testCompile) @ IS442-Auto-Grading-System ---
+[INFO] No sources to compile
+[INFO] 
+[INFO] <<< spring-boot:3.2.0:run (default-cli) < test-compile @ IS442-Auto-Grading-System <<<
+[INFO] 
+[INFO] 
+[INFO] --- spring-boot:3.2.0:run (default-cli) @ IS442-Auto-Grading-System ---
+[INFO] Attaching agents: []
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+ :: Spring Boot ::                (v3.2.0)
+
+2026-03-16T10:51:11.233+08:00  INFO 75699 --- [           main] com.autogradingsystem.Main               : Starting Main using Java 25.0.2 with PID 75699 (/Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/target/classes started by jiaqian in /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System)
+2026-03-16T10:51:11.234+08:00 DEBUG 75699 --- [           main] com.autogradingsystem.Main               : Running with Spring Boot v3.2.0, Spring v6.1.1
+2026-03-16T10:51:11.234+08:00  INFO 75699 --- [           main] com.autogradingsystem.Main               : The following 1 profile is active: "cli"
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by org.apache.tomcat.jni.Library in an unnamed module (file:/Users/jiaqian/.m2/repository/org/apache/tomcat/embed/tomcat-embed-core/10.1.16/tomcat-embed-core-10.1.16.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+2026-03-16T10:51:11.705+08:00  INFO 75699 --- [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8080 (http)
+2026-03-16T10:51:11.712+08:00  INFO 75699 --- [           main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+2026-03-16T10:51:11.712+08:00  INFO 75699 --- [           main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.16]
+2026-03-16T10:51:11.748+08:00  INFO 75699 --- [           main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
+2026-03-16T10:51:11.748+08:00  INFO 75699 --- [           main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 488 ms
+2026-03-16T10:51:11.806+08:00  INFO 75699 --- [           main] o.s.b.a.w.s.WelcomePageHandlerMapping    : Adding welcome page template: index
+2026-03-16T10:51:11.968+08:00  INFO 75699 --- [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 8080 (http) with context path ''
+2026-03-16T10:51:11.973+08:00  INFO 75699 --- [           main] com.autogradingsystem.Main               : Started Main in 0.959 seconds (process running for 1.139)
+=======================================================
+  IS442 AUTO-GRADING SYSTEM — CLI MODE
+=======================================================
+
+   🔧 Normalizing structure from: 01400003
+   🔧 Normalizing structure from: xing.yan.2023
+   🔧 Normalizing structure from: ping.lee.2023
+   🔧 Normalizing structure from: RenameToYourStudentID
+   🔍 Scanning Template ZIP: RenameToYourUsername.zip
+      📂 Wrapper folder detected, going deeper: RenameToYourUsername
+      📁 Found Question Folder: [Q1] with 2 file(s)
+         📄 Expected File: Q1a.java
+         📄 Expected File: Q1b.java
+      📁 Found Question Folder: [Q2] with 5 file(s)
+         📄 Expected File: DataException.class
+         📄 Expected File: Q2a.java
+         📄 Expected File: Q2b.java
+         📄 Expected File: persons.txt
+         📄 Expected File: students.txt
+      📁 Found Question Folder: [Q3] with 5 file(s)
+         📄 Expected File: Circle.class
+         📄 Expected File: Q3.java
+         📄 Expected File: Rectangle.class
+         📄 Expected File: Shape.class
+         📄 Expected File: ShapeComparator.java
+   ✅ Template Discovery Complete. Discovered 3 question folder(s).
+   🔍 Scanning Testers Directory: resources/input/testers
+      🎯 Registered Tester: [Q2aTester.java] for Question ID: [Q2a]
+      🎯 Registered Tester: [Q1aTester.java] for Question ID: [Q1a]
+      🎯 Registered Tester: [Q3Tester.java] for Question ID: [Q3]
+      🎯 Registered Tester: [Q1bTester.java] for Question ID: [Q1b]
+      🎯 Registered Tester: [Q2bTester.java] for Question ID: [Q2b]
+   ✅ Tester Discovery Complete. Found 5 valid tester(s).
+   🔍 Finalizing Grading Plan...
+      ✅ [TASK] Q1a: Matched with answer key Q1aTester.java.
+      ✅ [TASK] Q1b: Matched with answer key Q1bTester.java.
+      💡 [HELPER] DataException: Supporting code found. Used for compilation only.
+      ✅ [TASK] Q2a: Matched with answer key Q2aTester.java.
+      ✅ [TASK] Q2b: Matched with answer key Q2bTester.java.
+      ℹ️  [DATA FILE] persons.txt: Required dependency for Q2.
+      ℹ️  [DATA FILE] students.txt: Required dependency for Q2.
+      💡 [HELPER] Circle: Supporting code found. Used for compilation only.
+      ✅ [TASK] Q3: Matched with answer key Q3Tester.java.
+      💡 [HELPER] Rectangle: Supporting code found. Used for compilation only.
+      💡 [HELPER] Shape: Supporting code found. Used for compilation only.
+      💡 [HELPER] ShapeComparator: Supporting code found. Used for compilation only.
+   🏁 Successfully mapped 5 gradable task(s).
+   === Discovery Summary ===
+   Q1 -> 2 gradable file(s)
+   Q2 -> 3 gradable file(s)
+   Q3 -> 5 gradable file(s)
+   TOTAL: 5 task(s) ready for grading
+   =========================
+
+👤 [1/6] ping.lee.2023
+      🗑️  [SECURITY] Deleted pre-existing: Q1a.class
+[Compiler] ✅ Compilation Success
+   📝 Q1a... ℹ️  3.0 points (COMPLETED)
+      --- Tester Output ---
+-------------------------------------------------------
+---------------------- Q1a ----------------------------
+-------------------------------------------------------
+Test 1: getIsogramWords([alice, ben, cathy])
+Expected  :|[alice, ben, cathy]|
+Actual    :|[alice, ben, cathy]|
+PARTIAL_SCORE:1.0
+Passed
+-------------------------------------------------------
+Test 2: getIsogramWords([ellen, alan, zoe])
+Expected  :|[zoe]|
+Actual    :|[zoe]|
+PARTIAL_SCORE:2.0
+Passed
+-------------------------------------------------------
+Test 3: getIsogramWords([Elle, alan, Daniel, Canny])
+Expected  :|[Daniel]|
+Actual    :|[Daniel]|
+PARTIAL_SCORE:3.0
+Passed
+-------------------------------------------------------
+3.0
+
+      ---------------------
+      🗑️  [SECURITY] Deleted pre-existing: Q1b.class
+[Compiler] ✅ Compilation Success
+   📝 Q1b... ℹ️  3.0 points (COMPLETED)
+      --- Tester Output ---
+-------------------------------------------------------
+---------------------- Q1b ----------------------------
+-------------------------------------------------------
+Test 1: getSumOfEvenIntegers([2, 4])
+Expected  :|6|
+Actual    :|6|
+PARTIAL_SCORE:1.0
+Passed
+-------------------------------------------------------
+Test 2: getSumOfEvenIntegers([2, false, 4.0, two])
+Expected  :|2|
+Actual    :|2|
+PARTIAL_SCORE:2.0
+Passed
+-------------------------------------------------------
+Test 3: getSumOfEvenIntegers([9, 2, 10, 3, 5, 8])
+Expected  :|20|
+Actual    :|20|
+PARTIAL_SCORE:3.0
+Passed
+-------------------------------------------------------
+3.0
+
+      ---------------------
+      🗑️  [SECURITY] Deleted pre-existing: Q2a.class
+[Compiler] ✅ Compilation Success
+   📝 Q2a... ℹ️  5.0 points (COMPLETED)
+      --- Tester Output ---
+-------------------------------------------------------
+---------------------- Q2a ----------------------------
+-------------------------------------------------------
+Test 1: getAverageAge(is442.txt, LEE)
+Expected  :|-1.0|
+Actual    :|-1.0|
+PARTIAL_SCORE:1.0
+Passed
+-------------------------------------------------------
+Test 2: getAverageAge(personstester.txt, TAY)
+Expected  :|30.0|
+Actual    :|30.0|
+PARTIAL_SCORE:2.0
+Passed
+-------------------------------------------------------
+Test 3: getAverageAge(personstester.txt, LEE)
+Expected  :|37.0|
+Actual    :|37.0|
+PARTIAL_SCORE:3.0
+Passed
+-------------------------------------------------------
+Test 4: getAverageAge(personstester.txt, Wong)
+Expected  :|26.0|
+Actual    :|26.0|
+PARTIAL_SCORE:4.0
+Passed
+-------------------------------------------------------
+Test 5: getAverageAge(personstester.txt, Ong)
+Expected  :|0.0|
+Actual    :|0.0|
+PARTIAL_SCORE:5.0
+Passed
+-------------------------------------------------------
+5.0
+
+      ---------------------
+      🗑️  [SECURITY] Deleted pre-existing: Q2b.class
+[Compiler] ✅ Compilation Success
+   📝 Q2b... ℹ️  5.0 points (COMPLETED)
+      --- Tester Output ---
+-------------------------------------------------------
+---------------------- Q2b ----------------------------
+-------------------------------------------------------
+Test 1: getTopStudent(is442.txt, IS101)
+Passed
+PARTIAL_SCORE:1.0
+-------------------------------------------------------
+Test 2: getTopStudent(studentstester.txt, SMU101)
+Passed
+PARTIAL_SCORE:2.0
+-------------------------------------------------------
+Test 3: getTopStudent(studentstester.txt, CS101)
+Expected  :|LEE Teck Yang-4.0|
+Actual    :|LEE Teck Yang-4.0|
+PARTIAL_SCORE:3.0
+Passed
+-------------------------------------------------------
+Test 4: getTopStudent(studentstester.txt, CS102)
+Expected  :|Jason LEE-4.0|
+Actual    :|Jason LEE-4.0|
+PARTIAL_SCORE:4.0
+Passed
+-------------------------------------------------------
+Test 5: getTopStudent(studentstester.txt, CS103)
+Expected  :|TAY Evelyn-4.0|
+Actual    :|TAY Evelyn-4.0|
+PARTIAL_SCORE:5.0
+Passed
+-------------------------------------------------------
+5.0
+
+      ---------------------
+      🗑️  [SECURITY] Deleted pre-existing: Q3.class
+[Compiler] ✅ Compilation Success
+   📝 Q3... ℹ️  4.0 points (COMPLETED)
+      --- Tester Output ---
+-------------------------------------------------------
+---------------------- Q3 ----------------------------
+-------------------------------------------------------
+Test 1: sortShapes([R1=>20.0:24.0, R2=>15.0:16.0, R3=>60.0:46.0, R4=>1500.0:1006.0])
+Expected  :|[R3=>60.0:46.0, R1=>20.0:24.0, R2=>15.0:16.0]|
+Actual    :|[R3=>60.0:46.0, R1=>20.0:24.0, R2=>15.0:16.0]|
+PARTIAL_SCORE:1.0
+Passed
+-------------------------------------------------------
+Test 2: sortShapes([R1=>200.0:204.0, R2=>200.0:402.0, R3=>200.0:108.0, R4=>200.0:90.0])
+Expected  :|[R2=>200.0:402.0, R1=>200.0:204.0, R3=>200.0:108.0, R4=>200.0:90.0]|
+Actual    :|[R2=>200.0:402.0, R1=>200.0:204.0, R3=>200.0:108.0, R4=>200.0:90.0]|
+PARTIAL_SCORE:2.0
+Passed
+-------------------------------------------------------
+Test 3: sortShapes([C1=>785000.0:3140.0, C2=>28.0:19.0, R1=>20000.0:20004.0, R2=>15.0:16.0])
+Expected  :|[C2=>28.0:19.0, R2=>15.0:16.0]|
+Actual    :|[C2=>28.0:19.0, R2=>15.0:16.0]|
+PARTIAL_SCORE:3.0
+Passed
+-------------------------------------------------------
+Test 4: sortShapes([C1=>79.0:31.0, C2=>28.0:19.0, R2=>24.0:22.0, R1=>24.0:28.0, R3=>24.0:20.0])
+Expected  :|[C1=>79.0:31.0, C2=>28.0:19.0, R1=>24.0:28.0, R2=>24.0:22.0, R3=>24.0:20.0]|
+Actual    :|[C1=>79.0:31.0, C2=>28.0:19.0, R1=>24.0:28.0, R2=>24.0:22.0, R3=>24.0:20.0]|
+PARTIAL_SCORE:4.0
+Passed
+-------------------------------------------------------
+4.0
+
+      ---------------------
+
+👤 [2/6] chee.teo.2022
+[Compiler] ✅ Compilation Success
+   📝 Q1a... ℹ️  3.0 points (COMPLETED)
+      --- Tester Output ---
+-------------------------------------------------------
+---------------------- Q1a ----------------------------
+-------------------------------------------------------
+Test 1: getIsogramWords([alice, ben, cathy])
+Expected  :|[alice, ben, cathy]|
+Actual    :|[alice, ben, cathy]|
+PARTIAL_SCORE:1.0
+Passed
+-------------------------------------------------------
+Test 2: getIsogramWords([ellen, alan, zoe])
+Expected  :|[zoe]|
+Actual    :|[zoe]|
+PARTIAL_SCORE:2.0
+Passed
+-------------------------------------------------------
+Test 3: getIsogramWords([Elle, alan, Daniel, Canny])
+Expected  :|[Daniel]|
+Actual    :|[Daniel]|
+PARTIAL_SCORE:3.0
+Passed
+-------------------------------------------------------
+3.0
+
+      ---------------------
+[Compiler] ✅ Compilation Success
+   📝 Q1b... ℹ️  3.0 points (COMPLETED)
+      --- Tester Output ---
+-------------------------------------------------------
+---------------------- Q1b ----------------------------
+-------------------------------------------------------
+Test 1: getSumOfEvenIntegers([2, 4])
+Expected  :|6|
+Actual    :|6|
+PARTIAL_SCORE:1.0
+Passed
+-------------------------------------------------------
+Test 2: getSumOfEvenIntegers([2, false, 4.0, two])
+Expected  :|2|
+Actual    :|2|
+PARTIAL_SCORE:2.0
+Passed
+-------------------------------------------------------
+Test 3: getSumOfEvenIntegers([9, 2, 10, 3, 5, 8])
+Expected  :|20|
+Actual    :|20|
+PARTIAL_SCORE:3.0
+Passed
+-------------------------------------------------------
+3.0
+
+      ---------------------
+[Compiler] ✅ Compilation Success
+   📝 Q2a... ℹ️  5.0 points (COMPLETED)
+      --- Tester Output ---
+-------------------------------------------------------
+---------------------- Q2a ----------------------------
+-------------------------------------------------------
+Test 1: getAverageAge(is442.txt, LEE)
+Expected  :|-1.0|
+Actual    :|-1.0|
+PARTIAL_SCORE:1.0
+Passed
+-------------------------------------------------------
+Test 2: getAverageAge(personstester.txt, TAY)
+Expected  :|30.0|
+Actual    :|30.0|
+PARTIAL_SCORE:2.0
+Passed
+-------------------------------------------------------
+Test 3: getAverageAge(personstester.txt, LEE)
+Expected  :|37.0|
+Actual    :|37.0|
+PARTIAL_SCORE:3.0
+Passed
+-------------------------------------------------------
+Test 4: getAverageAge(personstester.txt, Wong)
+Expected  :|26.0|
+Actual    :|26.0|
+PARTIAL_SCORE:4.0
+Passed
+-------------------------------------------------------
+Test 5: getAverageAge(personstester.txt, Ong)
+Expected  :|0.0|
+Actual    :|0.0|
+PARTIAL_SCORE:5.0
+Passed
+-------------------------------------------------------
+5.0
+
+      ---------------------
+[Compiler] ✅ Compilation Success
+   📝 Q2b... ℹ️  1.0 points (COMPLETED)
+      --- Tester Output ---
+-------------------------------------------------------
+---------------------- Q2b ----------------------------
+-------------------------------------------------------
+Test 1: getTopStudent(is442.txt, IS101)
+Passed
+PARTIAL_SCORE:1.0
+-------------------------------------------------------
+Test 2: getTopStudent(studentstester.txt, SMU101)
+Failed -> Expecting a Data Exception
+-------------------------------------------------------
+Test 3: getTopStudent(studentstester.txt, CS101)
+Expected  :|LEE Teck Yang-4.0|
+Actual    :|Jason LEE|
+Failed
+-------------------------------------------------------
+Test 4: getTopStudent(studentstester.txt, CS102)
+Expected  :|Jason LEE-4.0|
+Actual    :|Jason LEE|
+Failed
+-------------------------------------------------------
+Test 5: getTopStudent(studentstester.txt, CS103)
+Expected  :|TAY Evelyn-4.0|
+Actual    :|Jason LEE|
+Failed
+-------------------------------------------------------
+1.0
+
+      ---------------------
+      🗑️  [SECURITY] Deleted pre-existing: Q3.class
+[Compiler] ✅ Compilation Success
+   📝 Q3... ℹ️  0.0 points (COMPLETED)
+      --- Tester Output ---
+-------------------------------------------------------
+---------------------- Q3 ----------------------------
+-------------------------------------------------------
+Test 1: sortShapes([R1=>20.0:24.0, R2=>15.0:16.0, R3=>60.0:46.0, R4=>1500.0:1006.0])
+Expected  :|[R3=>60.0:46.0, R1=>20.0:24.0, R2=>15.0:16.0]|
+Actual    :|[]|
+Failed
+-------------------------------------------------------
+Test 2: sortShapes([R1=>200.0:204.0, R2=>200.0:402.0, R3=>200.0:108.0, R4=>200.0:90.0])
+Expected  :|[R2=>200.0:402.0, R1=>200.0:204.0, R3=>200.0:108.0, R4=>200.0:90.0]|
+Actual    :|[]|
+Failed
+-------------------------------------------------------
+Test 3: sortShapes([C1=>785000.0:3140.0, C2=>28.0:19.0, R1=>20000.0:20004.0, R2=>15.0:16.0])
+Expected  :|[C2=>28.0:19.0, R2=>15.0:16.0]|
+Actual    :|[]|
+Failed
+-------------------------------------------------------
+Test 4: sortShapes([C1=>79.0:31.0, C2=>28.0:19.0, R2=>24.0:22.0, R1=>24.0:28.0, R3=>24.0:20.0])
+Expected  :|[C1=>79.0:31.0, C2=>28.0:19.0, R1=>24.0:28.0, R2=>24.0:22.0, R3=>24.0:20.0]|
+Actual    :|[]|
+Failed
+-------------------------------------------------------
+0.0
+
+      ---------------------
+
+👤 [3/6] fen.lai.2022
+      🗑️  [SECURITY] Deleted pre-existing: Q1a.class
+[Compiler] ✅ Compilation Success
+   📝 Q1a... ℹ️  1.0 points (COMPLETED)
+      --- Tester Output ---
+-------------------------------------------------------
+---------------------- Q1a ----------------------------
+-------------------------------------------------------
+Test 1: getIsogramWords([alice, ben, cathy])
+Expected  :|[alice, ben, cathy]|
+Actual    :|[alice, ben, cathy]|
+PARTIAL_SCORE:1.0
+Passed
+-------------------------------------------------------
+Test 2: getIsogramWords([ellen, alan, zoe])
+Expected  :|[zoe]|
+Actual    :|[ellen, alan, zoe]|
+Failed
+-------------------------------------------------------
+Test 3: getIsogramWords([Elle, alan, Daniel, Canny])
+Expected  :|[Daniel]|
+Actual    :|[Elle, alan, Daniel, Canny]|
+Failed
+-------------------------------------------------------
+1.0
+
+      ---------------------
+      🗑️  [SECURITY] Deleted pre-existing: Q1b.class
+[Compiler] ✅ Compilation Success
+   📝 Q1b... ℹ️  0.0 points (COMPLETED)
+      --- Tester Output ---
+-------------------------------------------------------
+---------------------- Q1b ----------------------------
+-------------------------------------------------------
+Test 1: getSumOfEvenIntegers([2, 4])
+Expected  :|6|
+Actual    :|-1|
+Failed
+-------------------------------------------------------
+Test 2: getSumOfEvenIntegers([2, false, 4.0, two])
+Expected  :|2|
+Actual    :|-1|
+Failed
+-------------------------------------------------------
+Test 3: getSumOfEvenIntegers([9, 2, 10, 3, 5, 8])
+Expected  :|20|
+Actual    :|-1|
+Failed
+-------------------------------------------------------
+0.0
+
+      ---------------------
+      🗑️  [SECURITY] Deleted pre-existing: Q2a.class
+[Compiler] ✅ Compilation Success
+   📝 Q2a... ℹ️  5.0 points (COMPLETED)
+      --- Tester Output ---
+-------------------------------------------------------
+---------------------- Q2a ----------------------------
+-------------------------------------------------------
+Test 1: getAverageAge(is442.txt, LEE)
+Expected  :|-1.0|
+Actual    :|-1.0|
+PARTIAL_SCORE:1.0
+Passed
+-------------------------------------------------------
+Test 2: getAverageAge(personstester.txt, TAY)
+Expected  :|30.0|
+Actual    :|30.0|
+PARTIAL_SCORE:2.0
+Passed
+-------------------------------------------------------
+Test 3: getAverageAge(personstester.txt, LEE)
+Expected  :|37.0|
+Actual    :|37.0|
+PARTIAL_SCORE:3.0
+Passed
+-------------------------------------------------------
+Test 4: getAverageAge(personstester.txt, Wong)
+Expected  :|26.0|
+Actual    :|26.0|
+PARTIAL_SCORE:4.0
+Passed
+-------------------------------------------------------
+Test 5: getAverageAge(personstester.txt, Ong)
+Expected  :|0.0|
+Actual    :|0.0|
+PARTIAL_SCORE:5.0
+Passed
+-------------------------------------------------------
+5.0
+
+      ---------------------
+      🗑️  [SECURITY] Deleted pre-existing: Q2b.class
+[Compiler] ✅ Compilation Success
+   📝 Q2b... ℹ️  4.0 points (COMPLETED)
+      --- Tester Output ---
+-------------------------------------------------------
+---------------------- Q2b ----------------------------
+-------------------------------------------------------
+Test 1: getTopStudent(is442.txt, IS101)
+Passed
+PARTIAL_SCORE:1.0
+-------------------------------------------------------
+Test 2: getTopStudent(studentstester.txt, SMU101)
+Failed -> Expecting a Data Exception
+-------------------------------------------------------
+Test 3: getTopStudent(studentstester.txt, CS101)
+3.0 : 0.0
+3.0 : 3.0
+4.0 : 3.0
+3.5 : 4.0
+4.0 : 4.0
+Expected  :|LEE Teck Yang-4.0|
+Actual    :|LEE Teck Yang-4.0|
+PARTIAL_SCORE:2.0
+Passed
+-------------------------------------------------------
+Test 4: getTopStudent(studentstester.txt, CS102)
+4.0 : 0.0
+3.0 : 4.0
+3.0 : 4.0
+3.5 : 4.0
+Expected  :|Jason LEE-4.0|
+Actual    :|Jason LEE-4.0|
+PARTIAL_SCORE:3.0
+Passed
+-------------------------------------------------------
+Test 5: getTopStudent(studentstester.txt, CS103)
+2.5 : 0.0
+4.0 : 2.5
+4.0 : 4.0
+3.0 : 4.0
+2.0 : 4.0
+4.0 : 4.0
+2.0 : 4.0
+Expected  :|TAY Evelyn-4.0|
+Actual    :|TAY Evelyn-4.0|
+PARTIAL_SCORE:4.0
+Passed
+-------------------------------------------------------
+4.0
+
+      ---------------------
+[Compiler] ❌ Compilation failed:
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/fen.lai.2022/Q3/Q3.java:17: error: cannot find symbol
+    [javac]             if (shape.getArea() <= 1000) {
+    [javac]                      ^
+    [javac]   symbol:   method getArea()
+    [javac]   location: variable shape of type Shape
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/fen.lai.2022/Q3/Q3.java:22: error: cannot find symbol
+    [javac]         ShapeComparator shapeComparator = new shapeComparator();
+    [javac]                                               ^
+    [javac]   symbol:   class shapeComparator
+    [javac]   location: class Q3
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/fen.lai.2022/Q3/Q3.java:24: error: cannot find symbol
+    [javac]         Collections.sort(compareList, shapeComparator.compare);
+    [javac]                                                      ^
+    [javac]   symbol:   variable compare
+    [javac]   location: variable shapeComparator of type ShapeComparator
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/fen.lai.2022/Q3/Q3.java:26: error: cannot find symbol
+    [javac]         return compareList();
+    [javac]                ^
+    [javac]   symbol:   method compareList()
+    [javac]   location: class Q3
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/fen.lai.2022/Q3/Q3.java:35: error: incompatible types: Rectangle cannot be converted to Shape
+    [javac]             shapes.add(new Rectangle("R1", 1000, 2));
+    [javac]                        ^
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/fen.lai.2022/Q3/Q3.java:36: error: incompatible types: Rectangle cannot be converted to Shape
+    [javac]             shapes.add(new Rectangle("R2", 4, 2.5));
+    [javac]                        ^
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/fen.lai.2022/Q3/Q3.java:37: error: incompatible types: Circle cannot be converted to Shape
+    [javac]             shapes.add(new Circle("C1", 50));
+    [javac]                        ^
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/fen.lai.2022/Q3/Q3.java:56: error: incompatible types: Rectangle cannot be converted to Shape
+    [javac]             shapes.add(new Rectangle("R1", 10, 2));
+    [javac]                        ^
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/fen.lai.2022/Q3/Q3.java:57: error: incompatible types: Rectangle cannot be converted to Shape
+    [javac]             shapes.add(new Rectangle("R2", 4, 2.5));
+    [javac]                        ^
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/fen.lai.2022/Q3/Q3.java:58: error: incompatible types: Rectangle cannot be converted to Shape
+    [javac]             shapes.add(new Rectangle("R3", 5, 6));
+    [javac]                        ^
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/fen.lai.2022/Q3/Q3.java:77: error: incompatible types: Rectangle cannot be converted to Shape
+    [javac]             shapes.add(new Rectangle("R1", 8, 3));
+    [javac]                        ^
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/fen.lai.2022/Q3/Q3.java:78: error: incompatible types: Rectangle cannot be converted to Shape
+    [javac]             shapes.add(new Rectangle("R2", 6, 4));
+    [javac]                        ^
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/fen.lai.2022/Q3/Q3.java:79: error: incompatible types: Rectangle cannot be converted to Shape
+    [javac]             shapes.add(new Rectangle("R3", 12, 2));
+    [javac]                        ^
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/fen.lai.2022/Q3/Q3.java:98: error: incompatible types: Rectangle cannot be converted to Shape
+    [javac]             shapes.add(new Rectangle("R1", 8, 3));
+    [javac]                        ^
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/fen.lai.2022/Q3/Q3.java:99: error: incompatible types: Rectangle cannot be converted to Shape
+    [javac]             shapes.add(new Rectangle("R2", 12, 2));
+    [javac]                        ^
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/fen.lai.2022/Q3/Q3.java:100: error: incompatible types: Circle cannot be converted to Shape
+    [javac]             shapes.add(new Circle("C1", 10));
+    [javac]                        ^
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/fen.lai.2022/Q3/Q3.java:101: error: incompatible types: Circle cannot be converted to Shape
+    [javac]             shapes.add(new Circle("C2", 1));
+    [javac]                        ^
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/fen.lai.2022/Q3/Q3Tester.java:30: error: incompatible types: ArrayList<Shape> cannot be converted to List<java.awt.Shape>
+    [javac]                 List<Shape> result = sortShapes(inputs);
+    [javac]                                                 ^
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/fen.lai.2022/Q3/Q3Tester.java:55: error: incompatible types: ArrayList<Shape> cannot be converted to List<java.awt.Shape>
+    [javac]                 List<Shape> result = sortShapes(inputs);
+    [javac]                                                 ^
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/fen.lai.2022/Q3/Q3Tester.java:81: error: incompatible types: ArrayList<Shape> cannot be converted to List<java.awt.Shape>
+    [javac]                 List<Shape> result = sortShapes(inputs);
+    [javac]                                                 ^
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/fen.lai.2022/Q3/Q3Tester.java:108: error: incompatible types: ArrayList<Shape> cannot be converted to List<java.awt.Shape>
+    [javac]                 List<Shape> result = sortShapes(inputs);
+    [javac]                                                 ^
+    [javac] Note: Some messages have been simplified; recompile with -Xdiags:verbose to get full output
+    [javac] 21 errors
+
+   📝 Q3... ❌ 0.0 points (COMPILATION_FAILED)
+      --- Tester Output ---
+Compilation failed.
+      ---------------------
+
+👤 [4/6] xing.yan.2023
+[Compiler] ✅ Compilation Success
+   📝 Q1a... ℹ️  0.0 points (COMPLETED)
+      --- Tester Output ---
+-------------------------------------------------------
+---------------------- Q1a ----------------------------
+-------------------------------------------------------
+Test 1: getIsogramWords([alice, ben, cathy])
+Expected  :|[alice, ben, cathy]|
+Actual    :|[]|
+Failed
+-------------------------------------------------------
+Test 2: getIsogramWords([ellen, alan, zoe])
+Expected  :|[zoe]|
+Actual    :|[]|
+Failed
+-------------------------------------------------------
+Test 3: getIsogramWords([Elle, alan, Daniel, Canny])
+Expected  :|[Daniel]|
+Actual    :|[]|
+Failed
+-------------------------------------------------------
+0.0
+
+      ---------------------
+[Compiler] ✅ Compilation Success
+   📝 Q1b... ℹ️  0.0 points (COMPLETED)
+      --- Tester Output ---
+-------------------------------------------------------
+---------------------- Q1b ----------------------------
+-------------------------------------------------------
+Test 1: getSumOfEvenIntegers([2, 4])
+Expected  :|6|
+Actual    :|-1|
+Failed
+-------------------------------------------------------
+Test 2: getSumOfEvenIntegers([2, false, 4.0, two])
+Expected  :|2|
+Actual    :|-1|
+Failed
+-------------------------------------------------------
+Test 3: getSumOfEvenIntegers([9, 2, 10, 3, 5, 8])
+Expected  :|20|
+Actual    :|-1|
+Failed
+-------------------------------------------------------
+0.0
+
+      ---------------------
+[Compiler] ✅ Compilation Success
+   📝 Q2a... ⏱️  1.0 points (TIMEOUT)
+      --- Tester Output ---
+-------------------------------------------------------
+---------------------- Q2a ----------------------------
+-------------------------------------------------------
+Test 1: getAverageAge(is442.txt, LEE)
+Expected  :|-1.0|
+Actual    :|-1.0|
+PARTIAL_SCORE:1.0
+Passed
+-------------------------------------------------------
+Test 2: getAverageAge(personstester.txt, TAY)
+
+[SYSTEM] TIMEOUT: Execution exceeded time limit.
+      ---------------------
+[Compiler] ✅ Compilation Success
+   📝 Q2b... ℹ️  0.0 points (COMPLETED)
+      --- Tester Output ---
+-------------------------------------------------------
+---------------------- Q2b ----------------------------
+-------------------------------------------------------
+Test 1: getTopStudent(is442.txt, IS101)
+Failed -> Expecting a Data Exception
+-------------------------------------------------------
+Test 2: getTopStudent(studentstester.txt, SMU101)
+Failed -> Expecting a Data Exception
+-------------------------------------------------------
+Test 3: getTopStudent(studentstester.txt, CS101)
+Expected  :|LEE Teck Yang-4.0|
+Actual    :||
+Failed
+-------------------------------------------------------
+Test 4: getTopStudent(studentstester.txt, CS102)
+Expected  :|Jason LEE-4.0|
+Actual    :||
+Failed
+-------------------------------------------------------
+Test 5: getTopStudent(studentstester.txt, CS103)
+Expected  :|TAY Evelyn-4.0|
+Actual    :||
+Failed
+-------------------------------------------------------
+0.0
+
+      ---------------------
+      🗑️  [SECURITY] Deleted pre-existing: Q3.class
+[Compiler] ✅ Compilation Success
+   📝 Q3... ℹ️  0.0 points (COMPLETED)
+      --- Tester Output ---
+-------------------------------------------------------
+---------------------- Q3 ----------------------------
+-------------------------------------------------------
+Test 1: sortShapes([R1=>20.0:24.0, R2=>15.0:16.0, R3=>60.0:46.0, R4=>1500.0:1006.0])
+Expected  :|[R3=>60.0:46.0, R1=>20.0:24.0, R2=>15.0:16.0]|
+Actual    :|[]|
+Failed
+-------------------------------------------------------
+Test 2: sortShapes([R1=>200.0:204.0, R2=>200.0:402.0, R3=>200.0:108.0, R4=>200.0:90.0])
+Expected  :|[R2=>200.0:402.0, R1=>200.0:204.0, R3=>200.0:108.0, R4=>200.0:90.0]|
+Actual    :|[]|
+Failed
+-------------------------------------------------------
+Test 3: sortShapes([C1=>785000.0:3140.0, C2=>28.0:19.0, R1=>20000.0:20004.0, R2=>15.0:16.0])
+Expected  :|[C2=>28.0:19.0, R2=>15.0:16.0]|
+Actual    :|[]|
+Failed
+-------------------------------------------------------
+Test 4: sortShapes([C1=>79.0:31.0, C2=>28.0:19.0, R2=>24.0:22.0, R1=>24.0:28.0, R3=>24.0:20.0])
+Expected  :|[C1=>79.0:31.0, C2=>28.0:19.0, R1=>24.0:28.0, R2=>24.0:22.0, R3=>24.0:20.0]|
+Actual    :|[]|
+Failed
+-------------------------------------------------------
+0.0
+
+      ---------------------
+
+👤 [5/6] david.2024
+      🗑️  [SECURITY] Deleted pre-existing: Q1a.class
+[Compiler] ✅ Compilation Success
+   📝 Q1a... ℹ️  3.0 points (COMPLETED)
+      --- Tester Output ---
+-------------------------------------------------------
+---------------------- Q1a ----------------------------
+-------------------------------------------------------
+Test 1: getIsogramWords([alice, ben, cathy])
+Expected  :|[alice, ben, cathy]|
+Actual    :|[alice, ben, cathy]|
+PARTIAL_SCORE:1.0
+Passed
+-------------------------------------------------------
+Test 2: getIsogramWords([ellen, alan, zoe])
+Expected  :|[zoe]|
+Actual    :|[zoe]|
+PARTIAL_SCORE:2.0
+Passed
+-------------------------------------------------------
+Test 3: getIsogramWords([Elle, alan, Daniel, Canny])
+Expected  :|[Daniel]|
+Actual    :|[Daniel]|
+PARTIAL_SCORE:3.0
+Passed
+-------------------------------------------------------
+3.0
+
+      ---------------------
+      🗑️  [SECURITY] Deleted pre-existing: Q1b.class
+[Compiler] ✅ Compilation Success
+   📝 Q1b... ℹ️  3.0 points (COMPLETED)
+      --- Tester Output ---
+-------------------------------------------------------
+---------------------- Q1b ----------------------------
+-------------------------------------------------------
+Test 1: getSumOfEvenIntegers([2, 4])
+Expected  :|6|
+Actual    :|6|
+PARTIAL_SCORE:1.0
+Passed
+-------------------------------------------------------
+Test 2: getSumOfEvenIntegers([2, false, 4.0, two])
+Expected  :|2|
+Actual    :|2|
+PARTIAL_SCORE:2.0
+Passed
+-------------------------------------------------------
+Test 3: getSumOfEvenIntegers([9, 2, 10, 3, 5, 8])
+Expected  :|20|
+Actual    :|20|
+PARTIAL_SCORE:3.0
+Passed
+-------------------------------------------------------
+3.0
+
+      ---------------------
+      🗑️  [SECURITY] Deleted pre-existing: Q2a.class
+[Compiler] ✅ Compilation Success
+   📝 Q2a... ℹ️  4.0 points (COMPLETED)
+      --- Tester Output ---
+-------------------------------------------------------
+---------------------- Q2a ----------------------------
+-------------------------------------------------------
+Test 1: getAverageAge(is442.txt, LEE)
+is442.txt is invalid
+Expected  :|-1.0|
+Actual    :|-1.0|
+PARTIAL_SCORE:1.0
+Passed
+-------------------------------------------------------
+Test 2: getAverageAge(personstester.txt, TAY)
+The sum is 30
+Expected  :|30.0|
+Actual    :|30.0|
+PARTIAL_SCORE:2.0
+Passed
+-------------------------------------------------------
+Test 3: getAverageAge(personstester.txt, LEE)
+The sum is 111
+Expected  :|37.0|
+Actual    :|37.0|
+PARTIAL_SCORE:3.0
+Passed
+-------------------------------------------------------
+Test 4: getAverageAge(personstester.txt, Wong)
+The sum is 84
+Expected  :|26.0|
+Actual    :|28.0|
+Failed
+-------------------------------------------------------
+Test 5: getAverageAge(personstester.txt, Ong)
+The sum is 0
+Expected  :|0.0|
+Actual    :|0.0|
+PARTIAL_SCORE:4.0
+Passed
+-------------------------------------------------------
+4.0
+
+      ---------------------
+      🗑️  [SECURITY] Deleted pre-existing: Q2b.class
+[Compiler] ✅ Compilation Success
+   📝 Q2b... ℹ️  0.0 points (COMPLETED)
+      --- Tester Output ---
+-------------------------------------------------------
+---------------------- Q2b ----------------------------
+-------------------------------------------------------
+Test 1: getTopStudent(is442.txt, IS101)
+is442.txt is invalid
+Failed -> Expecting a Data Exception
+-------------------------------------------------------
+Test 2: getTopStudent(studentstester.txt, SMU101)
+Failed -> Expecting a Data Exception
+-------------------------------------------------------
+Test 3: getTopStudent(studentstester.txt, CS101)
+Expected  :|LEE Teck Yang-4.0|
+Actual    :||
+Failed
+-------------------------------------------------------
+Test 4: getTopStudent(studentstester.txt, CS102)
+Expected  :|Jason LEE-4.0|
+Actual    :||
+Failed
+-------------------------------------------------------
+Test 5: getTopStudent(studentstester.txt, CS103)
+Expected  :|TAY Evelyn-4.0|
+Actual    :||
+Failed
+-------------------------------------------------------
+0.0
+
+      ---------------------
+      🗑️  [SECURITY] Deleted pre-existing: Q3.class
+[Compiler] ✅ Compilation Success
+   📝 Q3... ℹ️  0.0 points (COMPLETED)
+      --- Tester Output ---
+-------------------------------------------------------
+---------------------- Q3 ----------------------------
+-------------------------------------------------------
+Test 1: sortShapes([R1=>20.0:24.0, R2=>15.0:16.0, R3=>60.0:46.0, R4=>1500.0:1006.0])
+Expected  :|[R3=>60.0:46.0, R1=>20.0:24.0, R2=>15.0:16.0]|
+Actual    :|[]|
+Failed
+-------------------------------------------------------
+Test 2: sortShapes([R1=>200.0:204.0, R2=>200.0:402.0, R3=>200.0:108.0, R4=>200.0:90.0])
+Expected  :|[R2=>200.0:402.0, R1=>200.0:204.0, R3=>200.0:108.0, R4=>200.0:90.0]|
+Actual    :|[]|
+Failed
+-------------------------------------------------------
+Test 3: sortShapes([C1=>785000.0:3140.0, C2=>28.0:19.0, R1=>20000.0:20004.0, R2=>15.0:16.0])
+Expected  :|[C2=>28.0:19.0, R2=>15.0:16.0]|
+Actual    :|[]|
+Failed
+-------------------------------------------------------
+Test 4: sortShapes([C1=>79.0:31.0, C2=>28.0:19.0, R2=>24.0:22.0, R1=>24.0:28.0, R3=>24.0:20.0])
+Expected  :|[C1=>79.0:31.0, C2=>28.0:19.0, R1=>24.0:28.0, R2=>24.0:22.0, R3=>24.0:20.0]|
+Actual    :|[]|
+Failed
+-------------------------------------------------------
+0.0
+
+      ---------------------
+
+👤 [6/6] jing.lim.2021
+[Compiler] ❌ Compilation failed:
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/jing.lim.2021/Q1/Q1a.java:18: error: cannot find symbol
+    [javac]             for (i = 0; i <= input.length();i++){
+    [javac]                  ^
+    [javac]   symbol:   variable i
+    [javac]   location: class Q1a
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/jing.lim.2021/Q1/Q1a.java:18: error: cannot find symbol
+    [javac]             for (i = 0; i <= input.length();i++){
+    [javac]                         ^
+    [javac]   symbol:   variable i
+    [javac]   location: class Q1a
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/jing.lim.2021/Q1/Q1a.java:18: error: cannot find symbol
+    [javac]             for (i = 0; i <= input.length();i++){
+    [javac]                                             ^
+    [javac]   symbol:   variable i
+    [javac]   location: class Q1a
+    [javac] 3 errors
+
+   📝 Q1a... ❌ 0.0 points (COMPILATION_FAILED)
+      --- Tester Output ---
+Compilation failed.
+      ---------------------
+[Compiler] ❌ Compilation failed:
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/jing.lim.2021/Q1/Q1b.java:18: error: primitive patterns are a preview feature and are disabled by default.
+    [javac]             if (input instanceof int) {
+    [javac]                                  ^
+    [javac]   (use --enable-preview to enable primitive patterns)
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/jing.lim.2021/Q1/Q1b.java:19: error: bad operand types for binary operator '+'
+    [javac]                 sum += input;
+    [javac]                     ^
+    [javac]   first type:  int
+    [javac]   second type: Object
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/jing.lim.2021/Q1/Q1a.java:18: error: cannot find symbol
+    [javac]             for (i = 0; i <= input.length();i++){
+    [javac]                  ^
+    [javac]   symbol:   variable i
+    [javac]   location: class Q1a
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/jing.lim.2021/Q1/Q1a.java:18: error: cannot find symbol
+    [javac]             for (i = 0; i <= input.length();i++){
+    [javac]                         ^
+    [javac]   symbol:   variable i
+    [javac]   location: class Q1a
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/jing.lim.2021/Q1/Q1a.java:18: error: cannot find symbol
+    [javac]             for (i = 0; i <= input.length();i++){
+    [javac]                                             ^
+    [javac]   symbol:   variable i
+    [javac]   location: class Q1a
+    [javac] 5 errors
+
+   📝 Q1b... ❌ 0.0 points (COMPILATION_FAILED)
+      --- Tester Output ---
+Compilation failed.
+      ---------------------
+[Compiler] ❌ Compilation failed:
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/jing.lim.2021/Q2/Q2a.java:22: error: incompatible types: String cannot be converted to int
+    [javac]         if(filename.substring(0, surname) != surname){
+    [javac]                                  ^
+    [javac] Note: Some messages have been simplified; recompile with -Xdiags:verbose to get full output
+    [javac] 1 error
+
+   📝 Q2a... ❌ 0.0 points (COMPILATION_FAILED)
+      --- Tester Output ---
+Compilation failed.
+      ---------------------
+      🗑️  [SECURITY] Deleted pre-existing: Q2b.class
+[Compiler] ❌ Compilation failed:
+    [javac] /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/extracted/jing.lim.2021/Q2/Q2a.java:22: error: incompatible types: String cannot be converted to int
+    [javac]         if(filename.substring(0, surname) != surname){
+    [javac]                                  ^
+    [javac] Note: Some messages have been simplified; recompile with -Xdiags:verbose to get full output
+    [javac] 1 error
+
+   📝 Q2b... ❌ 0.0 points (COMPILATION_FAILED)
+      --- Tester Output ---
+Compilation failed.
+      ---------------------
+      🗑️  [SECURITY] Deleted pre-existing: Q3.class
+[Compiler] ✅ Compilation Success
+   📝 Q3... ℹ️  0.0 points (COMPLETED)
+      --- Tester Output ---
+-------------------------------------------------------
+---------------------- Q3 ----------------------------
+-------------------------------------------------------
+Test 1: sortShapes([R1=>20.0:24.0, R2=>15.0:16.0, R3=>60.0:46.0, R4=>1500.0:1006.0])
+Expected  :|[R3=>60.0:46.0, R1=>20.0:24.0, R2=>15.0:16.0]|
+Actual    :|[]|
+Failed
+-------------------------------------------------------
+Test 2: sortShapes([R1=>200.0:204.0, R2=>200.0:402.0, R3=>200.0:108.0, R4=>200.0:90.0])
+Expected  :|[R2=>200.0:402.0, R1=>200.0:204.0, R3=>200.0:108.0, R4=>200.0:90.0]|
+Actual    :|[]|
+Failed
+-------------------------------------------------------
+Test 3: sortShapes([C1=>785000.0:3140.0, C2=>28.0:19.0, R1=>20000.0:20004.0, R2=>15.0:16.0])
+Expected  :|[C2=>28.0:19.0, R2=>15.0:16.0]|
+Actual    :|[]|
+Failed
+-------------------------------------------------------
+Test 4: sortShapes([C1=>79.0:31.0, C2=>28.0:19.0, R2=>24.0:22.0, R1=>24.0:28.0, R3=>24.0:20.0])
+Expected  :|[C1=>79.0:31.0, C2=>28.0:19.0, R1=>24.0:28.0, R2=>24.0:22.0, R3=>24.0:20.0]|
+Actual    :|[]|
+Failed
+-------------------------------------------------------
+0.0
+
+      ---------------------
+
+📋 Detected Max Scores per Question:
+   Q1a: 3.0 points
+   Q2b: 5.0 points
+   Q2a: 5.0 points
+   Q3: 4.0 points
+   Q1b: 3.0 points
+
+======================================================================
+📈 QUESTION-BY-QUESTION STATISTICS
+======================================================================
+
+Q1a (3.0 points):
+  Average: 1.6666666666666667 / 3.0 (55.6%)
+  Perfect scores: 3/6 students
+  Partial credit: 1/6 students
+  Failed: 2/6 students
+
+Q1b (3.0 points):
+  Average: 1.5 / 3.0 (50.0%)
+  Perfect scores: 3/6 students
+  Failed: 3/6 students
+
+Q2a (5.0 points):
+  Average: 3.3333333333333335 / 5.0 (66.7%)
+  Perfect scores: 3/6 students
+  Partial credit: 2/6 students
+  Failed: 1/6 students
+
+Q2b (5.0 points):
+  Average: 1.6666666666666667 / 5.0 (33.3%)
+  Perfect scores: 1/6 students
+  Partial credit: 2/6 students
+  Failed: 3/6 students
+
+Q3 (4.0 points):
+  Average: 0.6666666666666666 / 4.0 (16.7%)
+  Perfect scores: 1/6 students
+  Failed: 5/6 students
+
+======================================================================
+📋 GRADING RESULTS - COMPACT VIEW
+======================================================================
+ping.lee.2023:        Q1a:3.0    Q1b:3.0    Q2a:5.0    Q2b:5.0    Q3:4.0    Total: 20.0/20.0
+chee.teo.2022:        Q1a:3.0    Q1b:3.0    Q2a:5.0    Q2b:1.0    Q3:0.0    Total: 12.0/20.0
+fen.lai.2022:         Q1a:1.0    Q1b:0.0    Q2a:5.0    Q2b:4.0    Q3:0.0    Total: 10.0/20.0
+xing.yan.2023:        Q1a:0.0    Q1b:0.0    Q2a:1.0    Q2b:0.0    Q3:0.0    Total: 1.0/20.0
+david.2024:           Q1a:3.0    Q1b:3.0    Q2a:4.0    Q2b:0.0    Q3:0.0    Total: 10.0/20.0
+jing.lim.2021:        Q1a:0.0    Q1b:0.0    Q2a:0.0    Q2b:0.0    Q3:0.0    Total: 0.0/20.0
+======================================================================
+
+======================================================================
+📊 OVERALL CLASS STATISTICS
+======================================================================
+
+Class Average : 8.8 / 20.0 (44.2%)
+Highest Score : 20.0 / 20.0 (ping.lee.2023)
+Lowest Score  : 0.0 / 20.0 (jing.lim.2021)
+Pass Rate     : 4/6 students (66.7%)
+======================================================================
+
+======================================================================
+📄 EXPORTING REPORTS
+======================================================================
+✅ Score Sheet   → /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/reports/IS442-ScoreSheet-Updated.xlsx
+✅ Statistics    → /Users/jiaqian/Documents/IS442/IS442-Auto-Grading-System/resources/output/reports/IS442-Statistics.xlsx
+======================================================================
+
+-------------------------------------------------------
+  GRADING LOG
+-------------------------------------------------------
+Validating input paths...
+All required paths validated.
+Extracting and validating student submissions...
+Extracted 6 student(s).
+Discovering exam structure and testers...
+Built grading plan with 5 task(s).
+Running grading execution...
+Grading complete. Total results: 30
+Analyzing results and generating reports...
+Reports generated successfully.
+GRADING PIPELINE COMPLETE.
+
+-------------------------------------------------------
+  ✅ GRADING COMPLETE — 6 student(s) processed.
+  Reports saved to: resources/output/reports/
+=======================================================
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  01:54 min
+[INFO] Finished at: 2026-03-16T10:53:04+08:00
+[INFO] ------------------------------------------------------------------------

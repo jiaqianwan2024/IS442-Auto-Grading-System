@@ -27,10 +27,10 @@ import java.util.List;
  * @version 4.0
  */
 public class ExtractionController {
-    
+
     private final ScoreSheetReader scoreReader;
     private final UnzipService unzipService;
-    
+
     /**
      * Constructor - initializes extraction services
      */
@@ -38,7 +38,7 @@ public class ExtractionController {
         this.scoreReader = new ScoreSheetReader();
         this.unzipService = new UnzipService();
     }
-    
+
     /**
      * Extracts and validates all student submissions
      * 
@@ -53,28 +53,27 @@ public class ExtractionController {
      * @throws IOException if extraction fails
      */
     public int extractAndValidate() throws IOException {
-        
+
         // Clean old extracted data
         cleanOldData();
-        
+
         // Load valid students from CSV
         scoreReader.loadValidStudents(PathConfig.CSV_SCORESHEET);
-        
+
         // Extract and validate
         List<ValidationResult> results = unzipService.extractAndValidateStudents(
-            PathConfig.INPUT_SUBMISSIONS,
-            PathConfig.OUTPUT_EXTRACTED,
-            scoreReader
-        );
-        
+                PathConfig.INPUT_SUBMISSIONS,
+                PathConfig.OUTPUT_EXTRACTED,
+                scoreReader);
+
         // Count successful extractions
         long successCount = results.stream()
-            .filter(ValidationResult::isIdentified)
-            .count();
-        
+                .filter(r -> r.getResolvedId() != null) // counts both identified + unrecognized (now has rawName)
+                .count();
+
         return (int) successCount;
     }
-    
+
     /**
      * Cleans old extracted data if it exists
      * Ensures fresh start for each grading run
@@ -83,16 +82,16 @@ public class ExtractionController {
         if (Files.exists(PathConfig.OUTPUT_EXTRACTED)) {
             // Delete directory recursively
             Files.walk(PathConfig.OUTPUT_EXTRACTED)
-                .sorted(java.util.Comparator.reverseOrder())
-                .forEach(path -> {
-                    try {
-                        Files.delete(path);
-                    } catch (IOException e) {
-                        // Ignore
-                    }
-                });
+                    .sorted(java.util.Comparator.reverseOrder())
+                    .forEach(path -> {
+                        try {
+                            Files.delete(path);
+                        } catch (IOException e) {
+                            // Ignore
+                        }
+                    });
         }
-        
+
         // Recreate empty directory
         Files.createDirectories(PathConfig.OUTPUT_EXTRACTED);
     }
