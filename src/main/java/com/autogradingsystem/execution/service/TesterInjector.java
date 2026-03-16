@@ -112,24 +112,27 @@ public class TesterInjector {
 
         Path source = sourceDir.resolve(filename);
         Path dest   = destinationFolder.resolve(filename);
+        String content;
 
+        // 1. Read the master file
         if (Files.exists(source)) {
-            Files.copy(source, dest, StandardCopyOption.REPLACE_EXISTING);
-            return;
+            content = Files.readString(source);
+        } else {
+            String resourcePath = "testers/" + filename;
+            try (InputStream in = getClass().getClassLoader().getResourceAsStream(resourcePath)) {
+                if (in == null) throw new IOException("Tester not found: " + filename);
+                content = new String(in.readAllBytes());
+            }
         }
 
-        // Fallback: classpath (JAR deployment)
-        String resourcePath = "testers/" + filename;
-        try (InputStream in = getClass().getClassLoader().getResourceAsStream(resourcePath)) {
-            if (in == null) {
-                throw new IOException(
-                    "Tester not found: " + filename + "\n"
-                    + "  Filesystem: " + source + "\n"
-                    + "  Classpath:  " + resourcePath + "\n"
-                    + "Ensure the file exists in resources/input/testers/");
-            }
-            Files.copy(in, dest, StandardCopyOption.REPLACE_EXISTING);
-        }
+        // 2. THE NINJA MOVE: Inject partial score tracking
+        String injectedContent = content.replaceAll(
+            "(?i)(score\\s*\\+=\\s*[^;]+;)", 
+            "$1 System.out.println(\"PARTIAL_SCORE:\" + score); System.out.flush();"
+        );
+
+        // 3. Write injected code to student folder
+        Files.writeString(dest, injectedContent);
     }
 
     /**
@@ -147,9 +150,16 @@ public class TesterInjector {
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(templateQuestionDir)) {
             for (Path file : stream) {
                 String name = file.getFileName().toString();
-                // Skip .java and .class — only copy data/resource files
-                if (name.endsWith(".java") || name.endsWith(".class")) continue;
+                // Skip .java — only copy data/resource files and pre-compiled .class dependencies
+                // NOTE: .class files ARE copied intentionally — Q3 needs Shape.class, Rectangle.class,
+                // Circle.class to be present alongside the student's code for compilation to succeed.
+                if (name.endsWith(".java")) continue;
                 if (Files.isDirectory(file)) continue;
+                // CRITICAL: Never overwrite the student's own scripts with the template's empty stubs.
+                // The template ships compile.bat, compile.sh, run.bat, run.sh as 0-byte placeholders.
+                // Copying them here would silently destroy every student's Q4 scripts before grading.
+                if (name.equalsIgnoreCase("compile.bat") || name.equalsIgnoreCase("compile.sh")
+                        || name.equalsIgnoreCase("run.bat") || name.equalsIgnoreCase("run.sh")) continue;
 
                 Path dest = destinationFolder.resolve(name);
                 try {

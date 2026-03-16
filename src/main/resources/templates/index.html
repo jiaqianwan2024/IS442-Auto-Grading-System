@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IS442 Auto-Grading System</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<!-- Decorative background elements -->
+<div class="bg-pattern"></div>
+<div class="bg-dots"></div>
+
+<div class="container">
+    <!-- Header with retro yellow bar -->
+    <div class="retro-bar"></div>
+    
+    <header class="header">
+        <div class="header-logo">
+            <div class="logo-icon">
+                <span class="icon-bracket">[</span>
+                <span class="icon-code">IS442</span>
+                <span class="icon-bracket">]</span>
+            </div>
+            <div class="logo-text">
+                <h1>AUTO-GRADING<br>SYSTEM</h1>
+            </div>
+        </div>
+        <div class="header-status">
+            <div class="status-badge" id="systemStatusBadge">
+                <span class="badge-dot"></span>
+                <span class="badge-text">READY</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Alert Container -->
+    <div id="alertContainer"></div>
+
+    <!-- Hero Section -->
+    <div class="hero-section">
+        <h2 class="hero-title">
+            Grade your code<br>
+            <span class="highlight">automatically!</span>
+        </h2>
+        <p class="hero-subtitle">Upload, grade, and download results in seconds</p>
+    </div>
+
+    <!-- Upload Section -->
+    <section class="upload-section">
+        <div class="section-header">
+            <h3>📂 Upload Files</h3>
+            <p>Drag & drop or click to upload (4 files required)</p>
+        </div>
+
+        <div class="upload-grid">
+            
+            <!-- Upload Box 1: Student Submissions -->
+            <div class="upload-box" 
+                 data-file-type="submission"
+                 ondrop="handleDrop(event, 'submission')"
+                 ondragover="handleDragOver(event)"
+                 ondragleave="handleDragLeave(event)"
+                 onclick="document.getElementById('submissionZip').click()">
+                <input type="file" 
+                       id="submissionZip" 
+                       accept=".zip" 
+                       onchange="handleFileSelect(this, 'submission')"
+                       hidden>
+                <div class="upload-icon">📦</div>
+                <div class="upload-title">Student Submissions</div>
+                <div class="upload-desc">Master ZIP file</div>
+                <div class="upload-status" id="submissionStatus">
+                    <span class="status-text">Click or drag here</span>
+                </div>
+            </div>
+
+            <!-- Upload Box 2: Template -->
+            <div class="upload-box"
+                 data-file-type="template"
+                 ondrop="handleDrop(event, 'template')"
+                 ondragover="handleDragOver(event)"
+                 ondragleave="handleDragLeave(event)"
+                 onclick="document.getElementById('templateZip').click()">
+                <input type="file" 
+                       id="templateZip" 
+                       accept=".zip" 
+                       onchange="handleFileSelect(this, 'template')"
+                       hidden>
+                <div class="upload-icon">📄</div>
+                <div class="upload-title">Template/Answer Key</div>
+                <div class="upload-desc">Reference solution</div>
+                <div class="upload-status" id="templateStatus">
+                    <span class="status-text">Click or drag here</span>
+                </div>
+            </div>
+
+            <!-- Upload Box 3: Score Sheet -->
+            <div class="upload-box"
+                 data-file-type="scoresheet"
+                 ondrop="handleDrop(event, 'scoresheet')"
+                 ondragover="handleDragOver(event)"
+                 ondragleave="handleDragLeave(event)"
+                 onclick="document.getElementById('scoreSheetCsv').click()">
+                <input type="file" 
+                       id="scoreSheetCsv" 
+                       accept=".csv" 
+                       onchange="handleFileSelect(this, 'scoresheet')"
+                       hidden>
+                <div class="upload-icon">📊</div>
+                <div class="upload-title">Score Sheet CSV</div>
+                <div class="upload-desc">Official student list</div>
+                <div class="upload-status" id="scoresheetStatus">
+                    <span class="status-text">Click or drag here</span>
+                </div>
+            </div>
+
+            <!-- Upload Box 4: Test Cases -->
+            <div class="upload-box"
+                 data-file-type="testers"
+                 ondrop="handleDrop(event, 'testers')"
+                 ondragover="handleDragOver(event)"
+                 ondragleave="handleDragLeave(event)"
+                 onclick="document.getElementById('testersZip').click()">
+                <input type="file" 
+                       id="testersZip" 
+                       accept=".zip" 
+                       onchange="handleFileSelect(this, 'testers')"
+                       hidden>
+                <div class="upload-icon">🧪</div>
+                <div class="upload-title">Test Cases</div>
+                <div class="upload-desc">Tester Java files</div>
+                <div class="upload-status" id="testersStatus">
+                    <span class="status-text">Click or drag here</span>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Upload Button -->
+        <div class="action-center">
+            <button class="btn btn-upload" 
+                    id="uploadBtn"
+                    onclick="uploadAllFiles()">
+                <span class="btn-icon">⬆</span>
+                Upload Files
+            </button>
+            <div class="upload-counter" id="uploadCounter">
+                <span class="counter-value">0/4</span> files uploaded
+            </div>
+        </div>
+    </section>
+
+    <!-- Grading Section -->
+    <section class="grading-section" id="gradingSection">
+        <div class="section-header">
+            <h3>⚡ Start Grading</h3>
+            <p>Run the automated grading pipeline</p>
+        </div>
+
+        <div class="grading-card">
+            <div class="grading-ready" id="gradingReady">
+                <div class="ready-icon">✓</div>
+                <div class="ready-text">All files uploaded! Ready to grade.</div>
+            </div>
+            
+            <div class="grading-waiting" id="gradingWaiting">
+                <div class="waiting-icon">⏳</div>
+                <div class="waiting-text">Upload all 4 files to begin grading</div>
+            </div>
+
+            <button class="btn btn-grade" 
+                    id="gradeBtn"
+                    onclick="startGrading()"
+                    disabled>
+                <span class="btn-icon">▶</span>
+                Start Grading!
+            </button>
+
+            <!-- Progress Bar -->
+            <div class="progress-container" id="progressContainer" style="display: none;">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="progress-label" id="progressLabel">Initializing...</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Results Section (Hidden initially) -->
+    <section class="results-section" id="resultsSection" style="display: none;">
+        <div class="section-header">
+            <h3>📊 Results</h3>
+            <p>Grading complete! View stats and download reports</p>
+        </div>
+
+        <!-- Stats Cards -->
+        <div class="stats-container">
+            <div class="stat-card">
+                <div class="stat-icon">👥</div>
+                <div class="stat-value" id="statStudents">-</div>
+                <div class="stat-label">Students</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">📝</div>
+                <div class="stat-value" id="statTasks">-</div>
+                <div class="stat-label">Tasks</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">📈</div>
+                <div class="stat-value" id="statAverage">-</div>
+                <div class="stat-label">Average</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">✓</div>
+                <div class="stat-value" id="statSuccess">-</div>
+                <div class="stat-label">Success Rate</div>
+            </div>
+        </div>
+
+        <!-- Download Buttons -->
+        <div class="download-area">
+            <h4>Download Reports</h4>
+            <div class="download-buttons">
+                <a href="/download/csv" class="btn btn-download">
+                    <span class="btn-icon">📄</span>
+                    Score Sheet (CSV)
+                </a>
+                <a href="/download/excel" class="btn btn-download">
+                    <span class="btn-icon">📊</span>
+                    Statistics (Excel)
+                </a>
+            </div>
+        </div>
+
+        <!-- Execution Log -->
+        <div class="log-container">
+            <h4>Execution Log</h4>
+            <div class="log-terminal" id="logTerminal">
+                <div class="log-line">$ Waiting for grading to start...</div>
+            </div>
+        </div>
+    </section>
+
+</div>
+
+<!-- Footer -->
+<footer class="footer">
+    <div class="footer-content">
+        <p>IS442 Auto-Grading System • Built by G1T4 </p>
+    </div>
+</footer>
+
+<script th:inline="javascript">
+    // Session storage for uploaded files
+    const sessionFiles = {
+        submission: null,
+        template: null,
+        scoresheet: null,
+        testers: null
+    };
+
+    // Initialize on page load
+    window.addEventListener('DOMContentLoaded', function() {
+        checkExistingUploads();
+        updateUI();
+    });
+
+    // Drag and Drop Handlers
+    function handleDragOver(event) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.currentTarget.classList.add('drag-over');
+    }
+
+    function handleDragLeave(event) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.currentTarget.classList.remove('drag-over');
+    }
+
+    function handleDrop(event, fileType) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.currentTarget.classList.remove('drag-over');
+
+        const files = event.dataTransfer.files;
+        if (files.length > 0) {
+            const file = files[0];
+            
+            // Validate file type
+            const isValid = validateFileType(file, fileType);
+            if (!isValid) {
+                showAlert('error', `Invalid file type. Expected ${getExpectedExtension(fileType)}`);
+                return;
+            }
+
+            // Store file
+            sessionFiles[fileType] = file;
+            updateFileStatus(fileType, file);
+            updateUI();
+        }
+    }
+
+    // File selection handler
+    function handleFileSelect(input, fileType) {
+        const file = input.files[0];
+        if (file) {
+            const isValid = validateFileType(file, fileType);
+            if (!isValid) {
+                showAlert('error', `Invalid file type. Expected ${getExpectedExtension(fileType)}`);
+                input.value = '';
+                return;
+            }
+
+            sessionFiles[fileType] = file;
+            updateFileStatus(fileType, file);
+            updateUI();
+        }
+    }
+
+    // Validate file type
+    function validateFileType(file, fileType) {
+        if (fileType === 'scoresheet') {
+            return file.name.endsWith('.csv');
+        }
+        return file.name.endsWith('.zip');
+    }
+
+    // Get expected extension
+    function getExpectedExtension(fileType) {
+        return fileType === 'scoresheet' ? '.csv' : '.zip';
+    }
+
+    // Update file status display
+    function updateFileStatus(fileType, file) {
+        const statusEl = document.getElementById(fileType + 'Status');
+        const boxEl = document.querySelector(`[data-file-type="${fileType}"]`);
+        
+        statusEl.innerHTML = `
+            <span class="status-uploaded">
+                ✓ ${file.name}
+                <span class="file-size">(${formatFileSize(file.size)})</span>
+            </span>
+        `;
+        
+        boxEl.classList.add('uploaded');
+    }
+
+    // Update UI state
+    function updateUI() {
+        const uploadedCount = Object.values(sessionFiles).filter(f => f !== null).length;
+        
+        // Update counter
+        document.getElementById('uploadCounter').innerHTML = `
+            <span class="counter-value">${uploadedCount}/4</span> files uploaded
+        `;
+
+        // Update grading button and status
+        const gradeBtn = document.getElementById('gradeBtn');
+        const readyEl = document.getElementById('gradingReady');
+        const waitingEl = document.getElementById('gradingWaiting');
+
+        if (uploadedCount === 4) {
+            gradeBtn.disabled = false;
+            readyEl.style.display = 'flex';
+            waitingEl.style.display = 'none';
+        } else {
+            gradeBtn.disabled = true;
+            readyEl.style.display = 'none';
+            waitingEl.style.display = 'flex';
+        }
+    }
+
+    // Upload all files
+    function uploadAllFiles() {
+        const formData = new FormData();
+        let hasFiles = false;
+
+        Object.keys(sessionFiles).forEach(key => {
+            if (sessionFiles[key]) {
+                formData.append(key, sessionFiles[key]);
+                hasFiles = true;
+            }
+        });
+
+        if (!hasFiles) {
+            showAlert('error', 'Please select at least one file to upload');
+            return;
+        }
+
+        const uploadBtn = document.getElementById('uploadBtn');
+        uploadBtn.disabled = true;
+        uploadBtn.innerHTML = '<span class="btn-icon">⏳</span> Uploading...';
+
+        fetch('/upload', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showAlert('success', 'Files uploaded successfully! ✓');
+                sessionStorage.setItem('filesUploaded', JSON.stringify(data.uploaded));
+            } else {
+                showAlert('error', 'Upload failed: ' + data.message);
+            }
+        })
+        .catch(error => {
+            showAlert('error', 'Upload error: ' + error.message);
+        })
+        .finally(() => {
+            uploadBtn.disabled = false;
+            uploadBtn.innerHTML = '<span class="btn-icon">⬆</span> Upload Files';
+        });
+    }
+
+    // Check existing uploads
+    function checkExistingUploads() {
+        fetch('/check-uploads')
+            .then(response => response.json())
+            .then(data => {
+                if (data.exists) {
+                    // Mark existing files as uploaded
+                    // (This would require additional backend support to return filenames)
+                }
+            })
+            .catch(error => {
+                console.log('Could not check existing uploads:', error);
+            });
+    }
+
+    // Start grading
+    function startGrading() {
+        const gradeBtn = document.getElementById('gradeBtn');
+        gradeBtn.disabled = true;
+        gradeBtn.innerHTML = '<span class="btn-icon">⏳</span> Grading...';
+
+        // Update status badge
+        const statusBadge = document.getElementById('systemStatusBadge');
+        statusBadge.innerHTML = '<span class="badge-dot running"></span><span class="badge-text">RUNNING</span>';
+
+        // Show progress
+        document.getElementById('progressContainer').style.display = 'block';
+        simulateProgress();
+
+        fetch('/grade', {
+            method: 'POST'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showAlert('success', 'Grading completed successfully! ✓');
+                displayResults(data);
+            } else {
+                showAlert('error', 'Grading failed. Check logs for details.');
+                displayResults(data);
+            }
+        })
+        .catch(error => {
+            showAlert('error', 'Grading error: ' + error.message);
+        })
+        .finally(() => {
+            gradeBtn.disabled = false;
+            gradeBtn.innerHTML = '<span class="btn-icon">▶</span> Start Grading!';
+            statusBadge.innerHTML = '<span class="badge-dot"></span><span class="badge-text">READY</span>';
+            document.getElementById('progressContainer').style.display = 'none';
+        });
+    }
+
+    // Simulate progress (for visual feedback)
+    function simulateProgress() {
+        const progressFill = document.getElementById('progressFill');
+        const progressLabel = document.getElementById('progressLabel');
+        
+        let progress = 0;
+        const stages = ['Extracting...', 'Validating...', 'Compiling...', 'Grading...', 'Analyzing...'];
+        let stageIndex = 0;
+
+        const interval = setInterval(() => {
+            progress += Math.random() * 15;
+            if (progress > 95) progress = 95;
+            
+            progressFill.style.width = progress + '%';
+            progressLabel.textContent = stages[Math.min(stageIndex, stages.length - 1)];
+            
+            if (progress > (stageIndex + 1) * 20) {
+                stageIndex++;
+            }
+        }, 500);
+
+        // Store interval to clear later
+        window.gradingInterval = interval;
+    }
+
+    // Display results
+    function displayResults(data) {
+        if (window.gradingInterval) clearInterval(window.gradingInterval);
+        
+        document.getElementById('resultsSection').style.display = 'block';
+        
+        // Update stats
+        document.getElementById('statStudents').textContent = data.studentCount || '-';
+        document.getElementById('statTasks').textContent = data.taskCount || '-';
+        document.getElementById('statAverage').textContent = data.averageScore ? data.averageScore.toFixed(1) + '%' : '-';
+        document.getElementById('statSuccess').textContent = data.successRate ? data.successRate.toFixed(1) + '%' : '-';
+        
+        // Display logs
+        const logTerminal = document.getElementById('logTerminal');
+        logTerminal.innerHTML = '';
+        if (data.logs && data.logs.length > 0) {
+            data.logs.forEach(log => {
+                const logLine = document.createElement('div');
+                logLine.className = 'log-line';
+                logLine.textContent = '$ ' + log;
+                logTerminal.appendChild(logLine);
+            });
+        }
+        
+        // Scroll to results
+        document.getElementById('resultsSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    // Show alert
+    function showAlert(type, message) {
+        const alertContainer = document.getElementById('alertContainer');
+        const alert = document.createElement('div');
+        alert.className = `alert alert-${type}`;
+        alert.innerHTML = `
+            <div class="alert-content">
+                <span class="alert-icon">${type === 'success' ? '✓' : '✕'}</span>
+                <span class="alert-message">${message}</span>
+            </div>
+            <button class="alert-close" onclick="this.parentElement.remove()">×</button>
+        `;
+        alertContainer.appendChild(alert);
+        
+        setTimeout(() => alert.remove(), 5000);
+    }
+
+    // Format file size
+    function formatFileSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+</script>
+
+</body>
+</html>

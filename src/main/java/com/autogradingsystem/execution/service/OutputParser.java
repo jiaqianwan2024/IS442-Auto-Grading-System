@@ -70,18 +70,29 @@ public class OutputParser {
 
         if (output == null || output.isBlank()) return 0.0;
 
-        // EDGE CASE: timeout or error strings — no score to parse
-        String upper = output.toUpperCase();
-        if (upper.startsWith("TIMEOUT") || upper.startsWith("ERROR")) return 0.0;
-
-        // Normalise line endings (Windows \r\n → \n)
+        // Normalise line endings
         String normalised = output.replace("\r\n", "\n").replace("\r", "\n");
         String[] lines = normalised.split("\n");
 
-        // Pass 1: Look for an explicit score label anywhere in the output (bottom-up)
+        // ── PASS 0: THE NINJA MOVE (Partial Credit Rescue) ───────────────
+        // Scan top-down to find the highest injected partial score before a crash
+        double highestPartial = -1.0;
+        for (String line : lines) {
+            if (line.trim().startsWith("PARTIAL_SCORE:")) {
+                try {
+                    highestPartial = Double.parseDouble(line.split(":")[1].trim());
+                } catch (Exception ignored) {}
+            }
+        }
+        
+        if (highestPartial >= 0.0) {
+            return highestPartial; // Immediately return the rescued score!
+        }
+
+        // ── PASS 1: Look for explicit score labels (Bottom-Up) ───────────
         for (int i = lines.length - 1; i >= 0; i--) {
             String line = lines[i].trim();
-            if (line.isEmpty()) continue;
+            if (line.isEmpty() || line.startsWith("[SYSTEM]") || line.startsWith("TIMEOUT")) continue;
 
             Matcher labelMatcher = SCORE_LABEL_PATTERN.matcher(line);
             if (labelMatcher.find()) {
@@ -90,10 +101,11 @@ public class OutputParser {
             }
         }
 
-        // Pass 2: Fall back to last non-empty line — take the LAST number found
+        // ── PASS 2: Fall back to last non-empty line (Bottom-Up) ─────────
         for (int i = lines.length - 1; i >= 0; i--) {
             String line = lines[i].trim();
-            if (line.isEmpty()) continue;
+            // Crucial Fix: Ignore the system messages so it doesn't read timestamps/limits!
+            if (line.isEmpty() || line.startsWith("[SYSTEM]") || line.startsWith("TIMEOUT")) continue;
 
             Double lastNumber = findLastNumber(line);
             if (lastNumber != null) {

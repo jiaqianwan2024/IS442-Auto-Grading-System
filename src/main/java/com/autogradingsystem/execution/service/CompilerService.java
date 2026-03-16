@@ -79,6 +79,48 @@ public class CompilerService {
         return runJavac(workingDir, javaFiles);
     }
 
+    /**
+     * Compiles ONLY the specified target file + any tester files in the folder,
+     * ignoring other .java files that may have errors (e.g. broken Q1a shouldn't
+     * prevent Q1b from being compiled and graded).
+     *
+     * @param workingDir  the folder containing the files
+     * @param targetFile  the student file to compile (e.g. "Q1b.java")
+     * @return true if compilation succeeded
+     */
+    public boolean compileTargeted(Path workingDir, String targetFile) {
+        if (workingDir == null || !Files.exists(workingDir)) {
+            System.out.println("[Compiler] ❌ Directory does not exist: " + workingDir);
+            return false;
+        }
+
+        List<Path> javaFiles = new ArrayList<>();
+
+        // Always include the specific target file
+        Path target = workingDir.resolve(targetFile);
+        if (Files.exists(target)) javaFiles.add(target);
+
+        // Include any tester files (end with Tester.java)
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(workingDir, "*.java")) {
+            for (Path f : stream) {
+                String name = f.getFileName().toString();
+                if (name.endsWith("Tester.java") && !javaFiles.contains(f)) {
+                    javaFiles.add(f);
+                }
+            }
+        } catch (IOException e) {
+            System.out.println("[Compiler] ⚠️  Could not list directory: " + e.getMessage());
+        }
+
+        if (javaFiles.isEmpty()) {
+            System.out.println("[Compiler] ❌ Target file not found: " + targetFile);
+            return false;
+        }
+
+        stripPackageDeclarations(javaFiles);
+        return runJavac(workingDir, javaFiles);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Private helpers
     // ─────────────────────────────────────────────────────────────────────────
@@ -149,15 +191,13 @@ public class CompilerService {
      */
     private boolean runJavac(Path workingDir, List<Path> javaFiles) {
         try {
-            // Build command: javac -d <dir> -encoding UTF-8 -nowarn <file1> <file2> ...
+            // Build command: javac -cp <classpath> -d <dir> -encoding UTF-8 -nowarn <files...>
+            // Classpath = workingDir (for pre-compiled .class deps like Shape.class)
+            //           + any *.jar files under workingDir/external/ (Q4 Apache Commons)
             String dirPath = workingDir.toAbsolutePath().toString();
+            String classpath = buildClasspath(workingDir, dirPath);
             StringBuilder cmd = new StringBuilder();
-            // -cp ensures pre-compiled helper .class files in the same folder
-            // (e.g. DataException.class, Shape.class) are on the classpath.
-            // Without this, javac only searches the default bootclasspath and
-            // misses student-supplied .class dependencies even when they are
-            // sitting right next to the .java files being compiled.
-            cmd.append("javac -cp \"").append(dirPath)
+            cmd.append("javac -cp \"").append(classpath)
                .append("\" -d \"").append(dirPath)
                .append("\" -encoding UTF-8 -nowarn");
 
@@ -228,5 +268,39 @@ public class CompilerService {
 
     private boolean isWindows() {
         return System.getProperty("os.name").toLowerCase().contains("win");
+    }
+
+    /**
+     * Builds the javac classpath string.
+     *
+     * STANDARD (Q1–Q3): just the workingDir, so pre-compiled .class files
+     *   (DataException.class, Shape.class, etc.) are found by the compiler.
+     *
+     * Q4 EXTRA: also appends any *.jar files found recursively under
+     *   workingDir/external/ so Apache Commons Collections is on the classpath.
+     *
+     * Example on Linux:
+     *   /path/to/Q4:/path/to/Q4/external/apache/commons-collections4-4.4.jar
+     *
+     * @param workingDir the student's question folder
+     * @param dirPath    pre-computed absolute path string of workingDir
+     * @return classpath string with OS-appropriate separator
+     */
+    private String buildClasspath(Path workingDir, String dirPath) {
+        String sep = System.getProperty("path.separator"); // ":" Linux/Mac, ";" Windows
+        StringBuilder cp = new StringBuilder(dirPath);
+
+        Path externalDir = workingDir.resolve("external");
+        if (Files.exists(externalDir)) {
+            try (java.util.stream.Stream<Path> walk = Files.walk(externalDir)) {
+                walk.filter(p -> p.toString().endsWith(".jar"))
+                    .forEach(jar -> cp.append(sep).append(jar.toAbsolutePath()));
+            } catch (IOException e) {
+                System.out.println("[Compiler] ⚠️  Could not scan external/ for JARs: "
+                        + e.getMessage());
+            }
+        }
+
+        return cp.toString();
     }
 }

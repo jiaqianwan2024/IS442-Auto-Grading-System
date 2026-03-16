@@ -17,21 +17,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-
-/**
- * ExecutionController - Orchestrates Phase 3 (Grading Execution)
-* PURPOSE:
- * - Coordinates grading execution workflow
- * - Acts as entry point for execution service
- * - Called by Main.java during grading phase
- * 
- * RESPONSIBILITIES:
- * - Load all students from extracted directory
- * - Execute grading for each student and task
- * - Compile student code + testers
- * - Run testers and capture output
- * - Parse scores and create results
- */
+import java.util.stream.Stream;
 
 public class ExecutionController {
 
@@ -47,14 +33,8 @@ public class ExecutionController {
         this.outputParser    = new OutputParser();
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Public API
-    // ─────────────────────────────────────────────────────────────────────────
-
     public List<GradingResult> gradeAllStudents(GradingPlan plan) throws IOException {
-
         List<Student> students = loadStudents();
-
         if (students.isEmpty()) {
             throw new IOException("No students found in: " + PathConfig.OUTPUT_EXTRACTED);
         }
@@ -78,168 +58,262 @@ public class ExecutionController {
                 logTaskResult(task, result);
             }
         }
-
         return allResults;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Private: grading logic
-    // ─────────────────────────────────────────────────────────────────────────
-
     private GradingResult gradeTask(Student student, GradingTask task) throws IOException {
 
-        // Use the student's actual rootPath directly, not PathConfig reconstruction
-        Path questionFolder = student.getRootPath().resolve(task.getStudentFolder());
-        Path javaFile       = questionFolder.resolve(task.getStudentFile());
-        String classFileName = task.getStudentFile().replace(".java", ".class");
-        Path classFile       = questionFolder.resolve(classFileName);
+        Path studentRoot = student.getRootPath();
+        String expectedFile = task.getStudentFile();
+        String expectedClass = expectedFile.replace(".java", ".class");
+
+        // ── DYNAMIC SCRIPT ROUTER ────────────────────────────────────────────────
+        boolean isScriptTask = false;
+        Path scriptFolder = null;
+
+        // Route 1: ScoreSheet explicitly targets a script
+        if (expectedFile.toLowerCase().endsWith(".bat") || expectedFile.toLowerCase().endsWith(".sh")) {
+            String baseName = expectedFile.substring(0, expectedFile.lastIndexOf('.'));
+            Path found = findFileRecursive(studentRoot, baseName + ".bat");
+            if (found == null) found = findFileRecursive(studentRoot, baseName + ".sh");
+            if (found != null) {
+                isScriptTask = true;
+                scriptFolder = found.getParent();
+            }
+        }
+        // Route 2: Target is a Folder Task (e.g., "Q4" with no extension)
+        else if (!expectedFile.contains(".")) {
+            Path found = findFileRecursive(studentRoot, "compile.bat");
+            if (found == null) found = findFileRecursive(studentRoot, "run.bat");
+            if (found == null) found = findFileRecursive(studentRoot, "compile.sh");
+            if (found == null) found = findFileRecursive(studentRoot, "run.sh");
+
+            // Fallback: some zips have Q1-Q3 in one sub-folder and Q4 in a sibling sub-folder.
+            // e.g. zipa_folderb: Q1-Q3 in other.student.2025/, Q4 in zipa_folderb.2025/Q4/
+            // SAFETY RULE: only search siblings whose folder name shares the same student ID
+            // (i.e. the extraction wrapper folder name). This prevents accidentally grading
+            // another student's Q4 when the current student submitted no Q4 at all.
+            if (found == null && studentRoot.getParent() != null) {
+                // studentRoot is e.g. extracted/zipa_folderb.2025/other.student.2025/
+                // its parent is e.g. extracted/zipa_folderb.2025/
+                // grandparent is extracted/
+                // We only search OTHER sub-folders of the SAME parent (same zip wrapper),
+                // not the entire extraction dir which contains all students' folders.
+                Path parentDir = studentRoot.getParent();
+                Path grandParentDir = parentDir.getParent();
+
+                // Guard: parentDir must be a named student wrapper (not the raw extraction root)
+                // We detect this by checking that parentDir is NOT the extraction root itself.
+                boolean parentIsExtractionRoot = grandParentDir == null ||
+                    parentDir.toAbsolutePath().equals(
+                        com.autogradingsystem.PathConfig.OUTPUT_EXTRACTED.toAbsolutePath());
+
+                if (!parentIsExtractionRoot) {
+                    try (java.nio.file.DirectoryStream<Path> siblings =
+                             java.nio.file.Files.newDirectoryStream(parentDir)) {
+                        for (Path sibling : siblings) {
+                            if (!java.nio.file.Files.isDirectory(sibling)) continue;
+                            if (sibling.equals(studentRoot)) continue; // skip self
+                            // Only look inside a Q4 subfolder of the sibling, not freely
+                            Path siblingQ4 = sibling.resolve("Q4");
+                            if (!java.nio.file.Files.isDirectory(siblingQ4)) continue;
+                            found = findFileRecursive(siblingQ4, "compile.sh");
+                            if (found == null) found = findFileRecursive(siblingQ4, "compile.bat");
+                            if (found == null) found = findFileRecursive(siblingQ4, "run.sh");
+                            if (found == null) found = findFileRecursive(siblingQ4, "run.bat");
+                            if (found != null) {
+                                System.out.println("      ⚠️  [Q4 RELOCATED] Found scripts in sibling dir: " + found.getParent());
+                                break;
+                            }
+                        }
+                    } catch (java.io.IOException ignored) {}
+                }
+            }
+
+            if (found != null) {
+                isScriptTask = true;
+                scriptFolder = found.getParent();
+            }
+        }
+
+        if (isScriptTask) {
+            if (scriptFolder == null || !Files.exists(scriptFolder)) {
+                return new GradingResult(student, task, 0.0,
+                    "Required script not found in submission.", "FILE_NOT_FOUND");
+            }
+
+            Path dummyTarget = scriptFolder.resolve(expectedFile.contains(".") ? expectedFile : "dummy.java");
+            if (!Files.exists(dummyTarget)) Files.writeString(dummyTarget, "// Script bypass triggered");
+
+            try {
+                testerInjector.copyTester(task.getTesterFile(), scriptFolder, task.getStudentFolder());
+            } catch (IOException e) {
+                return new GradingResult(student, task, 0.0, "Tester copy failed.", "TESTER_COPY_FAILED");
+            }
+
+            if (!compilerService.compile(scriptFolder)) {
+                return new GradingResult(student, task, 0.0, "Tester compilation failed.", "COMPILATION_FAILED");
+            }
+
+            String testerClass = task.getTesterFile().replace(".java", "");
+            String out = processRunner.runTester(testerClass, scriptFolder, scriptFolder.toAbsolutePath().toString());
+
+            double maxAllowed = com.autogradingsystem.analysis.service.ScoreAnalyzer
+                                  .getMaxScoreFromTester(task.getQuestionId());
+
+            if (out != null && out.toUpperCase().contains("TIMEOUT")) {
+                long passed = out.lines().map(String::trim).filter(line -> line.equals("Passed")).count();
+                double clampedPartial = (maxAllowed > 0) ? Math.min((double) passed, maxAllowed) : (double) passed;
+                return new GradingResult(student, task, roundScore(clampedPartial), out, "TIMEOUT");
+            }
+            if (out != null && out.startsWith("ERROR:")) {
+                return new GradingResult(student, task, 0.0, out, "RUNTIME_ERROR");
+            }
+
+            double raw = outputParser.parseScore(out);
+            double finalScore = (maxAllowed > 0) ? Math.min(raw, maxAllowed) : raw;
+            return new GradingResult(student, task, roundScore(finalScore), out, "COMPLETED");
+        }
+
+        // ── NORMAL JAVA TASK EXECUTION FLOW ─────────────────────────────────────
+        Path questionFolder = studentRoot.resolve(task.getStudentFolder());
+        Path javaFile       = questionFolder.resolve(expectedFile);
+        Path classFile      = questionFolder.resolve(expectedClass);
 
         boolean hasJava  = Files.exists(javaFile);
         boolean hasClass = Files.exists(classFile);
 
-        // ── FILE NOT FOUND ──────────────────────────────────────────────────
+        if (!hasJava && !hasClass) {
+            Path foundJava  = findFileRecursive(studentRoot, expectedFile);
+            Path foundClass = findFileRecursive(studentRoot, expectedClass);
+
+            if (foundJava != null) {
+                javaFile       = foundJava;
+                questionFolder = foundJava.getParent();
+                hasJava        = true;
+                System.out.println("      ⚠️  [RELOCATED] " + expectedFile
+                    + " found at: " + studentRoot.relativize(foundJava));
+            } else if (foundClass != null) {
+                classFile      = foundClass;
+                questionFolder = foundClass.getParent();
+                hasClass       = true;
+                System.out.println("      ⚠️  [RELOCATED] " + expectedClass
+                    + " found at: " + studentRoot.relativize(foundClass));
+            }
+        }
+
         if (!hasJava && !hasClass) {
             return new GradingResult(
                 student, task, 0.0,
-                buildFileNotFoundMessage(task.getStudentFile(), questionFolder),
+                buildFileNotFoundMessage(expectedFile, studentRoot),
                 "FILE_NOT_FOUND"
             );
         }
 
-        // ── INJECT TESTER + DATA FILES ──────────────────────────────────────
-        try {
-            testerInjector.copyTester(task.getTesterFile(), questionFolder, task.getStudentFolder());
-        } catch (IOException e) {
+        // SECURITY POLICY: .class-only submissions get 0.
+        // If a student submitted only a pre-compiled .class with no source, we cannot verify
+        // their work and the binary could be anything. Require .java source to be present.
+        if (!hasJava && hasClass) {
             return new GradingResult(
                 student, task, 0.0,
-                "Tester copy failed: " + e.getMessage(),
-                "TESTER_COPY_FAILED"
+                "Source file not found: " + expectedFile + "\n"
+                + "Only a pre-compiled .class was submitted — source (.java) is required for grading.",
+                "FILE_NOT_FOUND"
             );
         }
 
-        // ── COMPILE (skip if .class-only submission) ────────────────────────
+        try {
+            testerInjector.copyTester(task.getTesterFile(), questionFolder, task.getStudentFolder());
+        } catch (IOException e) {
+            return new GradingResult(student, task, 0.0, "Tester copy failed.", "TESTER_COPY_FAILED");
+        }
+
         if (hasJava) {
-            boolean compiled = compilerService.compile(questionFolder);
-            if (!compiled) {
-                return new GradingResult(
-                    student, task, 0.0,
-                    "Compilation failed — check student code for syntax errors or package declarations.",
-                    "COMPILATION_FAILED"
-                );
+            // SECURITY: Delete any pre-existing .class file for the target before compiling.
+            // Without this, a student can submit an empty .java alongside a pre-compiled .class
+            // (from a working solution). The empty .java compiles cleanly (javac exit 0),
+            // the old .class survives, and the tester grades the pre-compiled binary — not the source.
+            deletePrecompiledClasses(questionFolder, expectedFile);
+
+            // Use targeted compile: only compile this specific file + tester.
+            // Compiling the whole folder would cause broken siblings (e.g. Q1a syntax error)
+            // to prevent valid files (Q1b) from being compiled and graded.
+            if (!compilerService.compileTargeted(questionFolder, expectedFile)) {
+                return new GradingResult(student, task, 0.0, "Compilation failed.", "COMPILATION_FAILED");
             }
         }
 
-        // ── RUN TESTER ──────────────────────────────────────────────────────
         String testerClass = task.getTesterFile().replace(".java", "");
         String output = processRunner.runTester(testerClass, questionFolder);
 
-        // ── DETECT RUNTIME FAILURES ─────────────────────────────────────────
-        if (output != null && output.toUpperCase().startsWith("TIMEOUT")) {
-            return new GradingResult(student, task, 0.0, output, "TIMEOUT");
+        double maxAllowed = com.autogradingsystem.analysis.service.ScoreAnalyzer
+                                .getMaxScoreFromTester(task.getQuestionId());
+
+        if (output != null && output.toUpperCase().contains("TIMEOUT")) {
+            long passed = output.lines().map(String::trim).filter(line -> line.equals("Passed")).count();
+            double clampedPartial = (maxAllowed > 0) ? Math.min((double) passed, maxAllowed) : (double) passed;
+            return new GradingResult(student, task, roundScore(clampedPartial), output, "TIMEOUT");
         }
-        if (output != null && output.toUpperCase().startsWith("ERROR")) {
+
+        if (output != null && output.startsWith("ERROR:")) {
             return new GradingResult(student, task, 0.0, output, "RUNTIME_ERROR");
         }
 
-        // ── PARSE SCORE ─────────────────────────────────────────────────────
-        double score = outputParser.parseScore(output);
-        return new GradingResult(student, task, score, output);
+        double rawScore = outputParser.parseScore(output);
+        double finalScore = (maxAllowed > 0) ? Math.min(rawScore, maxAllowed) : rawScore;
+        return new GradingResult(student, task, roundScore(finalScore), output, "COMPLETED");
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Private: helpers
     // ─────────────────────────────────────────────────────────────────────────
 
-    /**
-     * Scans OUTPUT_EXTRACTED and returns one Student per subdirectory.
-     *
-     * EDGE CASES:
-     * - Skips __MACOSX folders created by macOS ZIP tools
-     * - Strips date prefixes like "2023-2024-" from folder names so the
-     *   student ID matches the username in the score sheet
-     * - Uses the actual folder Path as rootPath so gradeTask() never
-     *   needs to re-resolve through PathConfig
-     */
-    /**
-     * Scans OUTPUT_EXTRACTED and returns one Student per subdirectory.
-     */
     private List<Student> loadStudents() throws IOException {
         List<Student> students = new ArrayList<>();
-
         if (!Files.exists(PathConfig.OUTPUT_EXTRACTED)) return students;
 
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(PathConfig.OUTPUT_EXTRACTED)) {
             for (Path dir : stream) {
                 if (!Files.isDirectory(dir)) continue;
-
                 String folderName = dir.getFileName().toString();
-
-                // Skip __MACOSX - This is crucial for Windows machines!
                 if (folderName.startsWith("__") || folderName.startsWith(".")) continue;
 
-                // Strip leading date prefixes
                 String studentId = stripDatePrefix(folderName);
-
-                // --- FIX: Handle Nested Folders ---
                 Path actualRoot = findActualStudentRoot(dir);
-
                 students.add(new Student(studentId, actualRoot));
             }
         }
         return students;
     }
 
-    /** Helper: Searches for the actual folder containing the Q1, Q2 directories. */
     private Path findActualStudentRoot(Path dir) throws IOException {
-        // 1. If the current directory already has Q folders, we are good.
-        if (hasQuestionFolders(dir)) {
-            return dir;
-        }
-
-        // 2. If not, look exactly one level deeper for the true root (e.g., chee.teo.2022)
+        if (hasQuestionFolders(dir)) return dir;
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
             for (Path subDir : stream) {
                 if (Files.isDirectory(subDir) && !subDir.getFileName().toString().startsWith("__")) {
-                    return subDir; // Use this nested folder as the real root
+                    return subDir;
                 }
             }
         }
-        return dir; // Fallback
+        return dir;
     }
 
-    /** * Helper: Dynamically checks if a directory contains ANY question folders 
-     * by looking for folders that start with "Q" followed by a number (e.g., Q1, Q4, Q10).
-     */
     private boolean hasQuestionFolders(Path dir) throws IOException {
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
             for (Path entry : stream) {
                 if (Files.isDirectory(entry)) {
-                    String folderName = entry.getFileName().toString();
-                    
-                    // Regex: ^Q\\d+.* means "Starts with Q, followed by at least 1 digit, then anything"
-                    if (folderName.matches("^Q\\d+.*")) {
-                        return true; // Found a question folder!
-                    }
+                    if (entry.getFileName().toString().matches("^Q\\d+.*")) return true;
                 }
             }
         }
         return false;
     }
 
-    /**
-     * Strips leading YYYY- or YYYY-YYYY- prefixes from folder names.
-     *
-     * EXAMPLES:
-     * "2023-2024-chee.teo.2022" → "chee.teo.2022"
-     * "2024-david.2024"         → "david.2024"
-     * "chee.teo.2022"           → "chee.teo.2022" (unchanged)
-     */
     private String stripDatePrefix(String folderName) {
         String result = folderName.replaceFirst("^(\\d{4}-)+", "");
         return result.isEmpty() ? folderName : result;
     }
 
-    /** Builds a helpful error message when the student's file isn't where expected. */
     private String buildFileNotFoundMessage(String expectedFile, Path folder) {
         StringBuilder sb = new StringBuilder();
         sb.append("File not found: ").append(expectedFile).append("\n");
@@ -265,15 +339,25 @@ public class ExecutionController {
             for (String name : contents) {
                 if (name.toLowerCase().contains(expectedFile.toLowerCase().replace(".java", ""))
                         && !name.equals(expectedFile)) {
-                    sb.append("\n⚠️  Possible mis-named file detected: ").append(name)
-                      .append(" (expected: ").append(expectedFile).append(")");
+                    sb.append("\n⚠️  Possible mis-named file detected: ").append(name);
                 }
             }
         }
         return sb.toString();
     }
 
-    /** Prints a concise one-line result per task, plus the raw tester output. */
+    private Path findFileRecursive(Path root, String filename) {
+        try (Stream<Path> walk = Files.walk(root)) {
+            return walk
+                .filter(Files::isRegularFile)
+                .filter(p -> p.getFileName().toString().equalsIgnoreCase(filename))
+                .findFirst()
+                .orElse(null);
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
     private void logTaskResult(GradingTask task, GradingResult result) {
         String symbol;
         switch (result.getStatus()) {
@@ -288,20 +372,54 @@ public class ExecutionController {
             default:                   symbol = "ℹ️ "; break;
         }
 
-        // Print the summary line
         System.out.println("   📝 " + task.getQuestionId() + "... "
                 + symbol + " " + result.getScore() + " points ("
                 + result.getStatus() + ")");
 
-        // --- NEW CODE TO SHOW EXPECTED/ACTUAL OUTPUT ---
-        // If there is captured output from the tester, print it to the terminal
         if (result.getOutput() != null && !result.getOutput().trim().isEmpty()) {
             System.out.println("      --- Tester Output ---");
-            
-            // This prints the actual Expected / Actual lines from your tester file
-            System.out.println(result.getOutput()); 
-            
+            System.out.println(result.getOutput());
             System.out.println("      ---------------------");
+        }
+    }
+
+    private double roundScore(double score) {
+        return Math.round(score * 100.0) / 100.0;
+    }
+
+    /**
+     * Deletes pre-existing .class files for the target student file (and any inner classes)
+     * from the student's question folder BEFORE compilation.
+     *
+     * WHY: An empty (or stripped) .java compiles cleanly with exit 0 but produces no .class.
+     * If a pre-compiled .class from a working solution is already sitting in the folder,
+     * the tester will load it and award full marks — even though the student's source is empty.
+     *
+     * SAFE: We only delete .class files whose stem matches the student file being graded
+     * (e.g. "Q2a.class", "Q2a$InnerClass.class"). We never delete dependency .class files
+     * like Shape.class, DataException.class, etc.
+     *
+     * @param folder       the student's question folder
+     * @param javaFilename e.g. "Q2a.java"
+     */
+    private void deletePrecompiledClasses(Path folder, String javaFilename) {
+        String stem = javaFilename.replace(".java", "");
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(folder, "*.class")) {
+            for (Path classFile : stream) {
+                String name = classFile.getFileName().toString();
+                // Match "Q2a.class" and inner classes like "Q2a$Helper.class"
+                if (name.equals(stem + ".class") || name.startsWith(stem + "$")) {
+                    try {
+                        Files.delete(classFile);
+                        System.out.println("      🗑️  [SECURITY] Deleted pre-existing: " + name);
+                    } catch (IOException e) {
+                        System.out.println("      ⚠️  [SECURITY] Could not delete " + name + ": " + e.getMessage());
+                    }
+                }
+            }
+        } catch (IOException e) {
+            // Non-fatal — if we can't list the folder, compilation will still run
+            System.out.println("      ⚠️  [SECURITY] Could not scan for pre-compiled classes: " + e.getMessage());
         }
     }
 }

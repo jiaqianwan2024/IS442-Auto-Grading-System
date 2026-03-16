@@ -130,19 +130,36 @@ public class GradingPlanBuilder {
                 }
             }
 
-            // Folder-level warning: gradable files were present but nothing matched.
-            // Helps instructors spot a completely missing tester for a whole question.
+            // Folder-level fallback: if no individual file matched a tester,
+            // check if the FOLDER NAME itself matches a tester.
+            // Handles Q4-style questions where files are nested in subfolders
+            // (e.g. Q4/resource/Application.java) so no file name matches "Q4".
             int tasksFromFolder = tasks.size() - tasksBeforeFolder;
             boolean folderHadGradableFiles = filesInFolder.stream()
                 .anyMatch(f -> f.toLowerCase().endsWith(".java")
                              || f.toLowerCase().endsWith(".class"));
 
             if (folderHadGradableFiles && tasksFromFolder == 0) {
-                System.out.println("      \u26A0\uFE0F  [WARNING] " + questionFolder
-                    + ": Found gradable files but no matching tester. "
-                    + "Entire folder skipped. "
-                    + "Ensure a tester like '" + questionFolder + "Tester.java' "
-                    + "exists in the testers directory.");
+                String folderTester = testerMap.getTesterMapping()
+                        .get(questionFolder.toLowerCase());
+
+                if (folderTester != null && !assignedTaskIds.contains(questionFolder.toLowerCase())) {
+                    // Use the folder name itself (e.g. "Q4") as the representative file.
+                    // A name with no "." triggers Route 2 (script task) in ExecutionController,
+                    // which correctly sets the working directory to the Q4 root where compile.sh lives.
+                    String representativeFile = questionFolder;
+                    tasks.add(new GradingTask(questionFolder, folderTester,
+                            questionFolder, representativeFile));
+                    assignedTaskIds.add(questionFolder.toLowerCase());
+                    System.out.println("      ✅ [FOLDER-TASK] " + questionFolder
+                        + ": Matched entire folder with tester " + folderTester + ".");
+                } else {
+                    System.out.println("      ⚠️  [WARNING] " + questionFolder
+                        + ": Found gradable files but no matching tester. "
+                        + "Entire folder skipped. "
+                        + "Ensure a tester like '" + questionFolder + "Tester.java' "
+                        + "exists in the testers directory.");
+                }
             }
         }
 
