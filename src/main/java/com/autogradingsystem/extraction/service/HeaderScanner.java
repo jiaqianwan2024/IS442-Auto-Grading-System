@@ -20,6 +20,7 @@ import java.util.regex.*;
  * - Extract identity (name + email) from file headers
  * - Detect missing headers per question file
  * - Support identity resolution when zip was not renamed
+ * - Detect header mismatch when zip identity differs from header identity
  */
 public class HeaderScanner {
 
@@ -29,8 +30,11 @@ public class HeaderScanner {
         Pattern.compile("\\*\\s*Email\\s*ID:\\s*(\\S+)", Pattern.CASE_INSENSITIVE);
 
     public static class ScanResult {
-        // Email found in any header (used for identity resolution)
+        // Email found in any header (used for identity resolution + mismatch detection)
         public String resolvedEmail = null;
+        // Name found in any header (used for mismatch detection display)
+        public String resolvedName = null;
+        public String resolvedFromFile = null;
         // Files that are missing the header: e.g. ["Q1a.java", "Q2b.java"]
         public List<String> missingHeaders = new ArrayList<>();
     }
@@ -40,7 +44,7 @@ public class HeaderScanner {
      *
      * @param studentRoot  root path of the extracted student folder
      * @param tasks        grading tasks (used to derive expected filenames)
-     * @return ScanResult with resolved email and list of files missing headers
+     * @return ScanResult with resolved email, resolved name, and list of files missing headers
      */
     public ScanResult scan(Path studentRoot, List<GradingTask> tasks) {
         ScanResult result = new ScanResult();
@@ -59,12 +63,15 @@ public class HeaderScanner {
             try {
                 String content = Files.readString(javaFile);
                 String email = extractEmail(content);
+
                 if (email == null) {
                     result.missingHeaders.add(expectedFile);
                 } else {
-                    // Use first found email for identity resolution
+                    // Use first found email + name for identity resolution
                     if (result.resolvedEmail == null) {
                         result.resolvedEmail = email.trim().toLowerCase();
+                        result.resolvedName  = extractName(content); // may be null if name line missing
+                        result.resolvedFromFile = expectedFile;
                     }
                 }
             } catch (IOException e) {
@@ -75,14 +82,31 @@ public class HeaderScanner {
         return result;
     }
 
+    // ── Private helpers ────────────────────────────────────────────────────
+
     private String extractEmail(String content) {
-        Matcher m = EMAIL_PATTERN.matcher(content);
-        // Header must appear in first 20 lines
-        String[] lines = content.split("\n", 25);
-        StringBuilder top = new StringBuilder();
-        for (int i = 0; i < Math.min(20, lines.length); i++) top.append(lines[i]).append("\n");
-        Matcher topMatcher = EMAIL_PATTERN.matcher(top.toString());
-        return topMatcher.find() ? topMatcher.group(1).trim() : null;
+        String top = firstNLines(content, 20);
+        Matcher m = EMAIL_PATTERN.matcher(top);
+        return m.find() ? m.group(1).trim() : null;
+    }
+
+    private String extractName(String content) {
+        String top = firstNLines(content, 20);
+        Matcher m = NAME_PATTERN.matcher(top);
+        return m.find() ? m.group(1).trim() : null;
+    }
+
+    /**
+     * Returns the first n lines of content joined back as a single string.
+     * Used to restrict header scanning to the top of each file.
+     */
+    private String firstNLines(String content, int n) {
+        String[] lines = content.split("\n", n + 1);
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < Math.min(n, lines.length); i++) {
+            sb.append(lines[i]).append("\n");
+        }
+        return sb.toString();
     }
 
     private Path findFileRecursive(Path root, String filename) {
