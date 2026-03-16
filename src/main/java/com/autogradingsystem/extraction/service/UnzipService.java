@@ -110,26 +110,28 @@ public class UnzipService {
     }
 
     /**
-     * findTrueRoot - Recursively locates the directory containing student work.
-     * * STRATEGY:
-     * 1. Scans current folder for ANY item matching Q pattern (Q1, Q2, Q1.java, etc).
-     * 2. If a "Q" item is found, this is the root (even if Q1 is missing).
-     * 3. If no "Q" item is found but exactly one subfolder exists, recurse into it.
-     * 4. Fallback: Return current path if we can't dig deeper.
-     * * @param currentPath The directory to search within.
-     * @return Path to the directory containing Q-items.
+     * findTrueRoot - Updated to be strict about folder structure.
+     * * NEW LOGIC:
+     * 1. If we see a FOLDER named "Q1", "Q2", etc., this is the True Root.
+     * 2. If we see loose FILES (Q2a.java) but NO Q folders, we do NOT 
+     * mark this as the root yet. We keep digging.
+     * 3. This ensures that if Q2a.java is inside Q1/, it stays there 
+     * (and will later get 0 points because it's not in the Q2/ folder).
      */
     private Path findTrueRoot(Path currentPath) throws IOException {
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(currentPath)) {
             for (Path item : stream) {
                 String name = item.getFileName().toString();
-                // Matches Q followed by any digits (Q1, Q2, Q3, etc)
-                if (name.matches("^Q\\d+.*$")) {
+                
+                // STRICT CHECK: Only identify as root if it's a DIRECTORY named Q1, Q2, etc.
+                // We ignore loose files like "Q2a.java" here.
+                if (Files.isDirectory(item) && name.matches("^Q\\d+$")) {
                     return currentPath;
                 }
             }
         }
 
+        // If no Q folders found, see if there is a single wrapper folder to go into
         List<Path> subfolders = new ArrayList<>();
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(currentPath)) {
             for (Path item : stream) {
@@ -139,11 +141,13 @@ public class UnzipService {
             }
         }
 
+        // Only "dig deeper" if there is exactly one subfolder (a wrapper)
         if (subfolders.size() == 1) {
             return findTrueRoot(subfolders.get(0));
         }
 
-        // Return current path if no Q folders found and no single wrapper to follow
+        // Fallback: If we find multiple folders or no Q folders at all, 
+        // return current path and let the Execution phase handle the "File Not Found" (0 points).
         return currentPath;
     }
 
