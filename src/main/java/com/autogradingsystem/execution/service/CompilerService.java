@@ -8,100 +8,104 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
  * CompilerService - Compiles Java Files in a Student Folder
- * 
+ *
  * PURPOSE:
  * - Compiles all .java files in a directory
- * - Suppresses error output for clean logs (FIX 2)
+ * - Strips package declarations before compilation
  * - Provides concise compilation status
  * - Cross-platform support (Windows/Mac/Linux)
- * 
- * WORKFLOW:
- * 1. Build javac command for all *.java files in directory
- * 2. Execute javac process
- * 3. Wait for completion
- * 4. Check exit code (0 = success, non-zero = failure)
- * 5. Return boolean result
- * 
- * ERROR HANDLING (FIX 2):
- * - Compilation errors are captured but NOT displayed
- * - Shows concise summary: "❌ Compilation failed (X error(s))"
- * - Prevents error flood in console
- * - Keeps output clean and readable
- * 
- * CHANGES FROM v3.0:
- * - Removed saveErrorLog() method (dead code)
- * - Removed SAVE_ERROR_LOGS constant (unused)
- * - Error suppression already implemented
- * - Package updated
+ *
+ * CHANGES IN v3.2:
+ * - Added CompileResult inner class to carry both success flag and stripped-package file list
+ * - Added compileTargetedWithDetails() so ExecutionController can flag WrongPackage in remarks
+ * - stripPackageDeclarations() now returns list of files where a package was stripped
  */
 public class CompilerService {
 
-    /** Max time to wait for javac before killing it */
     private static final int COMPILER_TIMEOUT_SECONDS = 30;
+
+    // ── Inner class ───────────────────────────────────────────────────────────
+
+    /**
+     * Carries the result of a targeted compilation.
+     * success                — whether javac exited 0
+     * strippedPackageFiles   — student files (not testers) that had a package declaration removed
+     */
+    public static class CompileResult {
+        public final boolean      success;
+        public final List<String> strippedPackageFiles;
+
+        public CompileResult(boolean success, List<String> strippedPackageFiles) {
+            this.success              = success;
+            this.strippedPackageFiles = Collections.unmodifiableList(strippedPackageFiles);
+        }
+    }
+
+    // ── Public API ────────────────────────────────────────────────────────────
 
     /**
      * Compiles all .java files in the given directory.
-     *
-     * WORKFLOW:
-     * 1. Check .java files exist
-     * 2. Strip package declarations (edge case: students submitting with packages)
-     * 3. Run javac on all files
-     * 4. Return success/failure
+     * Used for script/folder tasks (e.g. Q4).
      *
      * @param workingDir Directory containing .java files
      * @return true if compilation succeeded
      */
     public boolean compile(Path workingDir) {
-
-        // Guard: directory must exist
         if (workingDir == null || !Files.exists(workingDir)) {
             System.out.println("[Compiler] ❌ Directory does not exist: " + workingDir);
             return false;
         }
 
-        // Collect .java files
         List<Path> javaFiles = collectJavaFiles(workingDir);
         if (javaFiles.isEmpty()) {
             System.out.println("[Compiler] ❌ No .java files found in: " + workingDir);
             return false;
         }
 
-        // EDGE CASE: Strip package declarations so default-package compilation works.
-        // Students sometimes include "package com.xxx;" which breaks flat compilation.
         stripPackageDeclarations(javaFiles);
-
-        // Run javac
         return runJavac(workingDir, javaFiles);
     }
 
     /**
-     * Compiles ONLY the specified target file + any tester files in the folder,
-     * ignoring other .java files that may have errors (e.g. broken Q1a shouldn't
-     * prevent Q1b from being compiled and graded).
+     * Compiles ONLY the specified target file + tester files.
+     * Simple boolean version — use when package-flag remarks are not needed
+     * (e.g. script tasks).
      *
-     * @param workingDir the folder containing the files
-     * @param targetFile the student file to compile (e.g. "Q1b.java")
+     * @param workingDir Directory containing the files
+     * @param targetFile Student file to compile (e.g. "Q1b.java")
      * @return true if compilation succeeded
      */
     public boolean compileTargeted(Path workingDir, String targetFile) {
+        return compileTargetedWithDetails(workingDir, targetFile).success;
+    }
+
+    /**
+     * Compiles ONLY the specified target file + tester files.
+     * Returns a CompileResult so the caller can detect WrongPackage situations.
+     *
+     * @param workingDir Directory containing the files
+     * @param targetFile Student file to compile (e.g. "Q1b.java")
+     * @return CompileResult with success flag and list of files that had packages stripped
+     */
+    public CompileResult compileTargetedWithDetails(Path workingDir, String targetFile) {
         if (workingDir == null || !Files.exists(workingDir)) {
             System.out.println("[Compiler] ❌ Directory does not exist: " + workingDir);
-            return false;
+            return new CompileResult(false, Collections.emptyList());
         }
 
         List<Path> javaFiles = new ArrayList<>();
 
         // Always include the specific target file
         Path target = workingDir.resolve(targetFile);
-        if (Files.exists(target))
-            javaFiles.add(target);
+        if (Files.exists(target)) javaFiles.add(target);
 
-        // Include any tester files (end with Tester.java)
+        // Include tester files
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(workingDir, "*.java")) {
             for (Path f : stream) {
                 String name = f.getFileName().toString();
@@ -115,23 +119,27 @@ public class CompilerService {
 
         if (javaFiles.isEmpty()) {
             System.out.println("[Compiler] ❌ Target file not found: " + targetFile);
-            return false;
+            return new CompileResult(false, Collections.emptyList());
         }
 
-        stripPackageDeclarations(javaFiles);
-        return runJavac(workingDir, javaFiles);
+        // Strip packages and collect which student files (not testers) were affected
+        List<String> stripped = stripPackageDeclarations(javaFiles);
+        // Filter out tester files from the stripped list — we only want to flag student files
+        List<String> studentStripped = new ArrayList<>();
+        for (String f : stripped) {
+            if (!f.endsWith("Tester.java")) studentStripped.add(f);
+        }
+
+        boolean success = runJavac(workingDir, javaFiles);
+        return new CompileResult(success, studentStripped);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Private helpers
-    // ─────────────────────────────────────────────────────────────────────────
+    // ── Private helpers ───────────────────────────────────────────────────────
 
-    /** Collects all *.java files in the directory (non-recursive). */
     private List<Path> collectJavaFiles(Path dir) {
         List<Path> files = new ArrayList<>();
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir, "*.java")) {
-            for (Path f : stream)
-                files.add(f);
+            for (Path f : stream) files.add(f);
         } catch (IOException e) {
             System.out.println("[Compiler] ⚠️  Could not list directory: " + e.getMessage());
         }
@@ -140,23 +148,17 @@ public class CompilerService {
 
     /**
      * Removes "package ...;" lines from all Java files.
+     * Returns the list of filenames (not full paths) where a package was removed.
      *
-     * WHY: Students may include package declarations. When we compile everything
-     * flat in the same directory without the matching package folder structure,
-     * javac fails with "class X is public, should be declared in a file named
-     * X.java"
-     * or similar cross-package errors.
+     * WHY: Students may include package declarations. Flat compilation without the
+     * matching folder structure causes javac errors.
      *
-     * SAFE: Only the first occurrence of a line matching /^\s*package\s+.*;/ is
-     * removed.
-     * A backup is NOT made — this is a temp working folder that gets wiped each
-     * run.
+     * SAFE: Only the first occurrence of /^\s*package\s+.*;/ is removed per file.
      */
-    private void stripPackageDeclarations(List<Path> javaFiles) {
+    private List<String> stripPackageDeclarations(List<Path> javaFiles) {
+        List<String> stripped = new ArrayList<>();
         for (Path file : javaFiles) {
             try {
-                // Fall back to ISO-8859-1 if the file has non-UTF-8 bytes
-                // (mirrors the same fix in StudentValidator.extractUsernameFromComments)
                 List<String> lines;
                 try {
                     lines = Files.readAllLines(file, StandardCharsets.UTF_8);
@@ -170,49 +172,41 @@ public class CompilerService {
                     if (trimmed.startsWith("package ") && trimmed.endsWith(";")) {
                         lines.set(i, "// [package declaration removed by auto-grader]");
                         changed = true;
-                        break; // Only one package declaration per file
+                        break;
                     }
                 }
 
                 if (changed) {
                     Files.write(file, lines, StandardCharsets.UTF_8);
+                    stripped.add(file.getFileName().toString());
                 }
 
             } catch (IOException e) {
-                // Non-fatal — if we can't strip it, javac will show the error
                 System.out.println("[Compiler] ⚠️  Could not strip package from "
                         + file.getFileName() + ": " + e.getMessage());
             }
         }
+        return stripped;
     }
 
-    /**
-     * Runs javac on all collected .java files.
-     */
     private boolean runJavac(Path workingDir, List<Path> javaFiles) {
         try {
-            String dirPath = workingDir.toAbsolutePath().toString();
+            String dirPath  = workingDir.toAbsolutePath().toString();
             String classpath = buildClasspath(workingDir, dirPath);
+
             StringBuilder cmd = new StringBuilder();
             cmd.append("javac -cp \"").append(classpath)
-                    .append("\" -d \"").append(dirPath)
-                    .append("\" -encoding UTF-8 -nowarn");
-
-            for (Path f : javaFiles) {
+               .append("\" -d \"").append(dirPath)
+               .append("\" -encoding UTF-8 -nowarn");
+            for (Path f : javaFiles)
                 cmd.append(" \"").append(f.toAbsolutePath()).append("\"");
-            }
 
             ProcessBuilder pb = new ProcessBuilder();
-            if (isWindows()) {
-                pb.command("cmd", "/c", cmd.toString());
-            } else {
-                pb.command("sh", "-c", cmd.toString());
-            }
+            if (isWindows()) pb.command("cmd", "/c", cmd.toString());
+            else             pb.command("sh",  "-c", cmd.toString());
             pb.directory(workingDir.toFile());
 
             Process process = pb.start();
-
-            // --- CHANGED: Capture full error text instead of just a count ---
             String fullErrorReport = captureFullErrors(process);
 
             boolean completed = process.waitFor(COMPILER_TIMEOUT_SECONDS, TimeUnit.SECONDS);
@@ -227,7 +221,6 @@ public class CompilerService {
                 System.out.println("[Compiler] ✅ Compilation Success");
                 return true;
             } else {
-                // --- CHANGED: Print the actual errors to the console/logs ---
                 System.out.println("[Compiler] ❌ Compilation failed:");
                 System.out.println(fullErrorReport);
                 return false;
@@ -241,56 +234,32 @@ public class CompilerService {
         }
     }
 
-    /**
-     * Reads stderr and returns the full error message as a String.
-     * This ensures we see "Missing DataException" instead of just a count.
-     */
     private String captureFullErrors(Process process) {
         StringBuilder sb = new StringBuilder();
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(process.getErrorStream()))) {
             String line;
-            while ((line = reader.readLine()) != null) {
-                // Indent the error for better readability in the logs
+            while ((line = reader.readLine()) != null)
                 sb.append("    [javac] ").append(line).append("\n");
-            }
         } catch (IOException e) {
             return "Could not read error stream: " + e.getMessage();
         }
         return sb.toString();
     }
 
-    /**
-     * Builds the javac classpath string.
-     *
-     * STANDARD (Q1–Q3): just the workingDir, so pre-compiled .class files
-     * (DataException.class, Shape.class, etc.) are found by the compiler.
-     *
-     * Q4 EXTRA: also appends any *.jar files found recursively under
-     * workingDir/external/ so Apache Commons Collections is on the classpath.
-     *
-     * Example on Linux:
-     * /path/to/Q4:/path/to/Q4/external/apache/commons-collections4-4.4.jar
-     *
-     * @param workingDir the student's question folder
-     * @param dirPath    pre-computed absolute path string of workingDir
-     * @return classpath string with OS-appropriate separator
-     */
     private String buildClasspath(Path workingDir, String dirPath) {
-        String sep = System.getProperty("path.separator"); // ":" Linux/Mac, ";" Windows
+        String sep = System.getProperty("path.separator");
         StringBuilder cp = new StringBuilder(dirPath);
 
         Path externalDir = workingDir.resolve("external");
         if (Files.exists(externalDir)) {
             try (java.util.stream.Stream<Path> walk = Files.walk(externalDir)) {
                 walk.filter(p -> p.toString().endsWith(".jar"))
-                        .forEach(jar -> cp.append(sep).append(jar.toAbsolutePath()));
+                    .forEach(jar -> cp.append(sep).append(jar.toAbsolutePath()));
             } catch (IOException e) {
-                System.out.println("[Compiler] ⚠️  Could not scan external/ for JARs: "
-                        + e.getMessage());
+                System.out.println("[Compiler] ⚠️  Could not scan external/ for JARs: " + e.getMessage());
             }
         }
-
         return cp.toString();
     }
 
