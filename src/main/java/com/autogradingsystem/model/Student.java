@@ -4,6 +4,8 @@ import com.autogradingsystem.PathConfig;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Student - Represents a Student and Their Submission Location
@@ -35,34 +37,12 @@ public class Student {
     // FIELDS
     // ================================================================
     
-    /**
-     * Student username (primary identifier)
-     * 
-     * EXAMPLES:
-     * - "ping.lee.2023"
-     * - "chee.teo.2022"
-     * - "david.2024"
-     * 
-     * USED FOR:
-     * - Identifying student throughout system
-     * - Folder name in data/extracted/
-     * - Matching with official student list
-     */
-    private final String id;
-    
-    /**
-     * Path to student's root folder
-     * 
-     * EXAMPLES:
-     * - data/extracted/ping.lee.2023/
-     * - data/extracted/chee.teo.2022/
-     * 
-     * CONTAINS:
-     * - Q1/ folder with student's Q1 files
-     * - Q2/ folder with student's Q2 files
-     * - Q3/ folder with student's Q3 files
-     */
-    private final Path rootPath;
+    private String id;                                          // mutable — identity may be resolved from header
+private final Path rootPath;
+private boolean folderRenamed = true;
+private List<String> missingHeaderFiles = new ArrayList<>();
+private boolean anomaly = false;
+private String rawFolderName = null;
     
     // ================================================================
     // CONSTRUCTORS
@@ -188,6 +168,20 @@ public class Student {
     public Path getQuestionPath(String questionFolder) {
         return PathConfig.getStudentQuestionFolder(this.id, questionFolder);
     }
+    public boolean isFolderRenamed() { return folderRenamed; }
+public void setFolderRenamed(boolean folderRenamed) { this.folderRenamed = folderRenamed; }
+
+public List<String> getMissingHeaderFiles() { return missingHeaderFiles; }
+public void setMissingHeaderFiles(List<String> missingHeaderFiles) { this.missingHeaderFiles = missingHeaderFiles; }
+
+public boolean isAnomaly() { return anomaly; }
+public void setAnomaly(boolean anomaly) { this.anomaly = anomaly; }
+
+public String getRawFolderName() { return rawFolderName; }
+public void setRawFolderName(String rawFolderName) { this.rawFolderName = rawFolderName; }
+
+// Needed for identity resolution from header email
+public void setId(String id) { this.id = id; }
     
     // ================================================================
     // OBJECT METHODS

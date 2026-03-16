@@ -4,8 +4,8 @@ import com.autogradingsystem.analysis.service.ScoreAnalyzer;
 import com.autogradingsystem.analysis.service.ScoreSheetExporter;
 import com.autogradingsystem.analysis.service.StatisticsReportExporter;
 import com.autogradingsystem.model.GradingResult;
+import com.autogradingsystem.model.Student;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -14,9 +14,9 @@ import java.util.Map;
  * AnalysisController
  *
  * Orchestrates the full analysis pipeline:
- *   1. Console display of grading results
- *   2. Export official score sheet  → IS442-ScoreSheet-Updated-{ts}.csv
- *   3. Export statistics report     → IS442-Statistics.xlsx  (bonus feature)
+ * 1. Console display of grading results
+ * 2. Export official score sheet → IS442-ScoreSheet-Updated.xlsx (two tabs)
+ * 3. Export statistics report    → IS442-Statistics.xlsx
  */
 public class AnalysisController {
 
@@ -28,7 +28,10 @@ public class AnalysisController {
         this.statisticsReportExporter = new StatisticsReportExporter();
     }
 
-    public void analyzeAndDisplay(List<GradingResult> results) {
+    public void analyzeAndDisplay(List<GradingResult> results,
+                                  Map<String, String> remarksByStudent,
+                                  Map<String, String> anomalyRemarks,
+                                  List<Student> allStudents) {
 
         Map<String, Double>              maxScores      = ScoreAnalyzer.inferMaxScores(results);
         List<GradingResult>              updatedResults = ScoreAnalyzer.updateWithMaxScores(results);
@@ -41,37 +44,40 @@ public class AnalysisController {
         displayCompactView(byStudent, maxScores);
         displayOverallStatistics(byStudent, maxScores);
 
-        exportBothReports(byStudent);
+        exportBothReports(byStudent, remarksByStudent, anomalyRemarks, allStudents);
     }
 
     // ── Export ─────────────────────────────────────────────────────────────
 
-    private void exportBothReports(Map<String, List<GradingResult>> byStudent) {
+    private void exportBothReports(Map<String, List<GradingResult>> byStudent,
+                                   Map<String, String> remarksByStudent,
+                                   Map<String, String> anomalyRemarks,
+                                   List<Student> allStudents) {
         System.out.println("\n" + "=".repeat(70));
         System.out.println("📄 EXPORTING REPORTS");
         System.out.println("=".repeat(70));
 
-        // Official score sheet
         try {
-            Path scoreSheet = scoreSheetExporter.export(byStudent);
+            Path scoreSheet = scoreSheetExporter.export(byStudent, remarksByStudent,
+                                                        anomalyRemarks, allStudents);
             System.out.println("✅ Score Sheet   → " + scoreSheet.toAbsolutePath());
         } catch (Exception e) {
             System.out.println("❌ Score Sheet export failed: " + e.getMessage());
         }
 
-        // Statistics report
         try {
             Path statsReport = statisticsReportExporter.export(byStudent);
             System.out.println("✅ Statistics    → " + statsReport.toAbsolutePath());
         } catch (Exception e) {
-            System.out.println("❌ Statistics export failed: " + e.getClass().getName() + ": " + e.getMessage());
+            System.out.println("❌ Statistics export failed: " + e.getClass().getName()
+                    + ": " + e.getMessage());
             e.printStackTrace();
         }
 
         System.out.println("=".repeat(70));
     }
 
-    // ── Console display (unchanged from original) ──────────────────────────
+    // ── Console display ────────────────────────────────────────────────────
 
     private void displayQuestionStatistics(List<GradingResult> results,
                                            Map<String, Double> maxScores) {
@@ -83,13 +89,13 @@ public class AnalysisController {
         for (Map.Entry<String, List<GradingResult>> entry : byQuestion.entrySet()) {
             String qid             = entry.getKey();
             List<GradingResult> qr = entry.getValue();
-            double max     = maxScores.getOrDefault(qid, 0.0);
-            double avg     = ScoreAnalyzer.calculateAverageScore(qr);
-            long perfect   = ScoreAnalyzer.countPerfect(qr);
-            long passed    = ScoreAnalyzer.countPassed(qr);
-            long failed    = ScoreAnalyzer.countFailed(qr);
-            int total      = qr.size();
-            String pct     = max > 0 ? String.format("%.1f%%", avg / max * 100) : "N/A";
+            double max   = maxScores.getOrDefault(qid, 0.0);
+            double avg   = ScoreAnalyzer.calculateAverageScore(qr);
+            long perfect = ScoreAnalyzer.countPerfect(qr);
+            long passed  = ScoreAnalyzer.countPassed(qr);
+            long failed  = ScoreAnalyzer.countFailed(qr);
+            int total    = qr.size();
+            String pct   = max > 0 ? String.format("%.1f%%", avg / max * 100) : "N/A";
 
             System.out.println("\n" + qid + " (" + max + " points):");
             System.out.println("  Average: " + avg + " / " + max + " (" + pct + ")");
