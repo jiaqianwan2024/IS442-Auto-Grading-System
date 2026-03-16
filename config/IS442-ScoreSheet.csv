@@ -5,32 +5,3 @@ OrgDefinedId,Username,Last Name,First Name,Email,Calculated Final Grade Numerato
 #01400004,#fen.lai.2022,_,FEN LAI,fen.lai.2022@computing.smu.edu.sg,,20,#
 #01400005,#jing.lim.2021,_,JING LIM,jing.lim.2021@computing.smu.edu.sg,,20,#
 #01400006,#xing.yan.2023,_,XING YAN,xing.yan.2023@computing.smu.edu.sg,,20,#
-#01400007,#perfectsubmissionandscore.2023,,PERFECT,perfectsubmissionandscore.2023@computing.smu.edu.sg,,20,#
-#01400008,#noq1.2023,_,NO Q1,noq1.2023@computing.smu.edu.sg,,20,#
-#01400009,#noq2.2023,_,NO Q2,noq2.2023@computing.smu.edu.sg,,20,#
-#01400010,#noq3.2023,_,NO Q3,noq3.2023@computing.smu.edu.sg,,20,#
-#01400011,#noq1q2.2023,_,NO Q1 Q2,noq1q2.2023@computing.smu.edu.sg,,20,#
-#01400012,#noq1q3.2023,_,NO Q1 Q3,noq1q3.2023@computing.smu.edu.sg,,20,#
-#01400013,#noq2q3.2023,_,NO Q2 Q3,noq2q3.2023@computing.smu.edu.sg,,20,#
-#01400014,#extraqnfolderq4.2023,_,EXTRA Q4,extraqnfolderq4.2023@computing.smu.edu.sg,,20,#
-#01400015,#filesinwrongqnfolderv1.2023,_,FILES 1,filesinwrongqnfolderv1.2023@computing.smu.edu.sg,,20,#
-#01400016,#filesinwrongqnfolderv2.2023,_,FILES 2,filesinwrongqnfolderv2@computing.smu.edu.sg,,20,#
-#01400017,#filesinwrongqnfolderv3.2023,_,FILES 3,filesinwrongqnfolderv3.2023@computing.smu.edu.sg,,20,#
-#01400018,#noq1ajavaandclass.2023,_,NO JAVA AND CLASS ,noq1ajavaandclass.2023@computing.smu.edu.sg,,20,#
-#01400019,#noq1ajava.2023,_,NO JAVA ,noq1ajava.2023@computing.smu.edu.sg,,20,#
-#01400020,#onlycontainsclassfiles.2023,,ONLY CLASS,onlycontainsclassfiles.2023@computing.smu.edu.sg,,20,#
-#01400021,#onlycontainsjavafiles.2023,_,ONLY JAVA,onlycontainsjavafiles.2023@computing.smu.edu.sg,,20,#
-#01400022,#onlycontainsclassfilesthatwillbemarked.2023,_,ONLY MARKED,onlycontainsclassfilesthatwillbemarked.2023@computing.smu.edu.sg,,20,#
-#01400023,#nestedfolderq2insideq1.2023,_,NESTED 1,nestedfolderq2insideq1.2023@computing.smu.edu.sg,,20,#
-#01400024,#nestedfolderq2q3insideq1.2023,_,NESTED 2,nestedfolderq2q3insideq1.2023@computing.smu.edu.sg,,20,#
-#01400025,#nestedfolderq3insideq2q2insideq1.2023,_,NESTED 3,nestedfolderq3insideq2q2insideq1.2023@computing.smu.edu.sg,,20,#
-#01400026,#mismatchqnfoldernameq1aaa.2023,_,MISMATCH 1,mismatchqnfoldernameq1aaa.2023@computing.smu.edu.sg,,20,#
-#01400027,#mismatchqnfilenameq1aaa.2023,_,MISMATCH 2,mismatchqnfilenameq1aaa.2023@computing.smu.edu.sg,,20,#
-#01400028,#mismatchqnfolderandfilenameq1aaa.2023,_,MISMATCH 3,mismatchqnfolderandfilenameq1aaa.2023@computing.smu.edu.sg,,20,#
-#01400029,#sean.yeo.2024,_,SEAN YEO,sean.yeo.2024@computing.smu.edu.sg,,20,#
-#01400030,#kayal.2023,_,KAYAL,kayal.2023@computing.smu.edu.sg,,20,#
-#01400031,#yesrenamenoheader.2023,_,YES RENAME NO HEADER,yesrenamenoheader.2023@computing.smu.edu.sg,,20,#
-#01400032,#jia.qian.2024,_,JIA QIAN,jia.qian.2024@computing.smu.edu.sg,,20,#
-#01400033,#bernice.lim.2024,_,BERNICE LIM,bernice.lim.2024@computing.smu.edu.sg,,20,#
-#01400034,#infiniteloop.2023,_,INFINITE LOOP,infiniteloop.2023@computing.smu.edu.sg,,20,#
-#01400035,#wrongpackage.2023,_,WRONG PACKAGE,wrongpackage.2023@computing.smu.edu.sg,,20,#

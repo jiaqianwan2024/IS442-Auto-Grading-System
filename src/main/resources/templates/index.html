@@ -143,12 +143,21 @@
 
         <!-- Upload Button -->
         <div class="action-center">
-            <button class="btn btn-upload" 
-                    id="uploadBtn"
-                    onclick="uploadAllFiles()">
-                <span class="btn-icon">⬆</span>
-                Upload Files
-            </button>
+            <div class="action-buttons">
+                <button class="btn btn-upload" 
+                        id="uploadBtn"
+                        onclick="uploadAllFiles()">
+                    <span class="btn-icon">⬆</span>
+                    Upload Files
+                </button>
+                <button class="btn btn-clear" 
+                        id="clearAllBtn"
+                        onclick="confirmClearAll()"
+                        style="display: none;">
+                    <span class="btn-icon">🗑</span>
+                    Clear All
+                </button>
+            </div>
             <div class="upload-counter" id="uploadCounter">
                 <span class="counter-value">0/4</span> files uploaded
             </div>
@@ -162,7 +171,7 @@
             <p>Run the automated grading pipeline</p>
         </div>
 
-        <div class="grading-card">
+        <div class="grading-card" id="gradingCard">
             <div class="grading-ready" id="gradingReady">
                 <div class="ready-icon">✓</div>
                 <div class="ready-text">All files uploaded! Ready to grade.</div>
@@ -180,14 +189,6 @@
                 <span class="btn-icon">▶</span>
                 Start Grading!
             </button>
-
-            <!-- Progress Bar -->
-            <div class="progress-container" id="progressContainer" style="display: none;">
-                <div class="progress-bar">
-                    <div class="progress-fill" id="progressFill"></div>
-                </div>
-                <div class="progress-label" id="progressLabel">Initializing...</div>
-            </div>
         </div>
     </section>
 
@@ -336,16 +337,90 @@
         return fileType === 'scoresheet' ? '.csv' : '.zip';
     }
 
+    // Confirm remove single file
+    function confirmRemoveFile(fileType, fileName) {
+        if (confirm(`Remove "${fileName}"?\n\nThis will clear the uploaded file and you'll need to select it again.`)) {
+            removeFile(fileType);
+        }
+    }
+
+    // Remove single file
+    function removeFile(fileType) {
+        sessionFiles[fileType] = null;
+        const statusEl = document.getElementById(fileType + 'Status');
+        const boxEl = document.querySelector(`[data-file-type="${fileType}"]`);
+        
+        // Clear the file input
+        const inputEl = document.getElementById(getInputId(fileType));
+        if (inputEl) inputEl.value = '';
+        
+        statusEl.innerHTML = '<span class="status-text">Click or drag here</span>';
+        boxEl.classList.remove('uploaded');
+        
+        updateUI();
+        showAlert('warning', 'File removed. You can upload a different file if needed.');
+    }
+
+    // Get input element ID for file type
+    function getInputId(fileType) {
+        const idMap = {
+            submission: 'submissionZip',
+            template: 'templateZip',
+            scoresheet: 'scoreSheetCsv',
+            testers: 'testersZip'
+        };
+        return idMap[fileType];
+    }
+
+    // Confirm clear all files
+    function confirmClearAll() {
+        const uploadedCount = Object.values(sessionFiles).filter(f => f !== null).length;
+        if (uploadedCount === 0) return;
+        
+        const confirmed = confirm(`⚠️ Clear ALL uploaded files?\n\nThis will remove ${uploadedCount} file(s) and cannot be undone.\n\nAre you sure?`);
+        if (confirmed) {
+            const doubleConfirmed = confirm('🔴 FINAL WARNING: This action cannot be undone.\n\nClick OK to permanently clear all files.');
+            if (doubleConfirmed) {
+                clearAllFiles();
+            }
+        }
+    }
+
+    // Clear all files
+    function clearAllFiles() {
+        Object.keys(sessionFiles).forEach(fileType => {
+            sessionFiles[fileType] = null;
+            
+            // Clear the file input
+            const inputEl = document.getElementById(getInputId(fileType));
+            if (inputEl) inputEl.value = '';
+            
+            const statusEl = document.getElementById(fileType + 'Status');
+            const boxEl = document.querySelector(`[data-file-type="${fileType}"]`);
+            
+            statusEl.innerHTML = '<span class="status-text">Click or drag here</span>';
+            boxEl.classList.remove('uploaded');
+        });
+        
+        updateUI();
+        showAlert('warning', 'All files cleared. You can start fresh with new uploads.');
+    }
+
     // Update file status display
     function updateFileStatus(fileType, file) {
         const statusEl = document.getElementById(fileType + 'Status');
         const boxEl = document.querySelector(`[data-file-type="${fileType}"]`);
         
         statusEl.innerHTML = `
-            <span class="status-uploaded">
-                ✓ ${file.name}
-                <span class="file-size">(${formatFileSize(file.size)})</span>
-            </span>
+            <div class="file-info">
+                <span class="status-uploaded">
+                    ✓ ${file.name}
+                    <span class="file-size">(${formatFileSize(file.size)})</span>
+                </span>
+                <button class="btn-remove" onclick="confirmRemoveFile('${fileType}', '${file.name}')" title="Remove this file">
+                    🗑
+                </button>
+            </div>
         `;
         
         boxEl.classList.add('uploaded');
@@ -364,15 +439,30 @@
         const gradeBtn = document.getElementById('gradeBtn');
         const readyEl = document.getElementById('gradingReady');
         const waitingEl = document.getElementById('gradingWaiting');
+        const gradingCard = document.getElementById('gradingCard');
+        const clearAllBtn = document.getElementById('clearAllBtn');
 
         if (uploadedCount === 4) {
             gradeBtn.disabled = false;
             readyEl.style.display = 'flex';
             waitingEl.style.display = 'none';
+            gradingCard.classList.add('ready');
         } else {
             gradeBtn.disabled = true;
             readyEl.style.display = 'none';
             waitingEl.style.display = 'flex';
+            gradingCard.classList.remove('ready');
+        }
+
+        // Show/hide Clear All button
+        clearAllBtn.style.display = uploadedCount > 0 ? 'inline-block' : 'none';
+
+        // Auto-scroll to grading section when all files are uploaded
+        if (uploadedCount === 4 && !gradingCard.classList.contains('ready')) {
+            setTimeout(() => {
+                const gradingSection = document.getElementById('gradingSection');
+                gradingSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 300);
         }
     }
 
@@ -434,6 +524,10 @@
             });
     }
 
+    // Global variables for grading control
+    let gradingController = null;
+    let gradingStartTime = null;
+
     // Start grading
     function startGrading() {
         const gradeBtn = document.getElementById('gradeBtn');
@@ -444,12 +538,19 @@
         const statusBadge = document.getElementById('systemStatusBadge');
         statusBadge.innerHTML = '<span class="badge-dot running"></span><span class="badge-text">RUNNING</span>';
 
-        // Show progress
+        // Show progress and stop button
         document.getElementById('progressContainer').style.display = 'block';
+        document.getElementById('stopBtn').style.display = 'inline-block';
+        
+        // Initialize grading control
+        gradingController = new AbortController();
+        gradingStartTime = Date.now();
+        
         simulateProgress();
 
         fetch('/grade', {
-            method: 'POST'
+            method: 'POST',
+            signal: gradingController.signal
         })
         .then(response => response.json())
         .then(data => {
@@ -462,36 +563,82 @@
             }
         })
         .catch(error => {
-            showAlert('error', 'Grading error: ' + error.message);
+            if (error.name === 'AbortError') {
+                showAlert('warning', 'Grading was cancelled by user.');
+            } else {
+                showAlert('error', 'Grading error: ' + error.message);
+            }
         })
         .finally(() => {
-            gradeBtn.disabled = false;
-            gradeBtn.innerHTML = '<span class="btn-icon">▶</span> Start Grading!';
-            statusBadge.innerHTML = '<span class="badge-dot"></span><span class="badge-text">READY</span>';
-            document.getElementById('progressContainer').style.display = 'none';
+            cleanupGrading();
         });
+    }
+
+    // Stop grading
+    function stopGrading() {
+        if (gradingController) {
+            gradingController.abort();
+        }
+    }
+
+    // Cleanup after grading
+    function cleanupGrading() {
+        const gradeBtn = document.getElementById('gradeBtn');
+        const statusBadge = document.getElementById('systemStatusBadge');
+        const stopBtn = document.getElementById('stopBtn');
+        
+        gradeBtn.disabled = false;
+        gradeBtn.innerHTML = '<span class="btn-icon">▶</span> Start Grading!';
+        statusBadge.innerHTML = '<span class="badge-dot"></span><span class="badge-text">READY</span>';
+        document.getElementById('progressContainer').style.display = 'none';
+        stopBtn.style.display = 'none';
+        
+        gradingController = null;
+        gradingStartTime = null;
+        
+        if (window.gradingInterval) {
+            clearInterval(window.gradingInterval);
+        }
     }
 
     // Simulate progress (for visual feedback)
     function simulateProgress() {
         const progressFill = document.getElementById('progressFill');
         const progressLabel = document.getElementById('progressLabel');
+        const timeEstimate = document.getElementById('timeEstimate');
         
         let progress = 0;
-        const stages = ['Extracting...', 'Validating...', 'Compiling...', 'Grading...', 'Analyzing...'];
+        const stages = ['Extracting files...', 'Validating submissions...', 'Compiling code...', 'Running tests...', 'Analyzing results...'];
         let stageIndex = 0;
+        const startTime = Date.now();
 
         const interval = setInterval(() => {
-            progress += Math.random() * 15;
+            if (gradingController && gradingController.signal.aborted) {
+                clearInterval(interval);
+                return;
+            }
+
+            progress += Math.random() * 12;
             if (progress > 95) progress = 95;
             
             progressFill.style.width = progress + '%';
             progressLabel.textContent = stages[Math.min(stageIndex, stages.length - 1)];
             
+            // Update time estimate
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            const estimatedTotal = Math.max(120, elapsed * (100 / Math.max(progress, 1))); // At least 2 minutes
+            const remaining = Math.max(0, estimatedTotal - elapsed);
+            
+            if (remaining > 60) {
+                timeEstimate.textContent = `Elapsed: ${Math.floor(elapsed/60)}m ${elapsed%60}s | Remaining: ~${Math.floor(remaining/60)}m ${remaining%60}s`;
+            } else {
+                timeEstimate.textContent = `Elapsed: ${elapsed}s | Remaining: ~${remaining}s`;
+            }
+            
             if (progress > (stageIndex + 1) * 20) {
                 stageIndex++;
             }
-        }, 500);
+        }, 800);
 
         // Store interval to clear later
         window.gradingInterval = interval;
@@ -501,28 +648,31 @@
     function displayResults(data) {
         if (window.gradingInterval) clearInterval(window.gradingInterval);
         
-        document.getElementById('resultsSection').style.display = 'block';
-        
-        // Update stats
-        document.getElementById('statStudents').textContent = data.studentCount || '-';
-        document.getElementById('statTasks').textContent = data.taskCount || '-';
-        document.getElementById('statAverage').textContent = data.averageScore ? data.averageScore.toFixed(1) + '%' : '-';
-        document.getElementById('statSuccess').textContent = data.successRate ? data.successRate.toFixed(1) + '%' : '-';
-        
-        // Display logs
-        const logTerminal = document.getElementById('logTerminal');
-        logTerminal.innerHTML = '';
-        if (data.logs && data.logs.length > 0) {
-            data.logs.forEach(log => {
-                const logLine = document.createElement('div');
-                logLine.className = 'log-line';
-                logLine.textContent = '$ ' + log;
-                logTerminal.appendChild(logLine);
-            });
+        // Only show results if grading completed successfully
+        if (data && data.success) {
+            document.getElementById('resultsSection').style.display = 'block';
+            
+            // Update stats
+            document.getElementById('statStudents').textContent = data.studentCount || '-';
+            document.getElementById('statTasks').textContent = data.taskCount || '-';
+            document.getElementById('statAverage').textContent = data.averageScore ? data.averageScore.toFixed(1) + '%' : '-';
+            document.getElementById('statSuccess').textContent = data.successRate ? data.successRate.toFixed(1) + '%' : '-';
+            
+            // Display logs
+            const logTerminal = document.getElementById('logTerminal');
+            logTerminal.innerHTML = '';
+            if (data.logs && data.logs.length > 0) {
+                data.logs.forEach(log => {
+                    const logLine = document.createElement('div');
+                    logLine.className = 'log-line';
+                    logLine.textContent = '$ ' + log;
+                    logTerminal.appendChild(logLine);
+                });
+            }
+            
+            // Scroll to results
+            document.getElementById('resultsSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
-        
-        // Scroll to results
-        document.getElementById('resultsSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
     // Show alert
@@ -530,9 +680,14 @@
         const alertContainer = document.getElementById('alertContainer');
         const alert = document.createElement('div');
         alert.className = `alert alert-${type}`;
+        
+        let icon = '✕';
+        if (type === 'success') icon = '✓';
+        else if (type === 'warning') icon = '⚠';
+        
         alert.innerHTML = `
             <div class="alert-content">
-                <span class="alert-icon">${type === 'success' ? '✓' : '✕'}</span>
+                <span class="alert-icon">${icon}</span>
                 <span class="alert-message">${message}</span>
             </div>
             <button class="alert-close" onclick="this.parentElement.remove()">×</button>
