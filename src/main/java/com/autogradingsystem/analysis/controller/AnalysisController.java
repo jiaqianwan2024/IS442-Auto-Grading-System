@@ -7,6 +7,7 @@ import com.autogradingsystem.model.GradingResult;
 import com.autogradingsystem.model.Student;
 
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -28,10 +29,28 @@ public class AnalysisController {
         this.statisticsReportExporter = new StatisticsReportExporter();
     }
 
+    // ── Original overload — backward compatible ────────────────────────────
+
     public void analyzeAndDisplay(List<GradingResult> results,
                                   Map<String, String> remarksByStudent,
                                   Map<String, String> anomalyRemarks,
                                   List<Student> allStudents) {
+        analyzeAndDisplay(results, remarksByStudent, anomalyRemarks, allStudents,
+                          Collections.emptyMap());
+    }
+
+    // ── New overload — includes plagiarism notes ───────────────────────────
+
+    /**
+     * @param plagiarismNotes  studentId → plagiarism note for the "Plagiarism" column.
+     *                         e.g. "Q1a: flagged with ping.lee.2023 (87.3%)"
+     *                         Pass Collections.emptyMap() if check was not run.
+     */
+    public void analyzeAndDisplay(List<GradingResult> results,
+                                  Map<String, String> remarksByStudent,
+                                  Map<String, String> anomalyRemarks,
+                                  List<Student> allStudents,
+                                  Map<String, String> plagiarismNotes) {
 
         Map<String, Double>              maxScores      = ScoreAnalyzer.inferMaxScores(results);
         List<GradingResult>              updatedResults = ScoreAnalyzer.updateWithMaxScores(results);
@@ -44,7 +63,7 @@ public class AnalysisController {
         displayCompactView(byStudent, maxScores);
         displayOverallStatistics(byStudent, maxScores);
 
-        exportBothReports(byStudent, remarksByStudent, anomalyRemarks, allStudents);
+        exportBothReports(byStudent, remarksByStudent, anomalyRemarks, allStudents, plagiarismNotes);
     }
 
     // ── Export ─────────────────────────────────────────────────────────────
@@ -52,14 +71,16 @@ public class AnalysisController {
     private void exportBothReports(Map<String, List<GradingResult>> byStudent,
                                    Map<String, String> remarksByStudent,
                                    Map<String, String> anomalyRemarks,
-                                   List<Student> allStudents) {
+                                   List<Student> allStudents,
+                                   Map<String, String> plagiarismNotes) {
         System.out.println("\n" + "=".repeat(70));
         System.out.println("📄 EXPORTING REPORTS");
         System.out.println("=".repeat(70));
 
         try {
             Path scoreSheet = scoreSheetExporter.export(byStudent, remarksByStudent,
-                                                        anomalyRemarks, allStudents);
+                                                        anomalyRemarks, allStudents,
+                                                        plagiarismNotes);
             System.out.println("✅ Score Sheet   → " + scoreSheet.toAbsolutePath());
         } catch (Exception e) {
             System.out.println("❌ Score Sheet export failed: " + e.getMessage());
