@@ -254,8 +254,7 @@ public class ExecutionController {
             // Case 3: find the question folder anywhere in the tree (case-insensitive name match)
             // then look for the file only within that folder — prevents cross-folder grading
             Path foundQFolder = findFolderRecursive(studentRoot, task.getStudentFolder());
-            System.out.println("DEBUG FIND [" + student.getId() + "] looking for folder=" 
-    + task.getStudentFolder() + " in " + studentRoot);
+
             if (foundQFolder != null) {
                 Path foundJava  = findFileRecursive(foundQFolder, expectedFile);
                 Path foundClass = findFileRecursive(foundQFolder, expectedClass);
@@ -338,7 +337,6 @@ public class ExecutionController {
 
                 String strippedName = stripDatePrefix(folderName);
                 Path   actualRoot   = findActualStudentRoot(dir);
-                System.out.println("DEBUG ROOT [" + folderName + "] actualRoot=" + actualRoot);
 
                 HeaderScanner.ScanResult headerScan = scanner.scan(actualRoot, tasks);
 
