@@ -59,6 +59,11 @@ public class GradingController {
         return "index"; 
     }
 
+    @GetMapping("/multi-test")
+    public String multiTest() {
+        return "multi-assessment-test";
+    }
+
     /**
      * Handle multiple file uploads
      * Supports uploading all 4 files at once or individually

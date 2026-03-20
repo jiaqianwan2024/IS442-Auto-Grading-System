@@ -51,9 +51,49 @@ public class StatisticsReportExporter {
     private XSSFCellStyle normalStyle, altStyle, boldStyle;
     private XSSFCellStyle pctStyle, pctAltStyle;
 
+    // ================================================================
+    // PATH FIELD — null means "use global PathConfig" (single-assessment)
+    // ================================================================
+
+    private final Path outputReports;
+
+    // ================================================================
+    // CONSTRUCTORS
+    // ================================================================
+
+    /**
+     * Default constructor — uses global PathConfig static paths.
+     * Called by AnalysisController for the standard single-assessment flow.
+     * Behaviour is identical to the original (field-less) class.
+     */
+    public StatisticsReportExporter() {
+        this.outputReports = null;
+    }
+
+    /**
+     * Path-aware constructor for multi-assessment support.
+     * Called by AnalysisController(Path, Path) with per-assessment paths
+     * so each assessment's statistics report goes into its own output directory.
+     *
+     * @param outputReports Path to the reports output directory for this assessment
+     */
+    public StatisticsReportExporter(Path outputReports) {
+        this.outputReports = outputReports;
+    }
+
+    // ================================================================
+    // PATH RESOLUTION
+    // ================================================================
+
+    private Path resolveOutputDir() {
+        return outputReports != null
+            ? outputReports.toAbsolutePath()
+            : PathConfig.OUTPUT_BASE.resolve("reports").toAbsolutePath();
+    }
+
     public Path export(Map<String, List<GradingResult>> resultsByStudent) throws IOException {
 
-        Path outputDir = PathConfig.OUTPUT_BASE.resolve("reports").toAbsolutePath();
+        Path outputDir = resolveOutputDir();
         Files.createDirectories(outputDir);
         Path outputFile = outputDir.resolve(FILENAME);
 

@@ -25,6 +25,57 @@ public class ScoreSheetExporter {
     private static final int COL_NUMERATOR = 5;
     private static final int COL_EOL       = 7;
 
+    // ================================================================
+    // PATH FIELDS â null means "use global PathConfig" (single-assessment)
+    // ================================================================
+
+    private final Path csvScoresheet;
+    private final Path outputReports;
+
+    // ================================================================
+    // CONSTRUCTORS
+    // ================================================================
+
+    /**
+     * Default constructor â uses global PathConfig static paths.
+     * Called by AnalysisController for the standard single-assessment flow.
+     * Behaviour is identical to the original (field-less) class.
+     */
+    public ScoreSheetExporter() {
+        this.csvScoresheet = null;
+        this.outputReports = null;
+    }
+
+    /**
+     * Path-aware constructor for multi-assessment support.
+     * Called by AnalysisController(Path, Path) with per-assessment paths
+     * so each assessment's scoresheet is read from and written to its own directory.
+     *
+     * @param csvScoresheet Path to the scoresheet CSV for this assessment
+     * @param outputReports Path to the reports output directory for this assessment
+     */
+    public ScoreSheetExporter(Path csvScoresheet, Path outputReports) {
+        this.csvScoresheet = csvScoresheet;
+        this.outputReports = outputReports;
+    }
+
+    // ================================================================
+    // PATH RESOLUTION
+    // ================================================================
+
+    private Path resolveCsvScoresheet() {
+        return csvScoresheet != null
+            ? csvScoresheet.toAbsolutePath()
+            : PathConfig.CSV_SCORESHEET.toAbsolutePath();
+    }
+
+    private Path resolveOutputDir() {
+        return outputReports != null
+            ? outputReports.toAbsolutePath()
+            : PathConfig.OUTPUT_BASE.resolve("reports").toAbsolutePath();
+    }
+
+
     // ── Original overload — backward compatible, no plagiarism data ───────────
 
     public Path export(Map<String, List<GradingResult>> resultsByStudent,
@@ -50,7 +101,7 @@ public class ScoreSheetExporter {
                        List<Student> allStudents,
                        Map<String, String> plagiarismNotes) throws IOException {
 
-        Path outputDir  = PathConfig.OUTPUT_BASE.resolve("reports").toAbsolutePath();
+        Path outputDir  = resolveOutputDir();
         Files.createDirectories(outputDir);
         Path outputFile = outputDir.resolve("IS442-ScoreSheet-Updated.xlsx");
 
@@ -83,7 +134,97 @@ public class ScoreSheetExporter {
             }
         }
 
+        // Also export a CSV version alongside the xlsx
+        exportCsv(outputDir, questionOrder, totals, qScoreMap, remarksByStudent,
+                  plagiarismNotes, gradedUsernames);
+
         return outputFile;
+    }
+
+    /**
+     * Writes IS442-ScoreSheet-Updated.csv — a plain CSV version of the main score sheet.
+     * Reads the original scoresheet CSV for student identity columns, then appends
+     * per-question scores, total, remarks and plagiarism notes.
+     */
+    private void exportCsv(Path outputDir,
+                            List<String> questionOrder,
+                            Map<String, Double> totals,
+                            Map<String, Map<String, Double>> qScoreMap,
+                            Map<String, String> remarksByStudent,
+                            Map<String, String> plagiarismNotes,
+                            Set<String> gradedUsernames) throws IOException {
+
+        Path csvOut = outputDir.resolve("IS442-ScoreSheet-Updated.csv");
+        StringBuilder sb = new StringBuilder();
+
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                Files.newInputStream(resolveCsvScoresheet()), StandardCharsets.UTF_8))) {
+
+            String line;
+            boolean isHeader = true;
+
+            while ((line = reader.readLine()) != null) {
+                if (isHeader && line.startsWith("\uFEFF")) line = line.substring(1);
+                String[] cols = line.split(",", -1);
+
+                if (isHeader) {
+                    // Write identity columns (skip EOL col, add it last)
+                    StringBuilder headerRow = new StringBuilder();
+                    for (int c = 0; c < cols.length; c++) {
+                        if (c == COL_EOL) continue;
+                        if (headerRow.length() > 0) headerRow.append(",");
+                        headerRow.append(escapeCsv(cols[c].trim()));
+                    }
+                    // Question columns
+                    for (String qid : questionOrder) {
+                        headerRow.append(",").append(escapeCsv(qid));
+                    }
+                    headerRow.append(",Remarks,Plagiarism");
+                    headerRow.append(",").append(cols.length > COL_EOL ? escapeCsv(cols[COL_EOL].trim()) : "#");
+                    sb.append(headerRow).append("\n");
+                    isHeader = false;
+                    continue;
+                }
+
+                String eolValue = cols.length > COL_EOL ? cols[COL_EOL].trim() : "#";
+                String raw      = cols.length > COL_USERNAME ? cols[COL_USERNAME].trim() : "";
+                String username = (raw.startsWith("#") ? raw.substring(1) : raw).trim();
+
+                if (totals.containsKey(username)) {
+                    cols[COL_NUMERATOR] = fmtNum(totals.get(username));
+                }
+
+                StringBuilder dataRow = new StringBuilder();
+                for (int c = 0; c < cols.length; c++) {
+                    if (c == COL_EOL) continue;
+                    if (dataRow.length() > 0) dataRow.append(",");
+                    dataRow.append(escapeCsv(cols[c].trim()));
+                }
+
+                Map<String, Double> qScores = qScoreMap.getOrDefault(username, Collections.emptyMap());
+                for (String qid : questionOrder) {
+                    dataRow.append(",").append(fmtNum(qScores.getOrDefault(qid, 0.0)));
+                }
+
+                String remarks = gradedUsernames.contains(username)
+                        ? remarksByStudent.getOrDefault(username, "")
+                        : "Missing submission";
+                dataRow.append(",").append(escapeCsv(remarks));
+                dataRow.append(",").append(escapeCsv(plagiarismNotes.getOrDefault(username, "")));
+                dataRow.append(",").append(escapeCsv(eolValue));
+                sb.append(dataRow).append("\n");
+            }
+        }
+
+        Files.writeString(csvOut, sb.toString(), StandardCharsets.UTF_8);
+    }
+
+    private String escapeCsv(String value) {
+        if (value == null) return "";
+        if (value.contains(",") || value.contains("\"") || value.contains("\n")) {
+            return "\"" + value.replace("\"", "\"\"") + "\"";
+        }
+        return value;
     }
 
     // ── Sheet 1: Main score sheet ──────────────────────────────────────────
@@ -114,7 +255,7 @@ public class ScoreSheetExporter {
         CellStyle plagCleanStyle = workbook.createCellStyle();
 
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(
-                Files.newInputStream(PathConfig.CSV_SCORESHEET.toAbsolutePath()),
+                Files.newInputStream(resolveCsvScoresheet()),
                 StandardCharsets.UTF_8))) {
 
             String line;

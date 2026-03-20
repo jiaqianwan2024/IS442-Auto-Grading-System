@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IS442 Auto-Grading System — Multi-Assessment</title>
+  <link rel="stylesheet" th:href="@{/css/style.css}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    /* ── Multi-assessment extras (retro-consistent) ── */
+
+    .mode-nav {
+      display: flex;
+      gap: 0;
+      margin-bottom: 40px;
+      border: 4px solid var(--black);
+      box-shadow: var(--shadow-medium);
+      width: fit-content;
+    }
+    .mode-nav a {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 28px;
+      font-size: 0.95rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      text-decoration: none;
+      color: var(--black);
+      background: var(--white);
+      border-right: 4px solid var(--black);
+      font-family: 'Space Grotesk', sans-serif;
+      transition: background 0.1s;
+    }
+    .mode-nav a:last-child { border-right: none; }
+    .mode-nav a.active { background: var(--yellow); }
+    .mode-nav a:hover:not(.active) { background: var(--gray-light); }
+
+    .slot-grid { display: flex; flex-direction: column; gap: 16px; margin-bottom: 8px; }
+
+    .assessment-slot {
+      background: var(--white);
+      border: 4px solid var(--black);
+      box-shadow: var(--shadow-medium);
+    }
+    .slot-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 20px;
+      background: var(--yellow);
+      border-bottom: 4px solid var(--black);
+    }
+    .slot-num {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      background: var(--black);
+      color: var(--yellow);
+      font-family: 'Space Mono', monospace;
+      font-weight: 700;
+      font-size: 1rem;
+      flex-shrink: 0;
+    }
+    .slot-name-input {
+      flex: 1;
+      padding: 8px 14px;
+      font-size: 1rem;
+      font-weight: 600;
+      font-family: 'Space Grotesk', sans-serif;
+      border: 3px solid var(--black);
+      background: var(--white);
+      outline: none;
+    }
+    .slot-name-input:focus { background: var(--yellow-light); }
+    .slot-name-input::placeholder { color: #999; font-weight: 400; }
+    .slot-remove {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      background: var(--black);
+      color: var(--yellow);
+      border: none;
+      font-size: 1.2rem;
+      font-weight: 700;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: all 0.1s;
+    }
+    .slot-remove:hover { background: var(--red); color: var(--white); }
+
+    .slot-files {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    }
+    .file-drop {
+      position: relative;
+      padding: 20px 16px;
+      text-align: center;
+      cursor: pointer;
+      border-right: 3px solid var(--gray);
+      transition: background 0.15s;
+    }
+    .file-drop:last-child { border-right: none; }
+    .file-drop:hover { background: var(--yellow-light); }
+    .file-drop.has-file { background: rgba(76,175,80,0.08); }
+    .file-drop input[type=file] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+    }
+    .file-drop-label {
+      font-size: 0.9rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .file-drop-hint {
+      font-size: 0.78rem;
+      color: #666;
+      font-family: 'Space Mono', monospace;
+      word-break: break-all;
+    }
+    .file-drop.has-file .file-drop-hint { color: var(--green); font-weight: 700; }
+
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      border: 4px dashed var(--gray-dark);
+      margin-bottom: 16px;
+      color: #999;
+      font-family: 'Space Mono', monospace;
+      font-size: 0.85rem;
+      line-height: 2;
+    }
+    .empty-state strong { color: var(--black); }
+
+    .action-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 40px;
+      align-items: center;
+    }
+    .btn-add { background: var(--black); color: var(--yellow); border-color: var(--black); }
+    .btn-add:hover { background: #333; color: var(--yellow); }
+    .btn-clear {
+      background: var(--white);
+      color: var(--red);
+      border-color: var(--red);
+      box-shadow: 4px 4px 0 rgba(244,67,54,0.25);
+    }
+    .btn-clear:hover { background: var(--red); color: var(--white); }
+
+    /* Progress */
+    .progress-card { background: var(--white); border: 4px solid var(--black); padding: 30px; box-shadow: var(--shadow-thick); }
+
+    .overall-bar-row {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .overall-bar-label {
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      width: 68px;
+      flex-shrink: 0;
+    }
+    .retro-progress-track {
+      flex: 1;
+      height: 36px;
+      background: var(--gray);
+      border: 4px solid var(--black);
+      overflow: hidden;
+    }
+    .retro-progress-fill {
+      height: 100%;
+      background: repeating-linear-gradient(
+        45deg,
+        var(--yellow),
+        var(--yellow) 20px,
+        var(--yellow-dark) 20px,
+        var(--yellow-dark) 40px
+      );
+      width: 0%;
+      transition: width 0.4s ease;
+      border-right: 3px solid var(--black);
+    }
+    .retro-progress-fill.complete { background: var(--green); }
+    .overall-pct-label {
+      font-family: 'Space Mono', monospace;
+      font-size: 1.3rem;
+      font-weight: 700;
+      width: 56px;
+      text-align: right;
+      flex-shrink: 0;
+    }
+    .elapsed-label {
+      font-size: 0.85rem;
+      font-family: 'Space Mono', monospace;
+      color: #666;
+      width: 44px;
+      flex-shrink: 0;
+      text-align: right;
+    }
+
+    .assess-bars { display: flex; flex-direction: column; gap: 12px; }
+    .assess-bar-row { display: flex; align-items: center; gap: 12px; }
+    .assess-bar-name {
+      font-size: 0.85rem;
+      font-weight: 600;
+      width: 160px;
+      flex-shrink: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .assess-bar-track {
+      flex: 1;
+      height: 22px;
+      background: var(--gray);
+      border: 3px solid var(--black);
+      overflow: hidden;
+    }
+    .assess-bar-fill {
+      height: 100%;
+      background: var(--yellow);
+      width: 0%;
+      transition: width 0.4s ease;
+    }
+    .assess-bar-pct {
+      font-family: 'Space Mono', monospace;
+      font-size: 0.85rem;
+      font-weight: 700;
+      width: 40px;
+      text-align: right;
+      flex-shrink: 0;
+    }
+    .assess-bar-phase {
+      font-size: 0.78rem;
+      color: #666;
+      width: 180px;
+      flex-shrink: 0;
+      font-family: 'Space Mono', monospace;
+    }
+
+    /* Result cards */
+    .result-cards { display: flex; flex-direction: column; gap: 16px; margin-bottom: 40px; }
+    .result-card {
+      background: var(--white);
+      border: 4px solid var(--black);
+      box-shadow: var(--shadow-medium);
+    }
+    .result-card.card-ok  { border-left: 10px solid var(--green); }
+    .result-card.card-fail{ border-left: 10px solid var(--red); }
+
+    .result-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      cursor: pointer;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .result-card-header:hover { background: var(--gray-light); }
+    .result-card-name { font-size: 1.1rem; font-weight: 700; text-transform: uppercase; flex: 1; }
+    .result-card-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 0.85rem; font-weight: 600; color: #666; }
+    .result-card-toggle { font-size: 1.2rem; font-weight: 700; transition: transform 0.2s; flex-shrink: 0; }
+    .result-card-toggle.open { transform: rotate(180deg); }
+    .result-card-body { display: none; padding: 20px; border-top: 4px solid var(--black); }
+    .result-card-body.open { display: block; }
+
+    .pill { display: inline-flex; align-items: center; padding: 4px 12px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; border: 3px solid var(--black); }
+    .pill-ok   { background: var(--green); color: var(--white); }
+    .pill-fail { background: var(--red);   color: var(--white); }
+
+    .download-area-card {
+      margin-top: 16px;
+      background: var(--yellow);
+      border: 4px solid var(--black);
+      padding: 16px 20px;
+      box-shadow: var(--shadow-small);
+    }
+    .download-area-card h4 { font-size: 1rem; font-weight: 700; text-transform: uppercase; margin-bottom: 12px; }
+    .download-buttons-row { display: flex; flex-wrap: wrap; gap: 10px; }
+    .btn-dl {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      font-size: 0.9rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      text-decoration: none;
+      background: var(--black);
+      color: var(--yellow);
+      border: 3px solid var(--black);
+      box-shadow: var(--shadow-small);
+      transition: all 0.1s;
+      font-family: 'Space Grotesk', sans-serif;
+    }
+    .btn-dl:hover { transform: translate(-2px,-2px); box-shadow: var(--shadow-medium); }
+
+    .log-section-title { font-size: 1.5rem; font-weight: 700; text-transform: uppercase; margin-bottom: 16px; }
+
+    @media (max-width: 768px) {
+      .slot-files { grid-template-columns: repeat(2, 1fr); }
+      .mode-nav a { padding: 10px 14px; font-size: 0.8rem; }
+      .assess-bar-name { width: 90px; }
+      .assess-bar-phase { display: none; }
+    }
+    @media (max-width: 480px) {
+      .slot-files { grid-template-columns: 1fr 1fr; }
+      .action-row { flex-direction: column; }
+      .action-row .btn { width: 100%; justify-content: center; }
+      .overall-bar-label { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="bg-pattern"></div>
+<div class="bg-dots"></div>
+<div id="alertContainer"></div>
+
+<div class="container">
+
+  <div class="retro-bar"></div>
+
+  <header class="header">
+    <div class="header-logo">
+      <div class="logo-icon">
+        <span class="icon-bracket">[</span>
+        <span class="icon-code">IS442</span>
+        <span class="icon-bracket">]</span>
+      </div>
+      <div class="logo-text">
+        <h1>AUTO-GRADING<br>SYSTEM</h1>
+      </div>
+    </div>
+    <div class="header-status">
+      <div class="status-badge" id="systemStatusBadge">
+        <span class="badge-dot" id="statusDot"></span>
+        <span class="badge-text" id="statusText">IDLE</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Mode nav -->
+  <nav class="mode-nav">
+    <a href="/">⚡ Single Assessment</a>
+    <a href="/multi-test" class="active">🗂 Multi-Assessment</a>
+  </nav>
+
+  <!-- Hero -->
+  <div class="hero-section">
+    <h2 class="hero-title">
+      Grade multiple exams<br>
+      <span class="highlight">concurrently!</span>
+    </h2>
+    <p class="hero-subtitle">Upload assessments, run them all at once, download per-exam reports</p>
+  </div>
+
+  <!-- Upload -->
+  <section class="upload-section">
+    <div class="section-header">
+      <h3>📂 Upload Files</h3>
+      <p>Add one block per exam — each needs its own submissions, template, testers and scoresheet</p>
+    </div>
+
+    <div class="slot-grid" id="assessmentSlots">
+      <div class="empty-state" id="emptyState">
+        No assessments added yet.<br>
+        Click <strong>＋ Add Assessment</strong> for each exam or test you want to grade.<br>
+        e.g. Midterm 25/26, Final Exam, Lab Test 1 …
+      </div>
+    </div>
+
+    <div class="action-row">
+      <button class="btn btn-add" onclick="addSlot()">
+        <span class="btn-icon">＋</span> Add Assessment
+      </button>
+      <button class="btn btn-upload" id="uploadBtn" onclick="uploadAll()">
+        <span class="btn-icon">⬆</span> Upload All
+      </button>
+      <button class="btn" onclick="checkStatus()">
+        <span class="btn-icon">🔍</span> Check Status
+      </button>
+      <button class="btn btn-clear" onclick="clearSlots()">
+        <span class="btn-icon">✕</span> Clear Assessments
+      </button>
+    </div>
+  </section>
+
+  <!-- Grading -->
+  <section class="grading-section">
+    <div class="section-header">
+      <h3>⚡ Start Grading</h3>
+      <p>Grades all uploaded assessments concurrently in parallel</p>
+    </div>
+
+    <div class="grading-card">
+      <div class="grading-waiting" id="gradingWaiting" style="display:flex;">
+        <div class="waiting-icon">⏳</div>
+        <div class="waiting-text">Upload at least one assessment to begin</div>
+      </div>
+      <div class="grading-ready" id="gradingReady" style="display:none;">
+        <div class="ready-icon">✓</div>
+        <div class="ready-text">Assessments uploaded! Ready to grade.</div>
+      </div>
+      <button class="btn btn-grade" id="gradeBtn" onclick="gradeAll()" disabled>
+        <span class="btn-icon">▶</span> Run Concurrent Grading
+      </button>
+    </div>
+  </section>
+
+  <!-- Progress -->
+  <section id="progressSection" style="display:none; margin-bottom:60px;">
+    <div class="section-header">
+      <h3>📊 Grading Progress</h3>
+      <p>Live progress across all assessments</p>
+    </div>
+    <div class="progress-card">
+      <div class="overall-bar-row">
+        <span class="overall-bar-label">Overall</span>
+        <div class="retro-progress-track">
+          <div class="retro-progress-fill" id="overallBar"></div>
+        </div>
+        <span class="overall-pct-label" id="overallPct">0%</span>
+        <span class="elapsed-label" id="elapsedTime">0s</span>
+      </div>
+      <div class="assess-bars" id="assessmentBars"></div>
+    </div>
+  </section>
+
+  <!-- Results -->
+  <section class="results-section" id="resultsSection" style="display:none;">
+    <div class="section-header" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px;">
+      <div>
+        <h3>📊 Results</h3>
+        <p>Grading complete! View per-assessment results and download reports</p>
+      </div>
+      <button class="btn btn-clear" id="clearBtn" onclick="clearAll()" style="flex-shrink:0;align-self:flex-start;">
+        <span class="btn-icon">🗑</span> Clear All Files
+      </button>
+    </div>
+
+    <div class="stats-container">
+      <div class="stat-card">
+        <div class="stat-icon">🗂</div>
+        <div class="stat-value" id="resTotal">—</div>
+        <div class="stat-label">Assessments</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">✓</div>
+        <div class="stat-value" id="resOk">—</div>
+        <div class="stat-label">Passed</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">✕</div>
+        <div class="stat-value" id="resFail">—</div>
+        <div class="stat-label">Failed</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">👥</div>
+        <div class="stat-value" id="resStudents">—</div>
+        <div class="stat-label">Students</div>
+      </div>
+    </div>
+
+    <div class="result-cards" id="resultCards"></div>
+
+    <div id="globalLogSection" style="display:none;">
+      <div class="log-section-title">📋 Full Log</div>
+      <div class="log-container">
+        <div class="log-terminal" id="globalLog"></div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<footer class="footer">
+  <div class="footer-content">
+    <p>IS442 Auto-Grading System • Built by G1T4</p>
+  </div>
+</footer>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let slotCount = 0;
+const slots = {};
+
+// ── Slot Management ───────────────────────────────────────────────────────────
+
+function addSlot() {
+  slotCount++;
+  const id = slotCount;
+  slots[id] = { name:'', submission:null, template:null, testers:null, scoresheet:null };
+  const empty = document.getElementById('emptyState');
+  if (empty) empty.style.display = 'none';
+  const el = document.createElement('div');
+  el.className = 'assessment-slot';
+  el.id = `slot-${id}`;
+  el.innerHTML = `
+    <div class="slot-header">
+      <span class="slot-num">${id}</span>
+      <input class="slot-name-input" type="text" placeholder="Assessment name, e.g. Midterm 25/26"
+             oninput="slots[${id}].name = this.value">
+      <button class="slot-remove" onclick="removeSlot(${id})" title="Remove">✕</button>
+    </div>
+    <div class="slot-files">
+      ${makeFileDrop(id,'submission','📦 Student Submissions','student-submission.zip','.zip')}
+      ${makeFileDrop(id,'template','📄 Template / Answer Key','RenameToYourUsername.zip','.zip')}
+      ${makeFileDrop(id,'testers','🧪 Test Cases','testers.zip','.zip')}
+      ${makeFileDrop(id,'scoresheet','📊 Score Sheet CSV','scoresheet.csv','.csv')}
+    </div>`;
+  document.getElementById('assessmentSlots').appendChild(el);
+}
+
+function makeFileDrop(slotId, field, label, hint, accept) {
+  return `<div class="file-drop" id="drop-${slotId}-${field}">
+    <input type="file" accept="${accept}" onchange="handleFile(${slotId},'${field}',this)">
+    <div class="file-drop-label">${label}</div>
+    <div class="file-drop-hint" id="hint-${slotId}-${field}">${hint}</div>
+  </div>`;
+}
+
+function handleFile(slotId, field, input) {
+  const file = input.files[0]; if (!file) return;
+  slots[slotId][field] = file;
+  document.getElementById(`hint-${slotId}-${field}`).textContent = '✓ ' + file.name;
+  document.getElementById(`drop-${slotId}-${field}`).classList.add('has-file');
+}
+
+function removeSlot(id) {
+  const el = document.getElementById(`slot-${id}`); if (el) el.remove();
+  delete slots[id];
+  const remaining = Object.keys(slots).filter(k => document.getElementById(`slot-${k}`));
+  const empty = document.getElementById('emptyState');
+  if (empty && remaining.length === 0) empty.style.display = 'block';
+}
+
+// ── Upload ────────────────────────────────────────────────────────────────────
+
+async function uploadAll() {
+  const slotIds = Object.keys(slots).filter(id => document.getElementById(`slot-${id}`));
+  if (!slotIds.length) { showAlert('error','Add at least one assessment first.'); return; }
+  setStatus('running','UPLOADING');
+  setBtn('uploadBtn', true, '<span class="btn-icon">⏳</span> Uploading...');
+  const fd = new FormData();
+  for (const id of slotIds) {
+    const s = slots[id];
+    const nameEl = document.querySelector(`#slot-${id} .slot-name-input`);
+    fd.append('name', (nameEl && nameEl.value.trim()) || `Assessment ${id}`);
+    if (s.submission)  fd.append('submission',  s.submission);
+    if (s.template)    fd.append('template',    s.template);
+    if (s.testers)     fd.append('testers',     s.testers);
+    if (s.scoresheet)  fd.append('scoresheet',  s.scoresheet);
+  }
+  try {
+    const res  = await fetch('/multi/upload', { method:'POST', body:fd });
+    const data = await res.json();
+    if (data.success || data.processed > 0) {
+      setStatus('done','UPLOADED');
+      setBtn('gradeBtn', false, null);
+      document.getElementById('gradingWaiting').style.display = 'none';
+      document.getElementById('gradingReady').style.display   = 'flex';
+      showAlert('success', `Uploaded ${data.processed} assessment(s) successfully! ✓`);
+    } else {
+      setStatus('error','UPLOAD FAILED');
+      showAlert('error','Upload failed: ' + (data.message || 'Unknown error'));
+    }
+  } catch(e) {
+    setStatus('error','ERROR');
+    showAlert('error','Network error: ' + e.message);
+  } finally {
+    setBtn('uploadBtn', false, '<span class="btn-icon">⬆</span> Upload All');
+  }
+}
+
+// ── Status ────────────────────────────────────────────────────────────────────
+
+async function checkStatus() {
+  try {
+    const data = await (await fetch('/multi/status')).json();
+    const list = data.assessments || [];
+    if (!list.length) { showAlert('error','No assessments uploaded yet.'); return; }
+    const lines = list.map(a =>
+      `${a.name}  →  ${a.ready ? '✅ READY' : '⚠️  INCOMPLETE'}\n  ` +
+      `submission=${a.hasSubmission} | template=${a.hasTemplate} | testers=${a.hasTesters} | scoresheet=${a.hasScoresheet}`
+    );
+    alert(`Uploaded assessments (${data.totalReady} ready):\n\n` + lines.join('\n\n'));
+  } catch(e) { showAlert('error','Could not reach /multi/status: ' + e.message); }
+}
+
+async function autoRestoreFromStatus() {
+  try {
+    const data   = await (await fetch('/multi/status')).json();
+    const graded = (data.assessments || []).filter(a => a.hasReports);
+    if (!graded.length) return;
+    renderResults({
+      assessments: graded.map(a => ({
+        assessmentName: a.name, success: true,
+        studentCount: null, resultCount: null,
+        logs: ['[Restored from disk — re-run grading to see fresh logs]'],
+        downloadCsv:        `/multi/download?assessment=${encodeURIComponent(a.sanitisedName)}&file=csv`,
+        downloadScoreSheet: `/multi/download?assessment=${encodeURIComponent(a.sanitisedName)}&file=scoresheet`,
+        downloadStatistics: `/multi/download?assessment=${encodeURIComponent(a.sanitisedName)}&file=excel`,
+      })),
+      successCount: graded.length, failCount: 0, totalStudents: null,
+      logs: [`Restored ${graded.length} previously graded assessment(s) from disk.`],
+    }, null);
+    showAlert('success', `↩ Restored ${graded.length} previously graded assessment(s). Download links ready.`);
+  } catch {}
+}
+window.addEventListener('DOMContentLoaded', autoRestoreFromStatus);
+
+// ── Grade ─────────────────────────────────────────────────────────────────────
+
+async function gradeAll() {
+  setStatus('running','GRADING');
+  setBtn('gradeBtn', true, '<span class="btn-icon">⏳</span> Grading...');
+  setBtn('uploadBtn', true, null);
+
+  const progSec = document.getElementById('progressSection');
+  progSec.style.display = 'block';
+  const bar = document.getElementById('overallBar');
+  bar.style.width = '0%'; bar.classList.remove('complete');
+  document.getElementById('overallPct').textContent = '0%';
+  document.getElementById('elapsedTime').textContent = '0s';
+  document.getElementById('assessmentBars').innerHTML = '';
+  progSec.scrollIntoView({ behavior: 'smooth' });
+
+  let evtSource = null;
+  try {
+    evtSource = new EventSource('/multi/progress');
+    evtSource.onmessage = e => { try { updateProgress(JSON.parse(e.data)); } catch {} };
+    evtSource.onerror   = () => { if (evtSource) evtSource.close(); };
+  } catch {}
+
+  const t0 = Date.now();
+  try {
+    const data    = await (await fetch('/multi/grade', { method:'POST' })).json();
+    const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+    bar.style.width = '100%'; bar.classList.add('complete');
+    document.getElementById('overallPct').textContent = '100%';
+    document.getElementById('elapsedTime').textContent = elapsed + 's';
+    setTimeout(() => {
+      progSec.style.display = 'none';
+      renderResults(data, elapsed);
+      showAlert(data.success ? 'success' : 'error',
+        data.success
+          ? `Grading complete! ${data.successCount ?? ''} assessment(s) passed. ✓`
+          : 'Grading finished with some errors. Check results below.');
+    }, 800);
+    setStatus(data.success ? 'done' : 'error', data.success ? 'DONE' : 'PARTIAL');
+  } catch(e) {
+    setStatus('error','ERROR');
+    showAlert('error','Grading error: ' + e.message);
+  } finally {
+    if (evtSource) evtSource.close();
+    setBtn('gradeBtn', false, '<span class="btn-icon">▶</span> Run Concurrent Grading');
+    setBtn('uploadBtn', false, '<span class="btn-icon">⬆</span> Upload All');
+  }
+}
+
+function updateProgress(snap) {
+  const overall = snap.overall || 0;
+  const bar = document.getElementById('overallBar');
+  bar.style.width = overall + '%';
+  if (snap.done) bar.classList.add('complete');
+  document.getElementById('overallPct').textContent = overall + '%';
+  document.getElementById('elapsedTime').textContent = (snap.elapsed || 0) + 's';
+  const container = document.getElementById('assessmentBars');
+  (snap.assessments || []).forEach(a => {
+    const rowId = 'pr-' + a.name.replace(/[^a-zA-Z0-9]/g,'_');
+    let row = document.getElementById(rowId);
+    if (!row) {
+      row = document.createElement('div');
+      row.id = rowId; row.className = 'assess-bar-row';
+      row.innerHTML = `
+        <span class="assess-bar-name">${escHtml(a.name)}</span>
+        <div class="assess-bar-track"><div class="assess-bar-fill"></div></div>
+        <span class="assess-bar-pct">0%</span>
+        <span class="assess-bar-phase"></span>`;
+      container.appendChild(row);
+    }
+    const fill  = row.querySelector('.assess-bar-fill');
+    const pct   = row.querySelector('.assess-bar-pct');
+    const phase = row.querySelector('.assess-bar-phase');
+    fill.style.width      = (a.percent||0) + '%';
+    fill.style.background = a.failed ? 'var(--red)' : a.completed ? 'var(--green)' : 'var(--yellow)';
+    pct.textContent  = (a.percent||0) + '%';
+    pct.style.color  = a.failed ? 'var(--red)' : a.completed ? 'var(--green)' : 'var(--black)';
+    phase.textContent = a.phase || '';
+  });
+}
+
+// ── Render Results ────────────────────────────────────────────────────────────
+
+function renderResults(data, elapsed) {
+  const sec = document.getElementById('resultsSection');
+  sec.style.display = 'block';
+  const list = data.assessments || [];
+  document.getElementById('resTotal').textContent    = list.length;
+  document.getElementById('resOk').textContent       = data.successCount ?? '—';
+  document.getElementById('resFail').textContent     = data.failCount    ?? '—';
+  document.getElementById('resStudents').textContent = data.totalStudents ?? '—';
+
+  const cards = document.getElementById('resultCards');
+  cards.innerHTML = '';
+  list.forEach(a => {
+    const card = document.createElement('div');
+    card.className = 'result-card ' + (a.success ? 'card-ok' : 'card-fail');
+    const pill = a.success
+      ? `<span class="pill pill-ok">✓ PASSED</span>`
+      : `<span class="pill pill-fail">✕ FAILED</span>`;
+    const logHtml = (a.logs || []).map(l => {
+      let cls = '';
+      if (l.includes('✅')||l.includes('complete')) cls='ok';
+      if (l.includes('❌')||l.includes('failed'))   cls='fail';
+      if (l.includes('⚠')||l.includes('🚨'))        cls='warn';
+      return `<div class="log-line ${cls}">${escHtml(l)}</div>`;
+    }).join('');
+    const dlArea = a.success ? `
+      <div class="download-area-card">
+        <h4>Download Reports</h4>
+        <div class="download-buttons-row">
+          <a class="btn-dl" href="${escHtml(a.downloadCsv        ||'#')}"><span>📄</span> Score Sheet (CSV)</a>
+          <a class="btn-dl" href="${escHtml(a.downloadScoreSheet ||'#')}"><span>📊</span> Score Sheet (Excel)</a>
+          <a class="btn-dl" href="${escHtml(a.downloadStatistics  ||'#')}"><span>📈</span> Statistics (Excel)</a>
+        </div>
+      </div>` : '';
+    card.innerHTML = `
+      <div class="result-card-header" onclick="toggleCard(this)">
+        <span class="result-card-name">${escHtml(a.assessmentName)}</span>
+        <div class="result-card-meta">
+          ${pill}
+          ${a.studentCount!=null ? `<span>👥 ${a.studentCount} students</span>` : ''}
+          ${a.resultCount !=null ? `<span>📝 ${a.resultCount} results</span>`   : ''}
+          ${a.error ? `<span style="color:var(--red);font-size:11px">${escHtml(a.error)}</span>` : ''}
+        </div>
+        <span class="result-card-toggle">▾</span>
+      </div>
+      <div class="result-card-body">
+        ${logHtml
+          ? `<div class="log-container"><div class="log-terminal">${logHtml}</div></div>`
+          : '<p style="color:#999;font-size:13px;font-family:Space Mono,monospace;margin-bottom:0">No logs available.</p>'}
+        ${dlArea}
+      </div>`;
+    cards.appendChild(card);
+  });
+
+  if (data.logs && data.logs.length) {
+    document.getElementById('globalLogSection').style.display = 'block';
+    const gl = document.getElementById('globalLog');
+    gl.innerHTML = data.logs.map(l => `<div class="log-line">${escHtml(l)}</div>`).join('');
+    gl.scrollTop = gl.scrollHeight;
+  }
+  sec.scrollIntoView({ behavior:'smooth' });
+}
+
+function toggleCard(header) {
+  const body   = header.nextElementSibling;
+  const toggle = header.querySelector('.result-card-toggle');
+  const open   = body.classList.toggle('open');
+  toggle.classList.toggle('open', open);
+}
+
+// ── Clear ─────────────────────────────────────────────────────────────────────
+
+// "Clear Assessments" — removes assessment slots from the screen only.
+// Does NOT touch uploaded files on disk. Use this to start fresh input
+// while keeping previously graded reports accessible.
+function clearSlots() {
+  if (!confirm('Remove all assessment slots from the screen?\n\nThis does not delete any files from disk.')) return;
+  const slotsEl = document.getElementById('assessmentSlots');
+  slotsEl.innerHTML = '';
+  const div = document.createElement('div');
+  div.id = 'emptyState'; div.className = 'empty-state';
+  div.innerHTML = 'No assessments added yet.<br>Click <strong>＋ Add Assessment</strong> for each exam or test you want to grade.<br>e.g. Midterm 25/26, Final Exam, Lab Test 1 …';
+  slotsEl.appendChild(div);
+  Object.keys(slots).forEach(k => delete slots[k]);
+  slotCount = 0;
+}
+
+// "Clear All Files" — permanently deletes all uploaded files, extracted
+// submissions and generated reports from disk, AND resets the screen.
+// Use this when you want a completely clean slate for the next exam session.
+async function clearAll() {
+  if (!confirm(
+    '⚠️  CLEAR ALL FILES\n\n' +
+    'This will permanently delete from disk:\n' +
+    '  • All uploaded submission, template and tester files\n' +
+    '  • All extracted student code\n' +
+    '  • All generated reports and scoresheets\n\n' +
+    'This cannot be undone. Continue?'
+  )) return;
+
+  setBtn('clearBtn', true, '<span class="btn-icon">⏳</span> Clearing...');
+  try {
+    const res  = await fetch('/multi/clear', { method: 'POST' });
+    const data = await res.json();
+    if (!data.success) {
+      showAlert('error', 'Clear failed: ' + (data.message || 'Unknown error'));
+      return;
+    }
+  } catch(e) {
+    showAlert('error', 'Could not reach server: ' + e.message);
+    return;
+  } finally {
+    setBtn('clearBtn', false, '<span class="btn-icon">🗑</span> Clear All Files');
+  }
+
+  // Reset entire UI
+  const slotsEl = document.getElementById('assessmentSlots');
+  slotsEl.innerHTML = '';
+  const div = document.createElement('div');
+  div.id = 'emptyState'; div.className = 'empty-state';
+  div.innerHTML = 'No assessments added yet.<br>Click <strong>＋ Add Assessment</strong> for each exam or test you want to grade.<br>e.g. Midterm 2526, Final Exam, Lab Test 1 …';
+  slotsEl.appendChild(div);
+  document.getElementById('resultCards').innerHTML        = '';
+  document.getElementById('resultsSection').style.display   = 'none';
+  document.getElementById('globalLogSection').style.display = 'none';
+  document.getElementById('progressSection').style.display  = 'none';
+  document.getElementById('gradingWaiting').style.display   = 'flex';
+  document.getElementById('gradingReady').style.display     = 'none';
+  Object.keys(slots).forEach(k => delete slots[k]);
+  slotCount = 0;
+  setStatus('idle', 'IDLE');
+  setBtn('gradeBtn', true, null);
+  showAlert('success', 'All assessment files and reports deleted from disk. Clean slate ready. ✓');
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function setStatus(type, text) {
+  const dot = document.getElementById('statusDot');
+  const txt = document.getElementById('statusText');
+  const colours = { done:'var(--green)', error:'var(--red)', running:'var(--yellow-dark)', idle:'var(--green)' };
+  dot.style.background = colours[type] || colours.idle;
+  dot.className = 'badge-dot' + (type === 'running' ? ' running' : '');
+  txt.textContent = text;
+}
+
+function setBtn(id, disabled, html) {
+  const b = document.getElementById(id); if (!b) return;
+  b.disabled = disabled;
+  if (html != null) b.innerHTML = html;
+}
+
+function showAlert(type, message) {
+  const container = document.getElementById('alertContainer');
+  const el = document.createElement('div');
+  el.className = `alert alert-${type}`;
+  el.innerHTML = `
+    <div class="alert-content">
+      <span class="alert-icon">${type==='success'?'✓':'✕'}</span>
+      <span class="alert-message">${message}</span>
+    </div>
+    <button class="alert-close" onclick="this.parentElement.remove()">×</button>`;
+  container.appendChild(el);
+  setTimeout(() => { if (el.parentElement) el.remove(); }, 5000);
+}
+
+function escHtml(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>

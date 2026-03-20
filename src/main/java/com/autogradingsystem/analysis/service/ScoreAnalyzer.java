@@ -41,7 +41,24 @@ public class ScoreAnalyzer {
      * * @param results List of all grading results
      * @return Map of question ID → max score
      */
+    /** Path-aware overload for multi-assessment. */
+    public static Map<String, Double> inferMaxScores(List<GradingResult> results, Path testersDir) {
+        Map<String, Double> maxScores = new HashMap<>();
+        for (GradingResult result : results) {
+            String questionId = result.getQuestionId();
+            if (!maxScores.containsKey(questionId)) {
+                maxScores.put(questionId, getMaxScoreFromTester(questionId, testersDir));
+            }
+        }
+        return maxScores;
+    }
+
     public static Map<String, Double> inferMaxScores(List<GradingResult> results) {
+        return inferMaxScores(results, PathConfig.INPUT_TESTERS);
+    }
+
+    // original kept for backward compatibility — delegates above
+    static Map<String, Double> inferMaxScoresLegacy(List<GradingResult> results) {
         
         Map<String, Double> maxScores = new HashMap<>();
         
@@ -94,7 +111,43 @@ public class ScoreAnalyzer {
      * * @param questionId Question ID (e.g., "Q1a")
      * @return Inferred max score (0.0 if parsing fails)
      */
+    /**
+     * Overload that accepts a per-assessment testers path.
+     * Used by multi-assessment grading so each assessment reads its own testers.
+     */
+    public static double getMaxScoreFromTester(String questionId, Path testersDir) {
+        try {
+            String formattedId = "Q" + questionId.substring(1).toLowerCase();
+            String testerFilename = formattedId + "Tester.java";
+            Path testerPath = testersDir.resolve(testerFilename);
+            if (!Files.exists(testerPath)) {
+                testerPath = testersDir.resolve(questionId + "Tester.java");
+            }
+            if (!Files.exists(testerPath)) return 0.0;
+            String testerContent = Files.readString(testerPath);
+            java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("score\\s*\\+=\\s*\\(?\\s*([0-9.]+)\\s*(?:/\\s*([0-9.]+))?\\s*\\)?");
+            java.util.regex.Matcher matcher = pattern.matcher(testerContent);
+            double totalMax = 0.0;
+            while (matcher.find()) {
+                double numerator = Double.parseDouble(matcher.group(1));
+                if (matcher.group(2) != null) {
+                    totalMax += numerator / Double.parseDouble(matcher.group(2));
+                } else {
+                    totalMax += numerator;
+                }
+            }
+            return Math.round(totalMax * 100.0) / 100.0;
+        } catch (Exception e) {
+            return 0.0;
+        }
+    }
+
     public static double getMaxScoreFromTester(String questionId) {
+        return getMaxScoreFromTester(questionId, PathConfig.INPUT_TESTERS);
+    }
+
+    // kept for internal use — delegates to overload above
+    private static double getMaxScoreFromTesterInternal(String questionId) {
         try {
             // Ensure strict casing (e.g., q1a -> Q1a)
             String formattedId = "Q" + questionId.substring(1).toLowerCase();
@@ -150,7 +203,22 @@ public class ScoreAnalyzer {
      * * @param results Original grading results
      * @return Updated results with max scores
      */
+    /** Path-aware overload for multi-assessment. */
+    public static List<GradingResult> updateWithMaxScores(List<GradingResult> results, Path testersDir) {
+        Map<String, Double> maxScores = inferMaxScores(results, testersDir);
+        List<GradingResult> updatedResults = new ArrayList<>();
+        for (GradingResult result : results) {
+            updatedResults.add(result.withMaxScore(maxScores.getOrDefault(result.getQuestionId(), 0.0)));
+        }
+        return updatedResults;
+    }
+
     public static List<GradingResult> updateWithMaxScores(List<GradingResult> results) {
+        return updateWithMaxScores(results, PathConfig.INPUT_TESTERS);
+    }
+
+    // original kept for backward compat
+    static List<GradingResult> updateWithMaxScoresLegacy(List<GradingResult> results) {
         
         // Infer max scores
         Map<String, Double> maxScores = inferMaxScores(results);

@@ -8,6 +8,34 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        .mode-nav {
+            display: flex;
+            gap: 0;
+            margin-bottom: 40px;
+            border: 4px solid var(--black);
+            box-shadow: var(--shadow-medium);
+            width: fit-content;
+        }
+        .mode-nav a {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 28px;
+            font-size: 0.95rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            text-decoration: none;
+            color: var(--black);
+            background: var(--white);
+            border-right: 4px solid var(--black);
+            font-family: 'Space Grotesk', sans-serif;
+            transition: background 0.1s;
+        }
+        .mode-nav a:last-child { border-right: none; }
+        .mode-nav a.active { background: var(--yellow); }
+        .mode-nav a:hover:not(.active) { background: var(--gray-light); }
+    </style>
 </head>
 <body>
 
@@ -38,7 +66,13 @@
         </div>
     </header>
 
-    <!-- Alert Container -->
+    <!-- Mode navigation -->
+    <nav class="mode-nav">
+        <a href="/" class="active">⚡ Single Assessment</a>
+        <a href="/multi-test">🗂 Multi-Assessment</a>
+    </nav>
+
+        <!-- Alert Container -->
     <div id="alertContainer"></div>
 
     <!-- Hero Section -->

@@ -20,23 +20,12 @@ import java.util.stream.Collectors;
  *
  * Entry-point for the plagiarism microservice.
  *
- * RESPONSIBILITIES:
- *   - Accept a GradingPlan (already built by DiscoveryController)
- *   - Configure PlagiarismConfig (defaults or custom thresholds)
- *   - Delegate detection to PlagiarismDetector
- *   - Export the XLSX report via PlagiarismReportExporter
- *   - Return a PlagiarismSummary for the web layer / GradingService
+ * CHANGES IN v2.8 (multi-assessment):
+ * - Added path-aware constructor accepting outputExtracted path.
+ * - resolveOutputExtracted() falls back to PathConfig when path is null.
  *
- * INTEGRATION POINT:
- *   Add the following call to GradingService.runFullPipeline() after step 5
- *   (after ExecutionController.gradeAllStudents):
- *
- *       PlagiarismController plagController = new PlagiarismController();
- *       PlagiarismController.PlagiarismSummary plagSummary =
- *               plagController.runPlagiarismCheck(gradingPlan);
- *
- *   The summary's flaggedPairs map can be passed to AnalysisController if
- *   you wish to annotate the score sheet with plagiarism flags.
+ * @author IS442 Team
+ * @version 2.8
  */
 public class PlagiarismController {
 
@@ -44,22 +33,59 @@ public class PlagiarismController {
     private final PlagiarismReportExporter exporter;
     private final PlagiarismConfig         config;
 
-    // ── Constructors ──────────────────────────────────────────────────────────
+    // ================================================================
+    // PATH FIELDS — null means "use global PathConfig" (single-assessment)
+    // ================================================================
 
-    /** Default constructor — uses PlagiarismConfig defaults. */
+    private final Path outputExtracted;
+
+    // ================================================================
+    // CONSTRUCTORS
+    // ================================================================
+
+    /** Default constructor — uses PlagiarismConfig defaults and global PathConfig. */
     public PlagiarismController() {
-        this(new PlagiarismConfig());
+        this(new PlagiarismConfig(), null);
     }
 
     /**
-     * Constructor for custom thresholds.
+     * Constructor for custom thresholds — uses global PathConfig paths.
      *
      * @param config Custom plagiarism configuration
      */
     public PlagiarismController(PlagiarismConfig config) {
-        this.config   = config;
-        this.detector = new PlagiarismDetector();
-        this.exporter = new PlagiarismReportExporter();
+        this(config, null);
+    }
+
+    /**
+     * Path-aware constructor for multi-assessment support.
+     * Called by AssessmentOrchestrator with per-assessment isolated paths.
+     *
+     * @param outputExtracted Path to the extracted students directory for this assessment
+     */
+    public PlagiarismController(Path outputExtracted) {
+        this(new PlagiarismConfig(), outputExtracted);
+    }
+
+    /**
+     * Full constructor — custom config + explicit path.
+     *
+     * @param config          Custom plagiarism configuration
+     * @param outputExtracted Path to the extracted students directory (null = use PathConfig)
+     */
+    public PlagiarismController(PlagiarismConfig config, Path outputExtracted) {
+        this.config          = config;
+        this.detector        = new PlagiarismDetector();
+        this.exporter        = new PlagiarismReportExporter();
+        this.outputExtracted = outputExtracted;
+    }
+
+    // ================================================================
+    // PATH RESOLUTION
+    // ================================================================
+
+    private Path resolveOutputExtracted() {
+        return outputExtracted != null ? outputExtracted : PathConfig.OUTPUT_EXTRACTED;
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -80,10 +106,9 @@ public class PlagiarismController {
             return PlagiarismSummary.empty();
         }
 
-        // ── Step 1: Run detection ─────────────────────────────────────────────
         List<PlagiarismResult> results;
         try {
-            results = detector.detect(PathConfig.OUTPUT_EXTRACTED,
+            results = detector.detect(resolveOutputExtracted(),
                                       gradingPlan.getTasks(),
                                       config);
         } catch (IOException e) {
@@ -91,7 +116,6 @@ public class PlagiarismController {
             return PlagiarismSummary.empty();
         }
 
-        // ── Step 2: Export report ─────────────────────────────────────────────
         Path reportPath = null;
         try {
             reportPath = exporter.export(results);
@@ -100,12 +124,10 @@ public class PlagiarismController {
             System.out.println("❌ Plagiarism report export failed: " + e.getMessage());
         }
 
-        // ── Step 3: Build summary ─────────────────────────────────────────────
         List<PlagiarismResult> flagged = results.stream()
                 .filter(PlagiarismResult::isFlagged)
                 .collect(Collectors.toList());
 
-        // Per-student flag set: student → set of questions where they were flagged
         Map<String, Set<String>> flaggedStudents = buildFlaggedStudentMap(flagged);
 
         if (flagged.isEmpty()) {
@@ -138,21 +160,12 @@ public class PlagiarismController {
 
     // ── Inner class: PlagiarismSummary ────────────────────────────────────────
 
-    /**
-     * Immutable summary returned to the calling layer (GradingService / web layer).
-     *
-     * Contains:
-     *   - allResults     : Every pair checked (for rendering in the web UI)
-     *   - flaggedResults : Only the suspicious pairs
-     *   - flaggedStudents: student → set of question IDs where they were flagged
-     *   - reportPath     : Where the XLSX was written (may be null on export failure)
-     */
     public static class PlagiarismSummary {
 
-        public final List<PlagiarismResult>       allResults;
-        public final List<PlagiarismResult>       flaggedResults;
-        public final Map<String, Set<String>>     flaggedStudents;
-        public final Path                         reportPath;
+        public final List<PlagiarismResult>   allResults;
+        public final List<PlagiarismResult>   flaggedResults;
+        public final Map<String, Set<String>> flaggedStudents;
+        public final Path                     reportPath;
 
         public PlagiarismSummary(List<PlagiarismResult> allResults,
                                   List<PlagiarismResult> flaggedResults,
@@ -172,18 +185,9 @@ public class PlagiarismController {
                     null);
         }
 
-        public boolean hasSuspiciousPairs() {
-            return !flaggedResults.isEmpty();
-        }
+        public boolean hasSuspiciousPairs()  { return !flaggedResults.isEmpty(); }
+        public int     getFlaggedPairCount() { return flaggedResults.size(); }
 
-        public int getFlaggedPairCount() {
-            return flaggedResults.size();
-        }
-
-        /**
-         * Returns true if a specific student was flagged in any question.
-         * Useful for adding remarks in the score sheet.
-         */
         public boolean isStudentFlagged(String studentId) {
             return flaggedStudents.containsKey(studentId);
         }

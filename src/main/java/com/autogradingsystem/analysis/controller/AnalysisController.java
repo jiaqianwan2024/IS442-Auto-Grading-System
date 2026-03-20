@@ -1,5 +1,6 @@
 package com.autogradingsystem.analysis.controller;
 
+import com.autogradingsystem.PathConfig;
 import com.autogradingsystem.analysis.service.ScoreAnalyzer;
 import com.autogradingsystem.analysis.service.ScoreSheetExporter;
 import com.autogradingsystem.analysis.service.StatisticsReportExporter;
@@ -18,16 +19,52 @@ import java.util.Map;
  * 1. Console display of grading results
  * 2. Export official score sheet → IS442-ScoreSheet-Updated.xlsx (two tabs)
  * 3. Export statistics report    → IS442-Statistics.xlsx
+ *
+ * CHANGES IN v2.8 (multi-assessment):
+ * - Added path-aware constructor accepting csvScoresheet + outputReports paths.
+ * - ScoreSheetExporter and StatisticsReportExporter are constructed with
+ *   explicit paths when provided, otherwise default to PathConfig.
+ *
+ * @author IS442 Team
+ * @version 2.8
  */
 public class AnalysisController {
 
     private final ScoreSheetExporter       scoreSheetExporter;
     private final StatisticsReportExporter statisticsReportExporter;
+    private final java.nio.file.Path       inputTesters;
 
+    // ================================================================
+    // CONSTRUCTORS
+    // ================================================================
+
+    /**
+     * Default constructor — uses global PathConfig static paths.
+     * Called by GradingService for the standard single-assessment flow.
+     * Behaviour is identical to the original constructor.
+     */
     public AnalysisController() {
         this.scoreSheetExporter       = new ScoreSheetExporter();
         this.statisticsReportExporter = new StatisticsReportExporter();
+        this.inputTesters             = null;
     }
+
+    /**
+     * Path-aware constructor for multi-assessment support.
+     *
+     * @param csvScoresheet Path to the scoresheet CSV for this assessment
+     * @param outputReports Path to the reports output directory for this assessment
+     * @param inputTesters  Path to this assessment's testers directory
+     */
+    public AnalysisController(Path csvScoresheet, Path outputReports, Path inputTesters) {
+        this.scoreSheetExporter       = new ScoreSheetExporter(csvScoresheet, outputReports);
+        this.statisticsReportExporter = new StatisticsReportExporter(outputReports);
+        this.inputTesters             = inputTesters;
+    }
+
+    // ================================================================
+    // PUBLIC API
+    // ================================================================
 
     // ── Original overload — backward compatible ────────────────────────────
 
@@ -39,12 +76,12 @@ public class AnalysisController {
                           Collections.emptyMap());
     }
 
-    // ── New overload — includes plagiarism notes ───────────────────────────
+    // ── Full overload — includes plagiarism notes ──────────────────────────
 
     /**
-     * @param plagiarismNotes  studentId → plagiarism note for the "Plagiarism" column.
-     *                         e.g. "Q1a: flagged with ping.lee.2023 (87.3%)"
-     *                         Pass Collections.emptyMap() if check was not run.
+     * @param plagiarismNotes studentId → plagiarism note for the "Plagiarism" column.
+     *                        e.g. "Q1a: flagged with ping.lee.2023 (87.3%)"
+     *                        Pass Collections.emptyMap() if check was not run.
      */
     public void analyzeAndDisplay(List<GradingResult> results,
                                   Map<String, String> remarksByStudent,
@@ -52,8 +89,10 @@ public class AnalysisController {
                                   List<Student> allStudents,
                                   Map<String, String> plagiarismNotes) {
 
-        Map<String, Double>              maxScores      = ScoreAnalyzer.inferMaxScores(results);
-        List<GradingResult>              updatedResults = ScoreAnalyzer.updateWithMaxScores(results);
+        java.nio.file.Path testersDir = inputTesters != null
+                ? inputTesters : com.autogradingsystem.PathConfig.INPUT_TESTERS;
+        Map<String, Double>              maxScores      = ScoreAnalyzer.inferMaxScores(results, testersDir);
+        List<GradingResult>              updatedResults = ScoreAnalyzer.updateWithMaxScores(results, testersDir);
         Map<String, List<GradingResult>> byStudent      = ScoreAnalyzer.groupByStudent(updatedResults);
 
         System.out.println("\n📋 Detected Max Scores per Question:");
@@ -66,7 +105,9 @@ public class AnalysisController {
         exportBothReports(byStudent, remarksByStudent, anomalyRemarks, allStudents, plagiarismNotes);
     }
 
-    // ── Export ─────────────────────────────────────────────────────────────
+    // ================================================================
+    // PRIVATE — EXPORT
+    // ================================================================
 
     private void exportBothReports(Map<String, List<GradingResult>> byStudent,
                                    Map<String, String> remarksByStudent,
@@ -98,7 +139,9 @@ public class AnalysisController {
         System.out.println("=".repeat(70));
     }
 
-    // ── Console display ────────────────────────────────────────────────────
+    // ================================================================
+    // PRIVATE — CONSOLE DISPLAY
+    // ================================================================
 
     private void displayQuestionStatistics(List<GradingResult> results,
                                            Map<String, Double> maxScores) {
