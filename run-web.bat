@@ -3,12 +3,9 @@
 :: run-web.bat — IS442 Auto-Grading System (Web UI mode)
 ::
 :: WHAT THIS DOES:
-::   1. Loads COHERE_API_KEY from .env
+::   1. Loads COHERE_API_KEY from .env (if present)
 ::   2. Builds the project if the jar is missing
 ::   3. Starts the Spring Boot web server on http://localhost:8080
-::
-:: REQUIREMENTS:
-::   - .env file: COHERE_API_KEY=your-key  (free at dashboard.cohere.com)
 ::
 :: USAGE:
 ::   run-web.bat
@@ -16,55 +13,66 @@
 ::   Press Ctrl+C to stop
 :: ============================================================================
 
-:: Load .env if present
+setlocal enabledelayedexpansion
+
+:: ── Load .env if present ─────────────────────────────────────────────────────
 if exist .env (
-    echo Loading API key from .env...
-    for /f "usebackq tokens=1,* delims==" %%A in (".env") do (
-        if not "%%A"=="" if not "%%A:~0,1%"=="#" set %%A=%%B
+    echo Loading .env...
+    for /f "usebackq eol=# tokens=1,* delims==" %%A in (".env") do (
+        set "%%A=%%B"
     )
 ) else (
     echo No .env file found. Checking environment for COHERE_API_KEY...
 )
 
 if "%COHERE_API_KEY%"=="" (
-    echo.
-    echo ERROR: COHERE_API_KEY is not set.
+    echo WARNING: COHERE_API_KEY is not set.
     echo    Create a .env file with: COHERE_API_KEY=your-key-here
     echo    Get a free key at: https://dashboard.cohere.com/api-keys
+    echo    Continuing without API key...
     echo.
-    pause
-    exit /b 1
+) else (
+    echo API key found.
+    echo.
 )
-echo API key found.
-echo.
 
-:: Find or build jar
-set JAR=
-for /f "delims=" %%f in ('dir /b target\*.jar 2^>nul ^| findstr /v sources ^| findstr /v javadoc') do set JAR=target\%%f
+:: ── Find or build jar ─────────────────────────────────────────────────────────
+set "JAR="
+for /f "delims=" %%f in ('dir /b target\*.jar 2^>nul ^| findstr /v sources ^| findstr /v javadoc') do set "JAR=target\%%f"
 
-if "%JAR%"=="" (
-    echo Building project...
+if "!JAR!"=="" (
+    echo Building project ^(this may take a minute^)...
     call mvn clean package -DskipTests -q
+    if errorlevel 1 (
+        echo.
+        echo ERROR: Maven build failed.
+        echo Run manually: mvn clean package -DskipTests
+        pause
+        exit /b 1
+    )
     echo Build complete.
     echo.
-    for /f "delims=" %%f in ('dir /b target\*.jar 2^>nul ^| findstr /v sources ^| findstr /v javadoc') do set JAR=target\%%f
+    for /f "delims=" %%f in ('dir /b target\*.jar 2^>nul ^| findstr /v sources ^| findstr /v javadoc') do set "JAR=target\%%f"
 )
 
-if "%JAR%"=="" (
-    echo ERROR: Build failed - no jar found in target\.
+if "!JAR!"=="" (
+    echo ERROR: No jar found in target\ after build.
     echo Run manually: mvn clean package -DskipTests
     pause
     exit /b 1
 )
 
-:: Run
+:: ── Start server ──────────────────────────────────────────────────────────────
 echo ============================================
 echo  IS442 AUTO-GRADING SYSTEM - WEB UI MODE
 echo ============================================
 echo.
+echo JAR: !JAR!
 echo Starting web server...
 echo Open browser at: http://localhost:8080
 echo Press Ctrl+C to stop.
 echo.
 
-java --enable-native-access=ALL-UNNAMED -jar "%JAR%" --spring.profiles.active=web
+java --enable-native-access=ALL-UNNAMED -jar "!JAR!" --spring.profiles.active=web
+
+endlocal

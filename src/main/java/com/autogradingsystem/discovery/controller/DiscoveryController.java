@@ -33,28 +33,72 @@ import java.util.Set;
  *
  * CHANGES IN v2.7:
  * - findTemplateZip() now scans case-insensitively for .zip/.ZIP files.
- *   The old "*.zip" glob is case-sensitive on Linux/Mac and misses ".ZIP" files.
- * - After buildPlan(), orphaned testers (testers with no matching template file)
- *   are detected and logged with [ORPHANED TESTER] warnings.
- * - After buildPlan(), validates plan.getTaskCount() > 0 and throws IOException
- *   if empty — prevents a silent no-op execution phase.
- * - Discovery Summary table printed at end of Phase 2 showing tasks per question
- *   and a TOTAL count, making handshake failures with Execution immediately visible.
+ * - Orphaned tester warnings logged after buildPlan().
+ * - Validates plan.getTaskCount() > 0, throws if empty.
+ * - Discovery Summary table printed at end of Phase 2.
+ *
+ * CHANGES IN v2.8 (multi-assessment):
+ * - Added path-aware constructor accepting inputTemplate + inputTesters paths.
+ * - resolve*() helpers fall back to PathConfig when paths are null (single-assessment).
  *
  * @author IS442 Team
- * @version 2.7
+ * @version 2.8
  */
 public class DiscoveryController {
 
     private final TemplateDiscovery templateDiscovery;
-    private final TesterDiscovery testerDiscovery;
+    private final TesterDiscovery   testerDiscovery;
     private final GradingPlanBuilder planBuilder;
 
+    // ================================================================
+    // PATH FIELDS — null means "use global PathConfig" (single-assessment)
+    // ================================================================
+
+    private final Path inputTemplate;
+    private final Path inputTesters;
+
+    // ================================================================
+    // CONSTRUCTORS
+    // ================================================================
+
+    /**
+     * Default constructor — uses global PathConfig static paths.
+     * Called by GradingService for the standard single-assessment flow.
+     * Behaviour is identical to the original constructor.
+     */
     public DiscoveryController() {
         this.templateDiscovery = new TemplateDiscovery();
         this.testerDiscovery   = new TesterDiscovery();
         this.planBuilder       = new GradingPlanBuilder();
+        this.inputTemplate     = null;
+        this.inputTesters      = null;
     }
+
+    /**
+     * Path-aware constructor for multi-assessment support.
+     * Called by AssessmentOrchestrator with per-assessment isolated paths.
+     *
+     * @param inputTemplate Path to the template directory for this assessment
+     * @param inputTesters  Path to the testers directory for this assessment
+     */
+    public DiscoveryController(Path inputTemplate, Path inputTesters) {
+        this.templateDiscovery = new TemplateDiscovery();
+        this.testerDiscovery   = new TesterDiscovery();
+        this.planBuilder       = new GradingPlanBuilder();
+        this.inputTemplate     = inputTemplate;
+        this.inputTesters      = inputTesters;
+    }
+
+    // ================================================================
+    // PATH RESOLUTION
+    // ================================================================
+
+    private Path resolveInputTemplate() { return inputTemplate != null ? inputTemplate : PathConfig.INPUT_TEMPLATE; }
+    private Path resolveInputTesters()  { return inputTesters  != null ? inputTesters  : PathConfig.INPUT_TESTERS;  }
+
+    // ================================================================
+    // PUBLIC API
+    // ================================================================
 
     /**
      * Discovers exam structure and builds the grading plan.
@@ -63,9 +107,9 @@ public class DiscoveryController {
      * 1. findTemplateZip()           — locate template in INPUT_TEMPLATE (case-insensitive)
      * 2. discoverStructure()         — scan Q folders from template ZIP
      * 3. discoverTesters()           — scan testers directory
-     * 4. warnOrphanedTesters()       — log testers that have no template counterpart
+     * 4. warnOrphanedTesters()       — log testers with no template counterpart
      * 5. buildPlan()                 — match testers to questions
-     * 6. validate plan is non-empty  — throw if 0 tasks (prevents silent no-op)
+     * 6. validate plan is non-empty  — throw if 0 tasks
      * 7. printDiscoverySummary()     — print table of tasks per question
      *
      * @return GradingPlan containing all grading tasks
@@ -73,23 +117,14 @@ public class DiscoveryController {
      */
     public GradingPlan buildGradingPlan() throws IOException {
 
-        // Step 1 — locate template ZIP
-        Path templateZip = findTemplateZip();
-
-        // Step 2 — discover exam structure from template
+        Path templateZip    = findTemplateZip();
         ExamStructure examStructure = templateDiscovery.discoverStructure(templateZip);
+        TesterMap testerMap = testerDiscovery.discoverTesters(resolveInputTesters());
 
-        // Step 3 — discover tester files
-        TesterMap testerMap = testerDiscovery.discoverTesters(PathConfig.INPUT_TESTERS);
-
-        // Step 4 — warn about orphaned testers (testers with no template counterpart)
         warnOrphanedTesters(examStructure, testerMap);
 
-        // Step 5 — build grading plan (throws IOException if 0 tasks)
         GradingPlan plan = planBuilder.buildPlan(examStructure, testerMap);
 
-        // Step 6 — extra safety guard in case buildPlan() ever returns an empty plan
-        //           without throwing (defensive — should not normally be reached)
         if (plan.getTaskCount() == 0) {
             throw new IOException(
                 "Discovery produced 0 gradable tasks. " +
@@ -98,7 +133,6 @@ public class DiscoveryController {
             );
         }
 
-        // Step 7 — print summary table
         printDiscoverySummary(examStructure, plan);
 
         return plan;
@@ -110,31 +144,20 @@ public class DiscoveryController {
 
     /**
      * Finds the template ZIP file in INPUT_TEMPLATE, scanning case-insensitively.
-     *
-     * WHY NOT "*.zip" GLOB:
-     *   DirectoryStream glob "*.zip" is case-sensitive on Linux and macOS.
-     *   A file named "Template.ZIP" or "template.Zip" would be silently missed.
-     *   Instead, we list all files and check the lowercased name ourselves.
-     *
-     * VALIDATES:
-     *   Exactly one ZIP exists — 0 or 2+ both throw with clear messages.
-     *
-     * @return Path to the template ZIP file
-     * @throws IOException if 0 or 2+ ZIPs found, or directory is missing
      */
     private Path findTemplateZip() throws IOException {
+        Path templateDir = resolveInputTemplate();
 
-        if (!Files.exists(PathConfig.INPUT_TEMPLATE)) {
+        if (!Files.exists(templateDir)) {
             throw new IOException(
-                "Template directory not found: " + PathConfig.INPUT_TEMPLATE + "\n" +
+                "Template directory not found: " + templateDir + "\n" +
                 "Please create the directory and place your template ZIP inside it."
             );
         }
 
         List<Path> zipFiles = new ArrayList<>();
 
-        // Case-insensitive scan — catches .zip, .ZIP, .Zip, etc.
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(PathConfig.INPUT_TEMPLATE)) {
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(templateDir)) {
             for (Path entry : stream) {
                 if (Files.isRegularFile(entry)
                         && entry.getFileName().toString().toLowerCase().endsWith(".zip")) {
@@ -145,7 +168,7 @@ public class DiscoveryController {
 
         if (zipFiles.isEmpty()) {
             throw new IOException(
-                "No template ZIP found in: " + PathConfig.INPUT_TEMPLATE + "\n" +
+                "No template ZIP found in: " + templateDir + "\n" +
                 "Please place your template ZIP (e.g. RenameToYourUsername.zip) in this directory."
             );
         }
@@ -154,7 +177,7 @@ public class DiscoveryController {
             List<String> names = new ArrayList<>();
             for (Path p : zipFiles) names.add(p.getFileName().toString());
             throw new IOException(
-                "Multiple template ZIPs found in: " + PathConfig.INPUT_TEMPLATE + "\n" +
+                "Multiple template ZIPs found in: " + templateDir + "\n" +
                 "Found: " + names + "\n" +
                 "Please keep only ONE template ZIP in this directory."
             );
@@ -163,30 +186,12 @@ public class DiscoveryController {
         return zipFiles.get(0);
     }
 
-    /**
-     * Detects and logs testers that have no matching template file.
-     *
-     * An "orphaned tester" is one whose question ID does not appear in ANY Q folder
-     * of the template. This usually means the instructor added a tester for a question
-     * that wasn't included in the template ZIP, or there is a naming mismatch.
-     *
-     * Example:
-     *   Template has: Q1a, Q1b, Q2a, Q2b, Q3
-     *   Testers  has: Q1a, Q1b, Q2a, Q2b, Q3, Q4a  <-- Q4a is orphaned
-     *
-     * The orphaned tester is logged as a warning but does NOT cause a failure —
-     * it is merely unused in this grading run.
-     */
     private void warnOrphanedTesters(ExamStructure examStructure, TesterMap testerMap) {
-
-        // Collect all question IDs present in the template (case-normalised to lowercase)
         Set<String> templateIds = new java.util.HashSet<>();
-        for (Map.Entry<String, List<String>> entry
-                : examStructure.getQuestionFiles().entrySet()) {
+        for (Map.Entry<String, List<String>> entry : examStructure.getQuestionFiles().entrySet()) {
             for (String fileName : entry.getValue()) {
                 String lower = fileName.toLowerCase();
                 if (!lower.endsWith(".java") && !lower.endsWith(".class")) continue;
-                // Strip path prefix then extension to get the question ID
                 String base = fileName.contains("/")
                     ? fileName.substring(fileName.lastIndexOf('/') + 1) : fileName;
                 int dot = base.lastIndexOf('.');
@@ -195,7 +200,6 @@ public class DiscoveryController {
             }
         }
 
-        // Any tester key not found in the template set is orphaned
         for (String testerId : testerMap.getTesterMapping().keySet()) {
             if (!templateIds.contains(testerId.toLowerCase())) {
                 System.out.println("   \u26A0\uFE0F  [ORPHANED TESTER] "
@@ -206,45 +210,15 @@ public class DiscoveryController {
         }
     }
 
-    /**
-     * Prints a compact discovery summary table after the grading plan is built.
-     *
-     * Format:
-     *   === Discovery Summary ===
-     *   Q1 -> 2 task(s)
-     *   Q2 -> 2 task(s)
-     *   Q3 -> 1 task(s)
-     *   TOTAL: 5 task(s) ready for grading
-     *   =========================
-     *
-     * This makes "handshake failures" between Discovery and Execution immediately
-     * visible — if a question shows 0 tasks here, Execution will get FILE_NOT_FOUND
-     * for every student on that question.
-     *
-     * NOTE: We count tasks by examining the ExamStructure (which we own) rather
-     * than calling methods on GradingTask, whose getter names are not confirmed.
-     */
     private void printDiscoverySummary(ExamStructure examStructure, GradingPlan plan) {
-
         System.out.println("   === Discovery Summary ===");
-
-        // Show per-folder gradable file count from the template.
-        // The exact per-folder task breakdown is already visible from the [TASK] lines
-        // printed by GradingPlanBuilder, so we show template file counts here as a
-        // cross-check. If a folder shows 0 gradable files, Execution will always get
-        // FILE_NOT_FOUND for that question — operator can catch it immediately.
         for (String folder : examStructure.getQuestionFolders()) {
             long gradable = examStructure.getFilesForQuestion(folder).stream()
-                .filter(f -> {
-                    String l = f.toLowerCase();
-                    return l.endsWith(".java") || l.endsWith(".class");
-                })
+                .filter(f -> { String l = f.toLowerCase(); return l.endsWith(".java") || l.endsWith(".class"); })
                 .count();
             System.out.println("   " + folder + " -> " + gradable + " gradable file(s)");
         }
-
-        System.out.println("   TOTAL: " + plan.getTaskCount()
-            + " task(s) ready for grading");
+        System.out.println("   TOTAL: " + plan.getTaskCount() + " task(s) ready for grading");
         System.out.println("   =========================");
     }
 }

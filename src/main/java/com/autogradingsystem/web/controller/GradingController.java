@@ -33,6 +33,11 @@ public class GradingController {
         return "index";
     }
 
+    @GetMapping("/multi-test")
+    public String multiTest() {
+        return "multi-assessment-test";
+    }
+
     @PostMapping("/upload")
     @ResponseBody
     public ResponseEntity<Map<String, Object>> handleUpload(
@@ -184,12 +189,37 @@ public class GradingController {
 
     @GetMapping("/download/csv")
     public ResponseEntity<Resource> downloadCsv() {
+        Path file = Paths.get("resources/output/reports/IS442-ScoreSheet-Updated.csv");
+        if (!Files.exists(file)) return ResponseEntity.notFound().build();
+        Resource resource = new FileSystemResource(file.toFile());
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=IS442-ScoreSheet-Updated.csv")
+                .contentType(MediaType.parseMediaType("text/csv"))
+                .body(resource);
+    }
+
+    @GetMapping("/download/scoresheet")
+    public ResponseEntity<Resource> downloadScoresheet() {
         Path file = Paths.get("resources/output/reports/IS442-ScoreSheet-Updated.xlsx");
         if (!Files.exists(file)) return ResponseEntity.notFound().build();
         Resource resource = new FileSystemResource(file.toFile());
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION,
                         "attachment; filename=IS442-ScoreSheet-Updated.xlsx")
+                .contentType(MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .body(resource);
+    }
+
+    @GetMapping("/download/excel")
+    public ResponseEntity<Resource> downloadExcel() {
+        Path file = Paths.get("resources/output/reports/IS442-Statistics.xlsx");
+        if (!Files.exists(file)) return ResponseEntity.notFound().build();
+        Resource resource = new FileSystemResource(file.toFile());
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=IS442-Statistics.xlsx")
                 .contentType(MediaType.parseMediaType(
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
                 .body(resource);

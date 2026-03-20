@@ -33,25 +33,75 @@ public class ExecutionController {
     private final Map<String, List<String>> remarksAccumulator = new LinkedHashMap<>();
     private List<Student> lastGradedStudents = new ArrayList<>();
 
+    // ================================================================
+    // PATH FIELDS — null means "use global PathConfig" (single-assessment)
+    // ================================================================
+
+    private final Path outputExtracted;
+    private final Path csvScoresheet;
+    private final Path inputTesters;
+    private final Path inputTemplate;
+
+    // ================================================================
+    // CONSTRUCTORS
+    // ================================================================
+
+    /**
+     * Default constructor — uses global PathConfig static paths.
+     * Called by GradingService for the standard single-assessment flow.
+     * Behaviour is identical to the original constructor.
+     */
     public ExecutionController() {
         this.testerInjector  = new TesterInjector();
         this.compilerService = new CompilerService();
         this.processRunner   = new ProcessRunner();
         this.outputParser    = new OutputParser();
+        this.outputExtracted = null;
+        this.csvScoresheet   = null;
+        this.inputTesters    = null;
+        this.inputTemplate   = null;
     }
+
+    /**
+     * Path-aware constructor for multi-assessment support.
+     * Called by AssessmentOrchestrator with per-assessment isolated paths.
+     *
+     * @param outputExtracted Path to the extracted students directory for this assessment
+     * @param csvScoresheet   Path to the scoresheet CSV for this assessment
+     * @param inputTesters    Path to this assessment's testers directory
+     * @param inputTemplate   Path to this assessment's template directory
+     */
+    public ExecutionController(Path outputExtracted, Path csvScoresheet,
+                               Path inputTesters, Path inputTemplate) {
+        this.testerInjector  = new TesterInjector(inputTesters, inputTemplate);
+        this.compilerService = new CompilerService();
+        this.processRunner   = new ProcessRunner();
+        this.outputParser    = new OutputParser();
+        this.outputExtracted = outputExtracted;
+        this.csvScoresheet   = csvScoresheet;
+        this.inputTesters    = inputTesters;
+        this.inputTemplate   = inputTemplate;
+    }
+
+    // ================================================================
+    // PATH RESOLUTION
+    // ================================================================
+
+    private Path resolveOutputExtracted() { return outputExtracted != null ? outputExtracted : PathConfig.OUTPUT_EXTRACTED; }
+    private Path resolveCsvScoresheet()   { return csvScoresheet   != null ? csvScoresheet   : PathConfig.CSV_SCORESHEET;   }
+    private Path resolveInputTesters()    { return inputTesters    != null ? inputTesters    : PathConfig.INPUT_TESTERS;    }
 
     // ── Public: grade all students ────────────────────────────────────────────
 
     public List<GradingResult> gradeAllStudents(GradingPlan plan) throws IOException {
         List<Student> students = loadStudents(plan.getTasks());
         if (students.isEmpty()) {
-            throw new IOException("No students found in: " + PathConfig.OUTPUT_EXTRACTED);
+            throw new IOException("No students found in: " + resolveOutputExtracted());
         }
 
         remarksAccumulator.clear();
         lastGradedStudents = students;
 
-        // Pre-populate remarks from identity/header scan results
         for (Student student : students) {
             List<String> preRemarks = new ArrayList<>();
 
@@ -59,12 +109,11 @@ public class ExecutionController {
                 preRemarks.add("NoFolderRename");
             }
 
-            // Case 1: ZIP identity is valid but file headers claim a different student
             if (student.isHeaderMismatch()) {
-    preRemarks.add("HeaderMismatch: " + student.getHeaderClaimedUsername()
-    + " header found in " + student.getHeaderMismatchFile()
-    + " (ZIP belongs to " + student.getId() + ")");
-}
+                preRemarks.add("HeaderMismatch: " + student.getHeaderClaimedUsername()
+                    + " header found in " + student.getHeaderMismatchFile()
+                    + " (ZIP belongs to " + student.getId() + ")");
+            }
 
             for (String missingFile : student.getMissingHeaderFiles()) {
                 preRemarks.add("NoHeader:" + missingFile);
@@ -94,32 +143,22 @@ public class ExecutionController {
                 allResults.add(result);
                 logTaskResult(task, result);
 
-                // Accumulate post-grading status remarks
                 String status   = result.getStatus();
                 double score    = result.getScore();
                 double maxScore = com.autogradingsystem.analysis.service.ScoreAnalyzer
-                                    .getMaxScoreFromTester(task.getQuestionId());
+                                    .getMaxScoreFromTester(task.getQuestionId(), resolveInputTesters());
 
                 String remarkLabel = null;
                 switch (status) {
-                    case "FILE_NOT_FOUND":
-                        remarkLabel = "FILE_NOT_FOUND";
-                        break;
-                    case "COMPILATION_FAILED":
-                        remarkLabel = "SyntaxError";
-                        break;
-                    case "TIMEOUT":
-                        remarkLabel = (score > 0) ? "PARTIAL TIMEOUT" : "TIMEOUT";
-                        break;
+                    case "FILE_NOT_FOUND":     remarkLabel = "FILE_NOT_FOUND"; break;
+                    case "COMPILATION_FAILED": remarkLabel = "SyntaxError"; break;
+                    case "TIMEOUT":            remarkLabel = (score > 0) ? "PARTIAL TIMEOUT" : "TIMEOUT"; break;
                     case "RUNTIME_ERROR":
                     case "ERROR":
-                    case "TESTER_COPY_FAILED":
-                        remarkLabel = "FAILED";
-                        break;
+                    case "TESTER_COPY_FAILED": remarkLabel = "FAILED"; break;
                     case "COMPLETED":
                         if      (score == 0)       remarkLabel = "FAILED";
                         else if (score < maxScore) remarkLabel = "PARTIAL";
-                        // score == maxScore → perfect, no remark
                         break;
                 }
 
@@ -139,7 +178,7 @@ public class ExecutionController {
     public Map<String, String> getRemarksByStudent() {
         Map<String, String> out = new LinkedHashMap<>();
         for (Student student : lastGradedStudents) {
-            if (student.isAnomaly()) continue; // anomalies go to anomaly tab only
+            if (student.isAnomaly()) continue;
             List<String> remarks = remarksAccumulator.getOrDefault(student.getId(), new ArrayList<>());
             out.put(student.getId(), remarks.isEmpty() ? "All Passed" : String.join("; ", remarks));
         }
@@ -164,8 +203,8 @@ public class ExecutionController {
 
     private GradingResult gradeTask(Student student, GradingTask task) throws IOException {
 
-        Path   studentRoot  = student.getRootPath();
-        String expectedFile = task.getStudentFile();
+        Path   studentRoot   = student.getRootPath();
+        String expectedFile  = task.getStudentFile();
         String expectedClass = expectedFile.replace(".java", ".class");
 
         // ── DYNAMIC SCRIPT ROUTER ────────────────────────────────────────────
@@ -185,10 +224,10 @@ public class ExecutionController {
             if (found == null) found = findFileRecursive(studentRoot, "run.sh");
 
             if (found == null && studentRoot.getParent() != null) {
-                Path parentDir    = studentRoot.getParent();
-                Path grandParent  = parentDir.getParent();
+                Path parentDir   = studentRoot.getParent();
+                Path grandParent = parentDir.getParent();
                 boolean parentIsRoot = grandParent == null ||
-                    parentDir.toAbsolutePath().equals(PathConfig.OUTPUT_EXTRACTED.toAbsolutePath());
+                    parentDir.toAbsolutePath().equals(resolveOutputExtracted().toAbsolutePath());
 
                 if (!parentIsRoot) {
                     try (DirectoryStream<Path> siblings = Files.newDirectoryStream(parentDir)) {
@@ -229,7 +268,7 @@ public class ExecutionController {
 
             String testerClass = task.getTesterFile().replace(".java", "");
             String out = processRunner.runTester(testerClass, scriptFolder, scriptFolder.toAbsolutePath().toString());
-            double maxAllowed = com.autogradingsystem.analysis.service.ScoreAnalyzer.getMaxScoreFromTester(task.getQuestionId());
+            double maxAllowed = com.autogradingsystem.analysis.service.ScoreAnalyzer.getMaxScoreFromTester(task.getQuestionId(), resolveInputTesters());
 
             if (out != null && out.toUpperCase().contains("TIMEOUT")) {
                 long passed = out.lines().map(String::trim).filter(l -> l.equals("Passed")).count();
@@ -251,10 +290,9 @@ public class ExecutionController {
         boolean hasClass = Files.exists(classFile);
 
         if (!hasJava && !hasClass) {
-            // Case 3: find the question folder anywhere in the tree (case-insensitive name match)
-            // then look for the file only within that folder — prevents cross-folder grading
             Path foundQFolder = findFolderRecursive(studentRoot, task.getStudentFolder());
-
+            System.out.println("DEBUG FIND [" + student.getId() + "] looking for folder=" 
+    + task.getStudentFolder() + " in " + studentRoot);
             if (foundQFolder != null) {
                 Path foundJava  = findFileRecursive(foundQFolder, expectedFile);
                 Path foundClass = findFileRecursive(foundQFolder, expectedClass);
@@ -270,7 +308,6 @@ public class ExecutionController {
             return new GradingResult(student, task, 0.0,
                 buildFileNotFoundMessage(expectedFile, studentRoot), "FILE_NOT_FOUND");
 
-        // Security: class-only submission → 0
         if (!hasJava && hasClass)
             return new GradingResult(student, task, 0.0,
                 "Source file not found: " + expectedFile
@@ -286,14 +323,12 @@ public class ExecutionController {
         if (hasJava) {
             deletePrecompiledClasses(questionFolder, expectedFile);
 
-            // Case 2: use compileTargetedWithDetails to detect wrong package declarations
             CompilerService.CompileResult compileResult =
                 compilerService.compileTargetedWithDetails(questionFolder, expectedFile);
 
             if (!compileResult.success)
                 return new GradingResult(student, task, 0.0, "Compilation failed.", "COMPILATION_FAILED");
 
-            // Flag any student files that had a package stripped — grading still proceeds normally
             for (String strippedFile : compileResult.strippedPackageFiles) {
                 remarksAccumulator
                     .computeIfAbsent(student.getId(), k -> new ArrayList<>())
@@ -303,7 +338,7 @@ public class ExecutionController {
 
         String testerClass = task.getTesterFile().replace(".java", "");
         String output = processRunner.runTester(testerClass, questionFolder);
-        double maxAllowed = com.autogradingsystem.analysis.service.ScoreAnalyzer.getMaxScoreFromTester(task.getQuestionId());
+        double maxAllowed = com.autogradingsystem.analysis.service.ScoreAnalyzer.getMaxScoreFromTester(task.getQuestionId(), resolveInputTesters());
 
         if (output != null && output.toUpperCase().contains("TIMEOUT")) {
             long passed = output.lines().map(String::trim).filter(l -> l.equals("Passed")).count();
@@ -324,12 +359,13 @@ public class ExecutionController {
 
     private List<Student> loadStudents(List<GradingTask> tasks) throws IOException {
         List<Student> students = new ArrayList<>();
-        if (!Files.exists(PathConfig.OUTPUT_EXTRACTED)) return students;
+        Path extracted = resolveOutputExtracted();
+        if (!Files.exists(extracted)) return students;
 
         Map<String, String> emailToUsername = loadEmailToUsernameMap();
         HeaderScanner scanner = new HeaderScanner();
 
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(PathConfig.OUTPUT_EXTRACTED)) {
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(extracted)) {
             for (Path dir : stream) {
                 if (!Files.isDirectory(dir)) continue;
                 String folderName = dir.getFileName().toString();
@@ -340,19 +376,16 @@ public class ExecutionController {
 
                 HeaderScanner.ScanResult headerScan = scanner.scan(actualRoot, tasks);
 
-                boolean folderRenamed = isValidUsername(strippedName, emailToUsername);
+                boolean folderRenamed    = isValidUsername(strippedName, emailToUsername);
                 String  resolvedUsername;
 
                 if (folderRenamed) {
-                    // ZIP name is a valid scoresheet username — use it
                     resolvedUsername = strippedName;
                 } else if (headerScan.resolvedEmail != null &&
                            emailToUsername.containsKey(headerScan.resolvedEmail)) {
-                    // ZIP not renamed but header email identifies the student
                     resolvedUsername = emailToUsername.get(headerScan.resolvedEmail);
                     folderRenamed = false;
                 } else {
-                    // Cannot identify — mark as anomaly
                     resolvedUsername = strippedName;
                     folderRenamed = false;
                 }
@@ -367,8 +400,6 @@ public class ExecutionController {
                      !emailToUsername.containsKey(headerScan.resolvedEmail));
                 student.setAnomaly(isAnomaly);
 
-                // Case 1: ZIP name is valid but header claims a DIFFERENT valid student
-                // Grade under ZIP identity, flag the mismatch in remarks
                 if (folderRenamed && headerScan.resolvedEmail != null) {
                     String headerUsername = emailToUsername.get(headerScan.resolvedEmail);
                     if (headerUsername != null && !headerUsername.equals(resolvedUsername)) {
@@ -390,8 +421,8 @@ public class ExecutionController {
 
     private Map<String, String> loadEmailToUsernameMap() {
         Map<String, String> map = new LinkedHashMap<>();
-        try (var reader = Files.newBufferedReader(PathConfig.CSV_SCORESHEET)) {
-            reader.readLine(); // skip header row
+        try (var reader = Files.newBufferedReader(resolveCsvScoresheet())) {
+            reader.readLine();
             String line;
             while ((line = reader.readLine()) != null) {
                 String[] cols = line.split(",", -1);
@@ -434,10 +465,6 @@ public class ExecutionController {
         return result.isEmpty() ? folderName : result;
     }
 
-    /**
-     * Finds a folder by name (case-insensitive) anywhere in the tree under root.
-     * Case 3: strict name match only — "Q1" and "q1" match, but "Q1aaa" does not.
-     */
     private Path findFolderRecursive(Path root, String folderName) {
         try (Stream<Path> walk = Files.walk(root)) {
             return walk
@@ -450,10 +477,6 @@ public class ExecutionController {
         }
     }
 
-    /**
-     * Finds a file by name (case-insensitive) anywhere under root.
-     * Case 3: strict name match only — "Q1a.java" and "q1a.java" match, but "Q1aaa.java" does not.
-     */
     private Path findFileRecursive(Path root, String filename) {
         try (Stream<Path> walk = Files.walk(root)) {
             return walk
@@ -497,7 +520,7 @@ public class ExecutionController {
         return sb.toString();
     }
 
-    // ── Private: compilation / execution helpers ──────────────────────────────
+    // ── Private: compilation helpers ─────────────────────────────────────────
 
     private void deletePrecompiledClasses(Path folder, String javaFilename) {
         String stem = javaFilename.replace(".java", "");

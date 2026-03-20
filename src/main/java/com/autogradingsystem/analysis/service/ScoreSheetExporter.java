@@ -7,7 +7,12 @@ import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.*;
 
+import java.io.BufferedReader;
+import java.io.OutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -33,6 +38,72 @@ public class ScoreSheetExporter {
     // Public API
     // -------------------------------------------------------------------------
 
+    // ================================================================
+    // PATH FIELDS â null means "use global PathConfig" (single-assessment)
+    // ================================================================
+
+    private final Path csvScoresheet;
+    private final Path outputReports;
+    private final Path inputTesters;  // null = use global PathConfig
+
+    // ================================================================
+    // CONSTRUCTORS
+    // ================================================================
+
+    /**
+     * Default constructor â uses global PathConfig static paths.
+     * Called by AnalysisController for the standard single-assessment flow.
+     * Behaviour is identical to the original (field-less) class.
+     */
+    public ScoreSheetExporter() {
+        this.csvScoresheet = null;
+        this.outputReports = null;
+        this.inputTesters  = null;
+    }
+
+    /**
+     * Path-aware constructor for multi-assessment support.
+     * Called by AnalysisController(Path, Path) with per-assessment paths
+     * so each assessment's scoresheet is read from and written to its own directory.
+     *
+     * @param csvScoresheet Path to the scoresheet CSV for this assessment
+     * @param outputReports Path to the reports output directory for this assessment
+     */
+    public ScoreSheetExporter(Path csvScoresheet, Path outputReports) {
+        this.csvScoresheet = csvScoresheet;
+        this.outputReports = outputReports;
+        this.inputTesters  = null;
+    }
+
+    public ScoreSheetExporter(Path csvScoresheet, Path outputReports, Path inputTesters) {
+        this.csvScoresheet = csvScoresheet;
+        this.outputReports = outputReports;
+        this.inputTesters  = inputTesters;
+    }
+
+    // ================================================================
+    // PATH RESOLUTION
+    // ================================================================
+
+    private Path resolveCsvScoresheet() {
+        return csvScoresheet != null
+            ? csvScoresheet.toAbsolutePath()
+            : PathConfig.CSV_SCORESHEET.toAbsolutePath();
+    }
+
+    private Path resolveInputTesters() {
+        return inputTesters != null
+            ? inputTesters.toAbsolutePath()
+            : PathConfig.INPUT_TESTERS.toAbsolutePath();
+    }
+
+    private Path resolveOutputDir() {
+        return outputReports != null
+            ? outputReports.toAbsolutePath()
+            : PathConfig.OUTPUT_BASE.resolve("reports").toAbsolutePath();
+    }
+
+
     /** Backward-compatible overload — no plagiarism notes. */
     public Path export(
             Map<String, List<GradingResult>> resultsByStudent,
@@ -50,44 +121,138 @@ public class ScoreSheetExporter {
             List<Student> allStudents,
             Map<String, String> plagiarismNotes) throws IOException {
 
-        Path outputPath = PathConfig.OUTPUT_BASE.resolve("reports").resolve("IS442-ScoreSheet-Updated.xlsx");
-        Files.createDirectories(outputPath.getParent());
+        Path outputDir  = resolveOutputDir();
+        Files.createDirectories(outputDir);
+        Path outputFile = outputDir.resolve("IS442-ScoreSheet-Updated.xlsx");
 
-        try (XSSFWorkbook wb = new XSSFWorkbook()) {
+        List<String> questionOrder = buildQuestionOrder(resultsByStudent);
 
-            // --- derive shared data ---
-            List<String> questionOrder   = buildQuestionOrder(resultsByStudent);
-            Map<String, Double> totals   = buildTotalScoreMap(resultsByStudent);
-            Map<String, Map<String, Double>> perQ = buildPerQuestionMap(resultsByStudent);
-            Map<String, Double> maxScores = inferMaxScores(resultsByStudent);
-            double totalMaxScore = maxScores.values().stream().mapToDouble(Double::doubleValue).sum();
+        Map<String, Double>              totals    = new LinkedHashMap<>();
+        Map<String, Map<String, Double>> qScoreMap = new LinkedHashMap<>();
+        buildScoreMaps(resultsByStudent, totals, qScoreMap);
 
-            // --- score sheet sheets ---
-            buildMainSheet(wb, resultsByStudent, remarksByStudent, allStudents,
-                           plagiarismNotes, questionOrder, totals, perQ, totalMaxScore);
-            buildAnomalySheet(wb, resultsByStudent, anomalyRemarks, allStudents,
-                              questionOrder, perQ, totalMaxScore);
+        Map<String, Double> maxScores = new LinkedHashMap<>();
+        for (Map.Entry<String, List<GradingResult>> entry : resultsByStudent.entrySet())
+            for (GradingResult r : entry.getValue())
+                maxScores.computeIfAbsent(r.getTask().getQuestionId(),
+                    k -> ScoreAnalyzer.getMaxScoreFromTester(k, resolveInputTesters()));
 
-            // --- statistics sheets (formerly IS442-Statistics.xlsx) ---
-            buildDashboardSheet(wb, resultsByStudent, questionOrder, maxScores, totalMaxScore);
-            buildGradeDistributionSheet(wb, resultsByStudent, totalMaxScore);
-            buildQuestionAnalysisSheet(wb, resultsByStudent, questionOrder, maxScores);
-            buildStudentRankingSheet(wb, resultsByStudent, questionOrder, totals, totalMaxScore);
-            buildPerformanceMatrixSheet(wb, resultsByStudent, questionOrder, perQ, maxScores);
-            // NOTE: Anomaly Report sheet intentionally omitted per v3.4 requirements.
+        Set<String> gradedUsernames = totals.keySet();
 
-            try (var out = Files.newOutputStream(outputPath)) {
-                wb.write(out);
+        double totalMaxScore = maxScores.values().stream().mapToDouble(Double::doubleValue).sum();
+
+        try (XSSFWorkbook workbook = new XSSFWorkbook()) {
+
+            buildMainSheet(workbook, resultsByStudent, remarksByStudent, allStudents,
+                           plagiarismNotes, questionOrder, totals, qScoreMap, totalMaxScore);
+
+            buildAnomalySheet(workbook, resultsByStudent, anomalyRemarks, allStudents,
+                              questionOrder, qScoreMap, totalMaxScore);
+
+            try (OutputStream os = Files.newOutputStream(outputFile)) {
+                workbook.write(os);
             }
         }
 
-        System.out.println("✅ Combined report exported → " + outputPath);
-        return outputPath;
+        exportCsv(outputDir, questionOrder, totals, qScoreMap, remarksByStudent,
+                  plagiarismNotes, gradedUsernames);
+
+        return outputFile;
+    }
+
+    /**
+     * Writes IS442-ScoreSheet-Updated.csv — a plain CSV version of the main score sheet.
+     * Reads the original scoresheet CSV for student identity columns, then appends
+     * per-question scores, total, remarks and plagiarism notes.
+     */
+    private void exportCsv(Path outputDir,
+                            List<String> questionOrder,
+                            Map<String, Double> totals,
+                            Map<String, Map<String, Double>> qScoreMap,
+                            Map<String, String> remarksByStudent,
+                            Map<String, String> plagiarismNotes,
+                            Set<String> gradedUsernames) throws IOException {
+
+        Path csvOut = outputDir.resolve("IS442-ScoreSheet-Updated.csv");
+        StringBuilder sb = new StringBuilder();
+
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                Files.newInputStream(resolveCsvScoresheet()), StandardCharsets.UTF_8))) {
+
+            String line;
+            boolean isHeader = true;
+
+            while ((line = reader.readLine()) != null) {
+                if (isHeader && line.startsWith("\uFEFF")) line = line.substring(1);
+                String[] cols = line.split(",", -1);
+
+                if (isHeader) {
+                    // Write identity columns (skip EOL col, add it last)
+                    StringBuilder headerRow = new StringBuilder();
+                    for (int c = 0; c < cols.length; c++) {
+                        if (c == COL_EOL) continue;
+                        if (headerRow.length() > 0) headerRow.append(",");
+                        headerRow.append(escapeCsv(cols[c].trim()));
+                    }
+                    // Question columns
+                    for (String qid : questionOrder) {
+                        headerRow.append(",").append(escapeCsv(qid));
+                    }
+                    headerRow.append(",Remarks,Plagiarism");
+                    headerRow.append(",").append(cols.length > COL_EOL ? escapeCsv(cols[COL_EOL].trim()) : "#");
+                    sb.append(headerRow).append("\n");
+                    isHeader = false;
+                    continue;
+                }
+
+                String eolValue = cols.length > COL_EOL ? cols[COL_EOL].trim() : "#";
+                String raw      = cols.length > COL_USERNAME ? cols[COL_USERNAME].trim() : "";
+                String username = (raw.startsWith("#") ? raw.substring(1) : raw).trim();
+
+                if (totals.containsKey(username)) {
+                    cols[COL_NUMERATOR] = fmtNum(totals.get(username));
+                }
+
+                StringBuilder dataRow = new StringBuilder();
+                for (int c = 0; c < cols.length; c++) {
+                    if (c == COL_EOL) continue;
+                    if (dataRow.length() > 0) dataRow.append(",");
+                    dataRow.append(escapeCsv(cols[c].trim()));
+                }
+
+                Map<String, Double> qScores = qScoreMap.getOrDefault(username, Collections.emptyMap());
+                for (String qid : questionOrder) {
+                    dataRow.append(",").append(fmtNum(qScores.getOrDefault(qid, 0.0)));
+                }
+
+                String remarks = gradedUsernames.contains(username)
+                        ? remarksByStudent.getOrDefault(username, "")
+                        : "Missing submission";
+                dataRow.append(",").append(escapeCsv(remarks));
+                dataRow.append(",").append(escapeCsv(plagiarismNotes.getOrDefault(username, "")));
+                dataRow.append(",").append(escapeCsv(eolValue));
+                sb.append(dataRow).append("\n");
+            }
+        }
+
+        Files.writeString(csvOut, sb.toString(), StandardCharsets.UTF_8);
+    }
+
+    private String escapeCsv(String value) {
+        if (value == null) return "";
+        if (value.contains(",") || value.contains("\"") || value.contains("\n")) {
+            return "\"" + value.replace("\"", "\"\"") + "\"";
+        }
+        return value;
     }
 
     // =========================================================================
     // SHEET 1 — Score Sheet
     // =========================================================================
+
+    private static final int COL_USERNAME  = 1;
+    private static final int COL_NUMERATOR = 5;
+    private static final int COL_EOL       = 7;
 
     private void buildMainSheet(
             XSSFWorkbook wb,
@@ -103,98 +268,103 @@ public class ScoreSheetExporter {
         XSSFSheet sheet = wb.createSheet("Score Sheet");
         Set<String> gradedUsernames = resultsByStudent.keySet();
 
-        // styles
         XSSFCellStyle headerStyle = makeHeaderStyle(wb);
-        XSSFCellStyle redBold     = makeRedBoldStyle(wb);
         XSSFCellStyle normal      = makeNormalStyle(wb);
+        XSSFCellStyle redBold     = makeColorStyle(wb, IndexedColors.ROSE.getIndex());
 
-        // Read CSV to get original columns
-        List<String[]> csvRows = readScoreSheetCsv();
-        if (csvRows.isEmpty()) return;
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                Files.newInputStream(resolveCsvScoresheet()), StandardCharsets.UTF_8))) {
 
-        String[] headerRow = csvRows.get(0);
-        int eolColIdx = findEolColumn(headerRow);
+            String line;
+            boolean isHeader = true;
+            int rowIdx = 0;
+            List<String> outHeaders = new ArrayList<>();
 
-        // Build output header
-        List<String> outHeaders = new ArrayList<>();
-        for (int i = 0; i < headerRow.length; i++) {
-            if (i == eolColIdx) continue; // move EOL to end
-            outHeaders.add(headerRow[i]);
-        }
-        outHeaders.addAll(questionOrder);
-        outHeaders.add("Remarks");
-        outHeaders.add("Plagiarism");
-        if (eolColIdx >= 0 && eolColIdx < headerRow.length) {
-            outHeaders.add(headerRow[eolColIdx]);
-        }
+            while ((line = reader.readLine()) != null) {
+                if (rowIdx == 0 && line.startsWith("\uFEFF")) line = line.substring(1);
 
-        Row hdr = sheet.createRow(0);
-        for (int i = 0; i < outHeaders.size(); i++) {
-            Cell c = hdr.createCell(i);
-            c.setCellValue(outHeaders.get(i));
-            c.setCellStyle(headerStyle);
-        }
+                String[] cols = line.split(",", -1);
+                Row row = sheet.createRow(rowIdx++);
 
-        // Data rows
-        int rowIdx = 1;
-        for (int csvRow = 1; csvRow < csvRows.size(); csvRow++) {
-            String[] cols = csvRows.get(csvRow);
-            if (cols.length < 2) continue;
+                if (isHeader) {
+                    outHeaders.clear();
+                    int cellIdx = 0;
+                    for (int c = 0; c < cols.length; c++) {
+                        if (c == COL_EOL) continue;
+                        String h = cols[c].trim();
+                        Cell cell = row.createCell(cellIdx++);
+                        cell.setCellValue(h);
+                        cell.setCellStyle(headerStyle);
+                        outHeaders.add(h);
+                    }
+                    for (String qid : questionOrder) {
+                        Cell cell = row.createCell(cellIdx++);
+                        cell.setCellValue(qid);
+                        cell.setCellStyle(headerStyle);
+                        outHeaders.add(qid);
+                    }
+                    Cell rh = row.createCell(cellIdx++);
+                    rh.setCellValue("Remarks");
+                    rh.setCellStyle(headerStyle);
+                    outHeaders.add("Remarks");
 
-            String username = cols[1].startsWith("#") ? cols[1].substring(1) : cols[1];
-            Row row = sheet.createRow(rowIdx++);
-            int colIdx = 0;
+                    Cell ph = row.createCell(cellIdx++);
+                    ph.setCellValue("Plagiarism");
+                    ph.setCellStyle(headerStyle);
+                    outHeaders.add("Plagiarism");
 
-            // Original CSV columns (excluding EOL)
-            for (int i = 0; i < cols.length; i++) {
-                if (i == eolColIdx) continue;
-                Cell c = row.createCell(colIdx++);
-                if (i == 5 && gradedUsernames.contains(username)) {
-                    // Calculated Final Grade Numerator — auto-fill
-                    c.setCellValue(totals.getOrDefault(username, 0.0));
+                    Cell eh = row.createCell(cellIdx);
+                    eh.setCellValue(cols.length > COL_EOL ? cols[COL_EOL].trim() : "#");
+                    eh.setCellStyle(headerStyle);
+                    outHeaders.add(cols.length > COL_EOL ? cols[COL_EOL].trim() : "#");
+                    isHeader = false;
+                    continue;
+                }
+
+                String eolValue = cols.length > COL_EOL ? cols[COL_EOL].trim() : "#";
+                String raw      = cols.length > COL_USERNAME ? cols[COL_USERNAME].trim() : "";
+                String username = (raw.startsWith("#") ? raw.substring(1) : raw).trim();
+
+                if (totals.containsKey(username)) {
+                    cols[COL_NUMERATOR] = fmtNum(totals.get(username));
+                }
+
+                int colIdx = 0;
+                for (int c = 0; c < cols.length; c++) {
+                    if (c == COL_EOL) continue;
+                    row.createCell(colIdx++).setCellValue(cols[c].trim());
+                }
+
+                if (gradedUsernames.contains(username)) {
+                    Map<String, Double> qScores = perQ.getOrDefault(username, Collections.emptyMap());
+                    for (String qid : questionOrder) {
+                        row.createCell(colIdx++).setCellValue(qScores.getOrDefault(qid, 0.0));
+                    }
+                    Cell remCell = row.createCell(colIdx++);
+                    remCell.setCellValue(remarksByStudent.getOrDefault(username, ""));
+                    remCell.setCellStyle(normal);
+
+                    Cell plagCell = row.createCell(colIdx++);
+                    String plagNote = plagiarismNotes.getOrDefault(username, "");
+                    plagCell.setCellValue(plagNote);
+                    plagCell.setCellStyle(plagNote.isEmpty() ? normal : redBold);
                 } else {
-                    c.setCellValue(cols[i]);
+                    // Missing submission
+                    for (String ignored : questionOrder) row.createCell(colIdx++).setCellStyle(normal);
+                    Cell remCell = row.createCell(colIdx++);
+                    remCell.setCellValue("Missing submission - refer to Anomalies tab");
+                    remCell.setCellStyle(normal);
+                    row.createCell(colIdx++).setCellStyle(normal);
                 }
-                c.setCellStyle(normal);
+
+                row.createCell(colIdx).setCellValue(eolValue);
             }
 
-            // Per-question scores
-            if (gradedUsernames.contains(username)) {
-                Map<String, Double> qScores = perQ.getOrDefault(username, Collections.emptyMap());
-                for (String q : questionOrder) {
-                    Cell c = row.createCell(colIdx++);
-                    c.setCellValue(qScores.getOrDefault(q, 0.0));
-                    c.setCellStyle(normal);
-                }
-                // Remarks
-                Cell remCell = row.createCell(colIdx++);
-                remCell.setCellValue(remarksByStudent.getOrDefault(username, ""));
-                remCell.setCellStyle(normal);
-                // Plagiarism
-                Cell plagCell = row.createCell(colIdx++);
-                String plagNote = plagiarismNotes.getOrDefault(username, "");
-                plagCell.setCellValue(plagNote);
-                plagCell.setCellStyle(plagNote.isEmpty() ? normal : redBold);
-            } else {
-                // Missing submission
-                for (String ignored : questionOrder) row.createCell(colIdx++).setCellStyle(normal);
-                Cell remCell = row.createCell(colIdx++);
-                remCell.setCellValue("Missing submission - refer to Anomalies tab");
-                remCell.setCellStyle(normal);
-                row.createCell(colIdx++).setCellStyle(normal);
-            }
-
-            // EOL at end
-            if (eolColIdx >= 0 && eolColIdx < cols.length) {
-                Cell c = row.createCell(colIdx);
-                c.setCellValue(cols[eolColIdx]);
-                c.setCellStyle(normal);
-            }
+            autoSizeColumns(sheet, outHeaders.size());
         }
-
-        autoSizeColumns(sheet, outHeaders.size());
     }
 
+    
     // =========================================================================
     // SHEET 2 — Anomalies
     // =========================================================================
@@ -212,7 +382,6 @@ public class ScoreSheetExporter {
         XSSFCellStyle headerStyle = makeHeaderStyle(wb);
         XSSFCellStyle normal      = makeNormalStyle(wb);
 
-        // Header
         List<String> headers = new ArrayList<>();
         headers.add("FolderName");
         headers.add("Calculated Final Grade Numerator");
@@ -231,299 +400,37 @@ public class ScoreSheetExporter {
         int rowIdx = 1;
         for (Student s : allStudents) {
             if (!s.isAnomaly()) continue;
-            String id = s.getId();
-            Row row = sheet.createRow(rowIdx++);
-            int col = 0;
+            String id  = s.getId();
+            Row row    = sheet.createRow(rowIdx++);
+            int col    = 0;
 
             Map<String, Double> qScores = perQ.getOrDefault(id, Collections.emptyMap());
             double total = qScores.values().stream().mapToDouble(Double::doubleValue).sum();
 
-            row.createCell(col++).setCellValue(id);
+            row.createCell(col++).setCellValue(
+                s.getRawFolderName() != null ? s.getRawFolderName() : id);
             row.createCell(col++).setCellValue(total);
             row.createCell(col++).setCellValue(totalMaxScore);
+
             for (String q : questionOrder) {
                 row.createCell(col++).setCellValue(qScores.getOrDefault(q, 0.0));
             }
             row.createCell(col++).setCellValue(anomalyRemarks.getOrDefault(id, ""));
-            row.createCell(col).setCellValue("Folder not renamed; No headers found in any submission file");
+
+            StringBuilder reason = new StringBuilder("Folder not renamed");
+            if (s.getMissingHeaderFiles() == null || s.getMissingHeaderFiles().isEmpty()) {
+                reason.append("; No headers found in any submission file");
+            } else {
+                reason.append("; Missing headers in: ")
+                      .append(String.join(", ", s.getMissingHeaderFiles()));
+            }
+            row.createCell(col).setCellValue(reason.toString());
         }
 
         autoSizeColumns(sheet, headers.size());
     }
 
-    // =========================================================================
-    // SHEET 3 — Dashboard
-    // =========================================================================
-
-    private void buildDashboardSheet(
-            XSSFWorkbook wb,
-            Map<String, List<GradingResult>> resultsByStudent,
-            List<String> questionOrder,
-            Map<String, Double> maxScores,
-            double totalMaxScore) {
-
-        XSSFSheet sheet = wb.createSheet("Dashboard");
-        XSSFCellStyle titleStyle  = makeTitleStyle(wb);
-        XSSFCellStyle labelStyle  = makeLabelStyle(wb);
-        XSSFCellStyle valueStyle  = makeValueStyle(wb);
-
-        List<Double> totals = resultsByStudent.values().stream()
-                .map(results -> results.stream().mapToDouble(GradingResult::getScore).sum())
-                .collect(Collectors.toList());
-
-        int n = totals.size();
-        double avg = totals.stream().mapToDouble(Double::doubleValue).average().orElse(0);
-        double median = calcMedian(totals);
-        double stdDev = calcStdDev(totals, avg);
-        double highest = totals.stream().mapToDouble(Double::doubleValue).max().orElse(0);
-        double lowest  = totals.stream().mapToDouble(Double::doubleValue).min().orElse(0);
-        long passed = totals.stream().filter(s -> totalMaxScore > 0 && s / totalMaxScore >= 0.5).count();
-        long failed = n - passed;
-
-        Row titleRow = sheet.createRow(0);
-        Cell title = titleRow.createCell(0);
-        title.setCellValue("IS442 Grading Dashboard");
-        title.setCellStyle(titleStyle);
-        sheet.addMergedRegion(new CellRangeAddress(0, 0, 0, 3));
-
-        String[][] metrics = {
-                {"Total Students",    String.valueOf(n)},
-                {"Average Score",     String.format("%.2f / %.2f", avg, totalMaxScore)},
-                {"Median Score",      String.format("%.2f", median)},
-                {"Std Deviation",     String.format("%.2f", stdDev)},
-                {"Highest Score",     String.format("%.2f", highest)},
-                {"Lowest Score",      String.format("%.2f", lowest)},
-                {"Pass Rate",         totalMaxScore > 0 ? String.format("%.1f%%", 100.0 * passed / n) : "N/A"},
-                {"Fail Rate",         totalMaxScore > 0 ? String.format("%.1f%%", 100.0 * failed / n) : "N/A"},
-                {"Questions Graded",  String.valueOf(questionOrder.size())},
-                {"Total Max Score",   String.format("%.2f", totalMaxScore)},
-        };
-
-        for (int i = 0; i < metrics.length; i++) {
-            Row row = sheet.createRow(i + 2);
-            Cell lbl = row.createCell(0); lbl.setCellValue(metrics[i][0]); lbl.setCellStyle(labelStyle);
-            Cell val = row.createCell(1); val.setCellValue(metrics[i][1]); val.setCellStyle(valueStyle);
-        }
-
-        sheet.setColumnWidth(0, 7000);
-        sheet.setColumnWidth(1, 6000);
-    }
-
-    // =========================================================================
-    // SHEET 4 — Grade Distribution
-    // =========================================================================
-
-    private void buildGradeDistributionSheet(
-            XSSFWorkbook wb,
-            Map<String, List<GradingResult>> resultsByStudent,
-            double totalMaxScore) {
-
-        XSSFSheet sheet = wb.createSheet("Grade Distribution");
-        XSSFCellStyle headerStyle = makeHeaderStyle(wb);
-        XSSFCellStyle normal      = makeNormalStyle(wb);
-
-        Row hdr = sheet.createRow(0);
-        String[] cols = {"Grade", "Min %", "Max %", "Count", "Percentage"};
-        for (int i = 0; i < cols.length; i++) {
-            Cell c = hdr.createCell(i); c.setCellValue(cols[i]); c.setCellStyle(headerStyle);
-        }
-
-        List<Double> totals = resultsByStudent.values().stream()
-                .map(r -> r.stream().mapToDouble(GradingResult::getScore).sum())
-                .collect(Collectors.toList());
-        int n = totals.size();
-
-        String[][] grades = {{"A","80","100"},{"B","70","79"},{"C","60","69"},{"D","50","59"},{"F","0","49"}};
-        short[] colors = {IndexedColors.LIGHT_GREEN.getIndex(), IndexedColors.LIGHT_YELLOW.getIndex(),
-                IndexedColors.LIGHT_YELLOW.getIndex(), IndexedColors.LIGHT_ORANGE.getIndex(),
-                IndexedColors.ROSE.getIndex()};
-
-        for (int i = 0; i < grades.length; i++) {
-            double lo = Double.parseDouble(grades[i][1]);
-            double hi = Double.parseDouble(grades[i][2]);
-            long count = totals.stream().filter(s -> {
-                double pct = totalMaxScore > 0 ? s / totalMaxScore * 100 : 0;
-                return pct >= lo && pct <= hi;
-            }).count();
-
-            XSSFCellStyle rowStyle = makeColorStyle(wb, colors[i]);
-            Row row = sheet.createRow(i + 1);
-            row.createCell(0).setCellValue(grades[i][0]);
-            row.createCell(1).setCellValue(lo);
-            row.createCell(2).setCellValue(hi);
-            row.createCell(3).setCellValue(count);
-            row.createCell(4).setCellValue(n > 0 ? String.format("%.1f%%", 100.0 * count / n) : "0%");
-            for (int c = 0; c < 5; c++) row.getCell(c).setCellStyle(rowStyle);
-        }
-
-        autoSizeColumns(sheet, 5);
-    }
-
-    // =========================================================================
-    // SHEET 5 — Question Analysis
-    // =========================================================================
-
-    private void buildQuestionAnalysisSheet(
-            XSSFWorkbook wb,
-            Map<String, List<GradingResult>> resultsByStudent,
-            List<String> questionOrder,
-            Map<String, Double> maxScores) {
-
-        XSSFSheet sheet = wb.createSheet("Question Analysis");
-        XSSFCellStyle headerStyle = makeHeaderStyle(wb);
-        XSSFCellStyle normal      = makeNormalStyle(wb);
-
-        Row hdr = sheet.createRow(0);
-        String[] cols = {"Question", "Max Score", "Avg Score", "Pass Rate", "Perfect Rate", "Difficulty"};
-        for (int i = 0; i < cols.length; i++) {
-            Cell c = hdr.createCell(i); c.setCellValue(cols[i]); c.setCellStyle(headerStyle);
-        }
-
-        // group results by question
-        Map<String, List<GradingResult>> byQ = new LinkedHashMap<>();
-        for (String q : questionOrder) byQ.put(q, new ArrayList<>());
-        for (List<GradingResult> studentResults : resultsByStudent.values()) {
-            for (GradingResult r : studentResults) {
-                byQ.computeIfAbsent(r.getQuestionId(), k -> new ArrayList<>()).add(r);
-            }
-        }
-
-        int rowIdx = 1;
-        for (String q : questionOrder) {
-            List<GradingResult> qResults = byQ.getOrDefault(q, Collections.emptyList());
-            double maxScore = maxScores.getOrDefault(q, 0.0);
-            double avg = qResults.stream().mapToDouble(GradingResult::getScore).average().orElse(0);
-            long total   = qResults.size();
-long passed  = qResults.stream().filter(r -> r.isPerfect() || r.isPartial()).count();
-long perfect = qResults.stream().filter(r -> r.isPerfect()).count();;
-
-            double passRate = total > 0 ? 100.0 * passed / total : 0;
-            String difficulty;
-            if (passRate >= 80) difficulty = "Easy";
-            else if (passRate >= 60) difficulty = "Moderate";
-            else if (passRate >= 40) difficulty = "Hard";
-            else difficulty = "Very Hard";
-
-            Row row = sheet.createRow(rowIdx++);
-            row.createCell(0).setCellValue(q);
-            row.createCell(1).setCellValue(maxScore);
-            row.createCell(2).setCellValue(String.format("%.2f", avg));
-            row.createCell(3).setCellValue(String.format("%.1f%%", passRate));
-            row.createCell(4).setCellValue(total > 0 ? String.format("%.1f%%", 100.0 * perfect / total) : "0%");
-            row.createCell(5).setCellValue(difficulty);
-            for (int c = 0; c < 6; c++) row.getCell(c).setCellStyle(normal);
-        }
-
-        autoSizeColumns(sheet, 6);
-    }
-
-    // =========================================================================
-    // SHEET 6 — Student Ranking
-    // =========================================================================
-
-    private void buildStudentRankingSheet(
-            XSSFWorkbook wb,
-            Map<String, List<GradingResult>> resultsByStudent,
-            List<String> questionOrder,
-            Map<String, Double> totalMap,
-            double totalMaxScore) {
-
-        XSSFSheet sheet = wb.createSheet("Student Ranking");
-        XSSFCellStyle headerStyle = makeHeaderStyle(wb);
-        XSSFCellStyle normal      = makeNormalStyle(wb);
-
-        Row hdr = sheet.createRow(0);
-        String[] cols = {"Rank", "Username", "Total Score", "Percentage", "Grade", "Status", "Percentile"};
-        for (int i = 0; i < cols.length; i++) {
-            Cell c = hdr.createCell(i); c.setCellValue(cols[i]); c.setCellStyle(headerStyle);
-        }
-
-        List<Map.Entry<String, Double>> sorted = new ArrayList<>(totalMap.entrySet());
-        sorted.sort((a, b) -> Double.compare(b.getValue(), a.getValue()));
-        int n = sorted.size();
-
-        for (int i = 0; i < sorted.size(); i++) {
-            String username = sorted.get(i).getKey();
-            double score    = sorted.get(i).getValue();
-            double pct      = totalMaxScore > 0 ? score / totalMaxScore * 100 : 0;
-            String grade    = toGrade(pct);
-            String status   = pct >= 50 ? "PASS" : "FAIL";
-            double percentile = n > 1 ? 100.0 * (n - 1 - i) / (n - 1) : 100.0;
-
-            Row row = sheet.createRow(i + 1);
-            row.createCell(0).setCellValue(i + 1);
-            row.createCell(1).setCellValue(username);
-            row.createCell(2).setCellValue(score);
-            row.createCell(3).setCellValue(String.format("%.1f%%", pct));
-            row.createCell(4).setCellValue(grade);
-            row.createCell(5).setCellValue(status);
-            row.createCell(6).setCellValue(String.format("%.1f", percentile));
-            for (int c = 0; c < 7; c++) row.getCell(c).setCellStyle(normal);
-        }
-
-        autoSizeColumns(sheet, 7);
-    }
-
-    // =========================================================================
-    // SHEET 7 — Performance Matrix
-    // =========================================================================
-
-    private void buildPerformanceMatrixSheet(
-            XSSFWorkbook wb,
-            Map<String, List<GradingResult>> resultsByStudent,
-            List<String> questionOrder,
-            Map<String, Map<String, Double>> perQ,
-            Map<String, Double> maxScores) {
-
-        XSSFSheet sheet = wb.createSheet("Performance Matrix");
-        XSSFCellStyle headerStyle  = makeHeaderStyle(wb);
-        XSSFCellStyle greenStyle   = makeColorStyle(wb, IndexedColors.LIGHT_GREEN.getIndex());
-        XSSFCellStyle yellowStyle  = makeColorStyle(wb, IndexedColors.LIGHT_YELLOW.getIndex());
-        XSSFCellStyle redStyle     = makeColorStyle(wb, IndexedColors.ROSE.getIndex());
-        XSSFCellStyle normal       = makeNormalStyle(wb);
-
-        // Header row
-        Row hdr = sheet.createRow(0);
-        hdr.createCell(0).setCellValue("Username");
-        hdr.getCell(0).setCellStyle(headerStyle);
-        for (int i = 0; i < questionOrder.size(); i++) {
-            Cell c = hdr.createCell(i + 1);
-            c.setCellValue(questionOrder.get(i));
-            c.setCellStyle(headerStyle);
-        }
-        hdr.createCell(questionOrder.size() + 1).setCellValue("Total");
-        hdr.getCell(questionOrder.size() + 1).setCellStyle(headerStyle);
-
-        List<String> students = new ArrayList<>(resultsByStudent.keySet());
-        Collections.sort(students);
-
-        int rowIdx = 1;
-        for (String student : students) {
-            Row row = sheet.createRow(rowIdx++);
-            row.createCell(0).setCellValue(student);
-            row.getCell(0).setCellStyle(normal);
-            double total = 0;
-            Map<String, Double> qScores = perQ.getOrDefault(student, Collections.emptyMap());
-            for (int i = 0; i < questionOrder.size(); i++) {
-                String q = questionOrder.get(i);
-                double score = qScores.getOrDefault(q, 0.0);
-                double max   = maxScores.getOrDefault(q, 1.0);
-                total += score;
-                Cell c = row.createCell(i + 1);
-                c.setCellValue(score);
-                if (score >= max) c.setCellStyle(greenStyle);
-                else if (score > 0) c.setCellStyle(yellowStyle);
-                else c.setCellStyle(redStyle);
-            }
-            Cell totalCell = row.createCell(questionOrder.size() + 1);
-            totalCell.setCellValue(total);
-            totalCell.setCellStyle(normal);
-        }
-
-        autoSizeColumns(sheet, questionOrder.size() + 2);
-    }
-
-    // =========================================================================
+        // =========================================================================
     // Helper — data builders
     // =========================================================================
 
@@ -533,7 +440,7 @@ long perfect = qResults.stream().filter(r -> r.isPerfect()).count();;
             for (GradingResult r : results) ids.add(r.getQuestionId());
         }
         List<String> sorted = new ArrayList<>(ids);
-        sorted.sort(this::naturalCompare);
+        sorted.sort(ScoreSheetExporter::naturalCompare);
         return sorted;
     }
 
@@ -583,115 +490,117 @@ long perfect = qResults.stream().filter(r -> r.isPerfect()).count();;
         return -1;
     }
 
-    private int naturalCompare(String a, String b) {
-        // Split "Q10b" → ["Q",10,"b"] for natural ordering
-        String[] pa = splitNatural(a), pb = splitNatural(b);
-        for (int i = 0; i < Math.min(pa.length, pb.length); i++) {
-            int cmp;
-            try { cmp = Integer.compare(Integer.parseInt(pa[i]), Integer.parseInt(pb[i])); }
-            catch (NumberFormatException e) { cmp = pa[i].compareTo(pb[i]); }
-            if (cmp != 0) return cmp;
+
+    static String fmtNum(double v) {
+        return v == Math.floor(v) ? String.valueOf((int) v) : String.format("%.2f", v);
+    }
+
+    private void buildScoreMaps(Map<String, List<GradingResult>> resultsByStudent,
+                                Map<String, Double> totals,
+                                Map<String, Map<String, Double>> qScoreMap) {
+        for (Map.Entry<String, List<GradingResult>> entry : resultsByStudent.entrySet()) {
+            double total = 0.0;
+            Map<String, Double> qScores = new LinkedHashMap<>();
+            for (GradingResult r : entry.getValue()) {
+                total += r.getScore();
+                qScores.put(r.getTask().getQuestionId(), r.getScore());
+            }
+            totals.put(entry.getKey(), total);
+            qScoreMap.put(entry.getKey(), qScores);
         }
-        return Integer.compare(pa.length, pb.length);
     }
 
-    private String[] splitNatural(String s) {
-        return s.split("(?<=\\D)(?=\\d)|(?<=\\d)(?=\\D)");
+        static int naturalCompare(String a, String b) {
+        int i = 0, j = 0;
+        while (i < a.length() && j < b.length()) {
+            char ca = a.charAt(i), cb = b.charAt(j);
+            if (Character.isDigit(ca) && Character.isDigit(cb)) {
+                int na = 0, nb = 0;
+                while (i < a.length() && Character.isDigit(a.charAt(i))) na = na * 10 + (a.charAt(i++) - '0');
+                while (j < b.length() && Character.isDigit(b.charAt(j))) nb = nb * 10 + (b.charAt(j++) - '0');
+                if (na != nb) return na - nb;
+            } else {
+                if (ca != cb) return ca - cb;
+                i++; j++;
+            }
+        }
+        return a.length() - b.length();
     }
-
     // =========================================================================
-    // Helper — statistics math
-    // =========================================================================
-
-    private double calcMedian(List<Double> values) {
-        if (values.isEmpty()) return 0;
-        List<Double> sorted = new ArrayList<>(values);
-        Collections.sort(sorted);
-        int n = sorted.size();
-        return n % 2 == 0 ? (sorted.get(n/2 - 1) + sorted.get(n/2)) / 2.0 : sorted.get(n/2);
-    }
-
-    private double calcStdDev(List<Double> values, double mean) {
-        if (values.size() < 2) return 0;
-        double variance = values.stream().mapToDouble(v -> Math.pow(v - mean, 2)).average().orElse(0);
-        return Math.sqrt(variance);
-    }
-
-    private String toGrade(double pct) {
-        if (pct >= 80) return "A";
-        if (pct >= 70) return "B";
-        if (pct >= 60) return "C";
-        if (pct >= 50) return "D";
-        return "F";
-    }
-
-    // =========================================================================
-    // Helper — POI styles
+    // Helper — style factories
     // =========================================================================
 
     private XSSFCellStyle makeHeaderStyle(XSSFWorkbook wb) {
-        XSSFCellStyle s = wb.createCellStyle();
-        XSSFFont f = wb.createFont(); f.setBold(true); s.setFont(f);
-        s.setFillForegroundColor(IndexedColors.GREY_25_PERCENT.getIndex());
-        s.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-        s.setBorderBottom(BorderStyle.THIN);
-        return s;
+        XSSFCellStyle style = wb.createCellStyle();
+        XSSFFont font = wb.createFont();
+        font.setBold(true);
+        font.setColor(IndexedColors.WHITE.getIndex());
+        style.setFont(font);
+        style.setFillForegroundColor(new XSSFColor(new byte[]{(byte)31,(byte)56,(byte)100}, null)); // navy
+        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        style.setAlignment(HorizontalAlignment.CENTER);
+        style.setBorderBottom(BorderStyle.THIN);
+        return style;
     }
 
     private XSSFCellStyle makeNormalStyle(XSSFWorkbook wb) {
-        XSSFCellStyle s = wb.createCellStyle();
-        s.setBorderBottom(BorderStyle.THIN);
-        s.setBorderRight(BorderStyle.THIN);
-        return s;
+        XSSFCellStyle style = wb.createCellStyle();
+        XSSFFont font = wb.createFont();
+        font.setFontName("Arial");
+        font.setFontHeightInPoints((short) 10);
+        style.setFont(font);
+        return style;
     }
 
-    private XSSFCellStyle makeRedBoldStyle(XSSFWorkbook wb) {
-        XSSFCellStyle s = wb.createCellStyle();
-        s.setFillForegroundColor(IndexedColors.ROSE.getIndex());
-        s.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-        XSSFFont f = wb.createFont(); f.setBold(true); s.setFont(f);
-        return s;
+    private XSSFCellStyle makeColorStyle(XSSFWorkbook wb, short colorIndex) {
+        XSSFCellStyle style = wb.createCellStyle();
+        XSSFFont font = wb.createFont();
+        font.setFontName("Arial");
+        font.setFontHeightInPoints((short) 10);
+        font.setBold(true);
+        style.setFont(font);
+        style.setFillForegroundColor(colorIndex);
+        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        return style;
     }
 
     private XSSFCellStyle makeTitleStyle(XSSFWorkbook wb) {
-        XSSFCellStyle s = wb.createCellStyle();
-        XSSFFont f = wb.createFont(); f.setBold(true); f.setFontHeightInPoints((short) 14); s.setFont(f);
-        s.setFillForegroundColor(IndexedColors.DARK_BLUE.getIndex());
-        s.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-        XSSFFont fWhite = wb.createFont(); fWhite.setColor(IndexedColors.WHITE.getIndex()); fWhite.setBold(true);
-        fWhite.setFontHeightInPoints((short) 14); s.setFont(fWhite);
-        return s;
+        XSSFCellStyle style = wb.createCellStyle();
+        XSSFFont font = wb.createFont();
+        font.setBold(true);
+        font.setFontHeightInPoints((short) 14);
+        font.setColor(new XSSFColor(new byte[]{(byte)31,(byte)56,(byte)100}, null));
+        style.setFont(font);
+        style.setAlignment(HorizontalAlignment.LEFT);
+        return style;
     }
 
     private XSSFCellStyle makeLabelStyle(XSSFWorkbook wb) {
-        XSSFCellStyle s = wb.createCellStyle();
-        XSSFFont f = wb.createFont(); f.setBold(true); s.setFont(f);
-        s.setFillForegroundColor(IndexedColors.CORNFLOWER_BLUE.getIndex());
-        s.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-        return s;
+        XSSFCellStyle style = wb.createCellStyle();
+        XSSFFont font = wb.createFont();
+        font.setBold(true);
+        font.setFontName("Arial");
+        font.setFontHeightInPoints((short) 10);
+        style.setFont(font);
+        style.setFillForegroundColor(new XSSFColor(new byte[]{(byte)214,(byte)228,(byte)240}, null));
+        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        return style;
     }
 
     private XSSFCellStyle makeValueStyle(XSSFWorkbook wb) {
-        XSSFCellStyle s = wb.createCellStyle();
-        s.setFillForegroundColor(IndexedColors.LIGHT_CORNFLOWER_BLUE.getIndex());
-        s.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-        return s;
+        XSSFCellStyle style = wb.createCellStyle();
+        XSSFFont font = wb.createFont();
+        font.setFontName("Arial");
+        font.setFontHeightInPoints((short) 10);
+        style.setFont(font);
+        return style;
     }
 
-    private XSSFCellStyle makeColorStyle(XSSFWorkbook wb, short color) {
-        XSSFCellStyle s = wb.createCellStyle();
-        s.setFillForegroundColor(color);
-        s.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-        s.setBorderBottom(BorderStyle.THIN);
-        s.setBorderRight(BorderStyle.THIN);
-        return s;
-    }
-
-    private void autoSizeColumns(XSSFSheet sheet, int numCols) {
-        for (int i = 0; i < numCols; i++) {
-            sheet.autoSizeColumn(i);
-            // cap at ~15000 units to prevent extremely wide columns
-            if (sheet.getColumnWidth(i) > 15000) sheet.setColumnWidth(i, 15000);
+    private void autoSizeColumns(XSSFSheet sheet, int count) {
+        for (int i = 0; i < count; i++) {
+            try { sheet.autoSizeColumn(i); } catch (Exception ignored) {}
         }
     }
+
+
 }

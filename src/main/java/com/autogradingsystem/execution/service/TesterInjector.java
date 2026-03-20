@@ -12,64 +12,84 @@ import java.nio.file.StandardCopyOption;
 /**
  * TesterInjector - Copies Tester Files (and their dependencies) to Student Folders
  *
- * EDGE CASES HAND * PURPOSE:
- * - Copies tester files from resources/input/testers/ to student folders
- * - Enables student code and tester to be compiled together
- * - Supports both development (filesystem) and production (JAR) deployment
- * 
- * WHY NEEDED?
- * - Tester and student code must be in same directory to compile together
- * - Tester imports student's classes (e.g., Q1a.java)
- * - Java compiler needs both files in same location
- * 
- * WORKFLOW:
- * 1. Student code: data/extracted/ping.lee.2023/Q1/Q1a.java
- * 2. Tester location: resources/input/testers/Q1aTester.java
- * 3. Copy tester TO: data/extracted/ping.lee.2023/Q1/Q1aTester.java
- * 4. Now both in same folder → can compile together
- * 5. Run: java Q1aTester
- * 
- * CHANGES FROM v3.0:
- * - Updated to use PathConfig for tester directory
- * - No logging changes needed (silent operation)
- * - Cleaner error messages
- * 
- * @author IS442 Team
- * @version 4.0 (Spring Boot Microservices Structure)
+ * CHANGES IN v4.1 (multi-assessment):
+ * - Added path-aware constructor accepting inputTesters + inputTemplate paths.
+ * - resolve*() helpers fall back to PathConfig when paths are null (single-assessment).
+ * - All existing single-assessment behaviour is unchanged.
  */
 public class TesterInjector {
 
+    // ================================================================
+    // PATH FIELDS — null means "use global PathConfig" (single-assessment)
+    // ================================================================
+
+    private final Path inputTesters;
+    private final Path inputTemplate;
+
+    // ================================================================
+    // CONSTRUCTORS
+    // ================================================================
+
+    /**
+     * Default constructor — uses global PathConfig static paths.
+     * Called by ExecutionController for the standard single-assessment flow.
+     */
+    public TesterInjector() {
+        this.inputTesters = null;
+        this.inputTemplate = null;
+    }
+
+    /**
+     * Path-aware constructor for multi-assessment support.
+     * Called by ExecutionController when constructed with per-assessment paths.
+     *
+     * @param inputTesters  Path to this assessment's testers directory
+     * @param inputTemplate Path to this assessment's template directory
+     */
+    public TesterInjector(Path inputTesters, Path inputTemplate) {
+        this.inputTesters = inputTesters;
+        this.inputTemplate = inputTemplate;
+    }
+
+    // ================================================================
+    // PATH RESOLUTION
+    // ================================================================
+
+    private Path resolveInputTesters() {
+        return inputTesters != null ? inputTesters : PathConfig.INPUT_TESTERS;
+    }
+
+    private Path resolveInputTemplate() {
+        return inputTemplate != null ? inputTemplate : PathConfig.INPUT_TEMPLATE;
+    }
+
+    // ================================================================
+    // PUBLIC API
+    // ================================================================
+
     /**
      * Copies the tester .java file AND any non-Java dependency files from the same
-     * question folder in the template (e.g., persons.txt, students.txt) into the
-     * student's question folder.
-     *
-     * WHY COPY DATA FILES?
-     * Some testers read from files like "persons.txt" using a relative path.
-     * If those files aren't in the student's folder, the tester crashes at runtime
-     * even though it compiled fine.
+     * question folder in the template into the student's question folder.
      *
      * @param testerFile        Tester filename (e.g., "Q1aTester.java")
      * @param destinationFolder Student's question folder
-     * @param questionFolder    Question folder name (e.g., "Q1") — used to locate data files
+     * @param questionFolder    Question folder name (e.g., "Q1")
      * @throws IOException if tester cannot be found or copied
      */
     public void copyTester(String testerFile, Path destinationFolder, String questionFolder)
             throws IOException {
 
-        // Guards
         if (testerFile == null || testerFile.isBlank())
             throw new IllegalArgumentException("testerFile must not be blank");
         if (destinationFolder == null)
             throw new IllegalArgumentException("destinationFolder must not be null");
 
-        // Auto-create destination if it doesn't exist
         Files.createDirectories(destinationFolder);
 
-        // Copy the tester .java file
-        copyFile(testerFile, PathConfig.INPUT_TESTERS, destinationFolder);
+        // Copy the tester .java file from the resolved testers path
+        copyFile(testerFile, resolveInputTesters(), destinationFolder);
 
-        // Copy data files (non-Java files) from the template question folder
+        // Copy data files from the resolved template question folder
         if (questionFolder != null && !questionFolder.isBlank()) {
             copyDataFiles(questionFolder, destinationFolder);
         }
@@ -88,7 +108,7 @@ public class TesterInjector {
     public boolean testerExists(String testerFile) {
         if (testerFile == null || testerFile.isBlank()) return false;
 
-        Path path = PathConfig.INPUT_TESTERS.resolve(testerFile);
+        Path path = resolveInputTesters().resolve(testerFile);
         if (Files.exists(path)) return true;
 
         try (InputStream s = getClass().getClassLoader()
@@ -99,22 +119,16 @@ public class TesterInjector {
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Private helpers
-    // ─────────────────────────────────────────────────────────────────────────
+    // ================================================================
+    // PRIVATE HELPERS
+    // ================================================================
 
-    /**
-     * Copies a single file from sourceDir to destinationFolder.
-     * Tries filesystem first, then classpath (JAR mode).
-     */
     private void copyFile(String filename, Path sourceDir, Path destinationFolder)
             throws IOException {
 
         Path source = sourceDir.resolve(filename);
-        Path dest   = destinationFolder.resolve(filename);
         String content;
 
-        // 1. Read the master file
         if (Files.exists(source)) {
             content = Files.readString(source);
         } else {
@@ -125,39 +139,25 @@ public class TesterInjector {
             }
         }
 
-        // 2. THE NINJA MOVE: Inject partial score tracking
+        // THE NINJA MOVE: Inject partial score tracking
         String injectedContent = content.replaceAll(
-            "(?i)(score\\s*\\+=\\s*[^;]+;)", 
+            "(?i)(score\\s*\\+=\\s*[^;]+;)",
             "$1 System.out.println(\"PARTIAL_SCORE:\" + score); System.out.flush();"
         );
 
-        // 3. Write injected code to student folder
-        Files.writeString(dest, injectedContent);
+        Files.writeString(destinationFolder.resolve(filename), injectedContent);
     }
 
-    /**
-     * Copies non-Java files (e.g., .txt, .csv) from the template question folder
-     * into the student's question folder.
-     *
-     * EDGE CASE: testers that do FileReader("persons.txt") need the file co-located.
-     * If the template has Q2/persons.txt, we copy it to the student's Q2/ folder.
-     */
     private void copyDataFiles(String questionFolder, Path destinationFolder) {
-        // Template question folder path
-        Path templateQuestionDir = PathConfig.INPUT_TEMPLATE.resolve(questionFolder);
+        Path templateQuestionDir = resolveInputTemplate().resolve(questionFolder);
         if (!Files.exists(templateQuestionDir)) return;
 
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(templateQuestionDir)) {
             for (Path file : stream) {
                 String name = file.getFileName().toString();
-                // Skip .java — only copy data/resource files and pre-compiled .class dependencies
-                // NOTE: .class files ARE copied intentionally — Q3 needs Shape.class, Rectangle.class,
-                // Circle.class to be present alongside the student's code for compilation to succeed.
                 if (name.endsWith(".java")) continue;
                 if (Files.isDirectory(file)) continue;
-                // CRITICAL: Never overwrite the student's own scripts with the template's empty stubs.
-                // The template ships compile.bat, compile.sh, run.bat, run.sh as 0-byte placeholders.
-                // Copying them here would silently destroy every student's Q4 scripts before grading.
+                // Never overwrite student's own Q4 scripts with template stubs
                 if (name.equalsIgnoreCase("compile.bat") || name.equalsIgnoreCase("compile.sh")
                         || name.equalsIgnoreCase("run.bat") || name.equalsIgnoreCase("run.sh")) continue;
 
@@ -165,13 +165,11 @@ public class TesterInjector {
                 try {
                     Files.copy(file, dest, StandardCopyOption.REPLACE_EXISTING);
                 } catch (IOException e) {
-                    // Non-fatal — log and continue
                     System.out.println("[TesterInjector] ⚠️  Could not copy data file "
                             + name + ": " + e.getMessage());
                 }
             }
         } catch (IOException e) {
-            // Template folder unreadable — non-fatal, student may not need data files
             System.out.println("[TesterInjector] ⚠️  Could not read template folder for "
                     + questionFolder + ": " + e.getMessage());
         }
