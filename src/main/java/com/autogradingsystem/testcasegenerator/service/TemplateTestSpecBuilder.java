@@ -39,13 +39,19 @@ public class TemplateTestSpecBuilder {
         try {
             extractZip(templateZip, tempDir);
 
-            // Group all .java files by their parent folder (Q1, Q2, Q3, ...)
-            // Map: folderName → Map<filename, Path>
+            // Group all relevant files by their parent folder (Q1, Q2, Q3, ...)
+            // Includes .java source files AND .txt/.csv data files (e.g. persons.txt, students.txt)
+            // so the LLM can compute expected values for file-based questions like getAverageAge.
+            // Map: folderName -> Map<filename, Path>
             Map<String, Map<String, Path>> byFolder = new LinkedHashMap<>();
             try (var walk = Files.walk(tempDir)) {
                 walk.filter(Files::isRegularFile)
-                    .filter(p -> p.toString().endsWith(".java"))
+                    .filter(p -> {
+                        String n = p.getFileName().toString().toLowerCase();
+                        return n.endsWith(".java") || n.endsWith(".txt") || n.endsWith(".csv");
+                    })
                     .filter(p -> !p.toString().contains("__MACOSX"))
+                    .filter(p -> !p.getFileName().toString().startsWith("."))
                     .forEach(p -> {
                         String folder = p.getParent().getFileName().toString();
                         byFolder
@@ -69,76 +75,19 @@ public class TemplateTestSpecBuilder {
                     try {
                         QuestionSpec spec = specParser.parse(fpath);
 
-                        // Attach all OTHER .java files in the same folder as supporting context
+                        // Attach all OTHER files in the same folder as supporting context:
+                        //   - .java files: supporting classes (Shape, DataException, etc.)
+                        //   - .txt/.csv data files (persons.txt, students.txt) — the LLM
+                        //     needs these to compute expected values for file-based questions.
                         for (Map.Entry<String, Path> sibling : files.entrySet()) {
                             if (sibling.getKey().equals(fname)) continue; // skip self
+                            if (sibling.getKey().endsWith(".class")) continue; // skip .class
                             try {
                                 String siblingSource = Files.readString(sibling.getValue());
                                 spec.addSupportingFile(sibling.getKey(), siblingSource);
+                                System.out.println("   [data] Attached: "
+                                        + sibling.getKey() + " (" + siblingSource.length() + " chars)");
                             } catch (IOException e) {
-                                System.err.println("⚠️  Could not read " + sibling.getKey());
+                                System.err.println("[warn] Could not read " + sibling.getKey());
                             }
                         }
-
-                        specs.put(questionId, spec);
-                    } catch (IOException e) {
-                        System.err.println("⚠️  Could not parse " + fname + ": " + e.getMessage());
-                    }
-                }
-            }
-
-        } finally {
-            deleteRecursively(tempDir);
-        }
-
-        return specs;
-    }
-
-    // -------------------------------------------------------------------------
-    // Read score weights from exam paper PDF via LLM
-    // -------------------------------------------------------------------------
-
-    public Map<String, Integer> readScoreWeights() {
-        Map<String, Integer> weights = examParser.extractMarkWeights();
-        if (weights.isEmpty()) {
-            System.out.println("  ⚠️  No mark weights from exam PDF — defaulting to 1 mark per question.");
-        }
-        return weights;
-    }
-
-    // =========================================================================
-    // Helpers
-    // =========================================================================
-
-    private String normaliseId(String raw) {
-        if (raw == null || raw.length() < 2) return raw;
-        StringBuilder sb = new StringBuilder();
-        sb.append(Character.toUpperCase(raw.charAt(0)));
-        for (int i = 1; i < raw.length(); i++) {
-            char c = raw.charAt(i);
-            sb.append(Character.isLetter(c) ? Character.toLowerCase(c) : c);
-        }
-        return sb.toString();
-    }
-
-    private void extractZip(Path zipPath, Path destDir) throws IOException {
-        try (ZipInputStream zis = new ZipInputStream(Files.newInputStream(zipPath))) {
-            ZipEntry entry;
-            while ((entry = zis.getNextEntry()) != null) {
-                if (entry.isDirectory()) { zis.closeEntry(); continue; }
-                Path target = destDir.resolve(entry.getName()).normalize();
-                if (!target.startsWith(destDir)) { zis.closeEntry(); continue; }
-                Files.createDirectories(target.getParent());
-                Files.copy(zis, target, StandardCopyOption.REPLACE_EXISTING);
-                zis.closeEntry();
-            }
-        }
-    }
-
-    private void deleteRecursively(Path dir) {
-        try (var walk = Files.walk(dir)) {
-            walk.sorted(Comparator.reverseOrder())
-                .forEach(p -> { try { Files.deleteIfExists(p); } catch (IOException ignored) {} });
-        } catch (IOException ignored) {}
-    }
-}

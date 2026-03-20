@@ -2,6 +2,7 @@ package com.autogradingsystem.analysis.controller;
 
 import com.autogradingsystem.analysis.service.ScoreAnalyzer;
 import com.autogradingsystem.analysis.service.ScoreSheetExporter;
+import com.autogradingsystem.analysis.service.StatisticsReportExporter;
 import com.autogradingsystem.model.GradingResult;
 import com.autogradingsystem.model.Student;
 
@@ -15,17 +16,17 @@ import java.util.Map;
  *
  * Orchestrates the full analysis pipeline:
  * 1. Console display of grading results
- * 2. Export combined report → IS442-ScoreSheet-Updated.xlsx (all sheets)
- *
- * v3.4: StatisticsReportExporter removed — all sheets are now produced
- * by ScoreSheetExporter in a single combined XLSX file.
+ * 2. Export official score sheet → IS442-ScoreSheet-Updated.xlsx (two tabs)
+ * 3. Export statistics report    → IS442-Statistics.xlsx
  */
 public class AnalysisController {
 
-    private final ScoreSheetExporter scoreSheetExporter;
+    private final ScoreSheetExporter       scoreSheetExporter;
+    private final StatisticsReportExporter statisticsReportExporter;
 
     public AnalysisController() {
-        this.scoreSheetExporter = new ScoreSheetExporter();
+        this.scoreSheetExporter       = new ScoreSheetExporter();
+        this.statisticsReportExporter = new StatisticsReportExporter();
     }
 
     // ── Original overload — backward compatible ────────────────────────────
@@ -62,28 +63,34 @@ public class AnalysisController {
         displayCompactView(byStudent, maxScores);
         displayOverallStatistics(byStudent, maxScores);
 
-        exportReport(byStudent, remarksByStudent, anomalyRemarks, allStudents, plagiarismNotes);
+        exportBothReports(byStudent, remarksByStudent, anomalyRemarks, allStudents, plagiarismNotes);
     }
 
     // ── Export ─────────────────────────────────────────────────────────────
 
-    private void exportReport(Map<String, List<GradingResult>> byStudent,
-                              Map<String, String> remarksByStudent,
-                              Map<String, String> anomalyRemarks,
-                              List<Student> allStudents,
-                              Map<String, String> plagiarismNotes) {
-
+    private void exportBothReports(Map<String, List<GradingResult>> byStudent,
+                                   Map<String, String> remarksByStudent,
+                                   Map<String, String> anomalyRemarks,
+                                   List<Student> allStudents,
+                                   Map<String, String> plagiarismNotes) {
         System.out.println("\n" + "=".repeat(70));
         System.out.println("📄 EXPORTING REPORTS");
         System.out.println("=".repeat(70));
 
         try {
-            Path report = scoreSheetExporter.export(byStudent, remarksByStudent,
-                                                    anomalyRemarks, allStudents,
-                                                    plagiarismNotes);
-            System.out.println("✅ Combined Report → " + report.toAbsolutePath());
+            Path scoreSheet = scoreSheetExporter.export(byStudent, remarksByStudent,
+                                                        anomalyRemarks, allStudents,
+                                                        plagiarismNotes);
+            System.out.println("✅ Score Sheet   → " + scoreSheet.toAbsolutePath());
         } catch (Exception e) {
-            System.out.println("❌ Export failed: " + e.getClass().getName()
+            System.out.println("❌ Score Sheet export failed: " + e.getMessage());
+        }
+
+        try {
+            Path statsReport = statisticsReportExporter.export(byStudent);
+            System.out.println("✅ Statistics    → " + statsReport.toAbsolutePath());
+        } catch (Exception e) {
+            System.out.println("❌ Statistics export failed: " + e.getClass().getName()
                     + ": " + e.getMessage());
             e.printStackTrace();
         }
