@@ -35,18 +35,261 @@
         .mode-nav a:last-child { border-right: none; }
         .mode-nav a.active { background: var(--yellow); }
         .mode-nav a:hover:not(.active) { background: var(--gray-light); }
+
+        /* ── Step indicator ─────────────────────────────────────────────── */
+        .steps {
+            display: flex;
+            align-items: center;
+            margin: 0 0 48px 0;
+            gap: 0;
+        }
+        .step {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            opacity: 0.4;
+            transition: opacity 0.2s;
+        }
+        .step.active, .step.done { opacity: 1; }
+        .step-circle {
+            width: 44px;
+            height: 44px;
+            border: 4px solid var(--black);
+            background: var(--white);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 1.1rem;
+            box-shadow: var(--shadow-small);
+        }
+        .step.active .step-circle { background: var(--yellow); }
+        .step.done   .step-circle { background: var(--black); color: var(--yellow); }
+        .step-label {
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            white-space: nowrap;
+        }
+        .step-line {
+            flex: 1;
+            height: 4px;
+            background: var(--gray);
+            border-top: 4px solid var(--black);
+            min-width: 24px;
+            margin-bottom: 28px;
+        }
+        .step-line.done { background: var(--black); }
+
+        /* ── PDF hint ───────────────────────────────────────────────────── */
+        .pdf-hint {
+            padding: 14px 20px;
+            background: var(--gray-light);
+            border: 3px solid var(--black);
+            font-family: 'Space Mono', monospace;
+            font-size: 0.85rem;
+            margin-bottom: 20px;
+            box-shadow: var(--shadow-small);
+        }
+        .pdf-hint.pdf-detected {
+            background: rgba(76,175,80,0.08);
+            border-color: var(--green);
+            color: var(--green);
+        }
+
+        /* ── Add question row ───────────────────────────────────────────── */
+        .add-question-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 12px 0 24px 0;
+        }
+        .add-question-row input {
+            padding: 8px 12px;
+            border: 3px solid var(--black);
+            font-family: 'Space Mono', monospace;
+            font-size: 0.9rem;
+            background: var(--white);
+            outline: none;
+        }
+        .add-question-row input:focus { background: var(--yellow-light); }
+        .btn-secondary {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 20px;
+            font-size: 0.9rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            border: 3px solid var(--black);
+            background: var(--white);
+            cursor: pointer;
+            box-shadow: var(--shadow-small);
+            transition: all 0.1s;
+            font-family: 'Space Grotesk', sans-serif;
+        }
+        .btn-secondary:hover { transform: translate(-2px,-2px); box-shadow: var(--shadow-medium); }
+        .btn-primary {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 14px 32px;
+            font-size: 1rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            border: 4px solid var(--black);
+            background: var(--green);
+            color: var(--white);
+            cursor: pointer;
+            box-shadow: var(--shadow-medium);
+            transition: all 0.1s;
+            font-family: 'Space Grotesk', sans-serif;
+        }
+        .btn-primary:hover  { transform: translate(-2px,-2px); box-shadow: var(--shadow-thick); }
+        .btn-primary:active { transform: translate(2px,2px); box-shadow: var(--shadow-small); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+        /* ── Section actions row ────────────────────────────────────────── */
+        .section-actions {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 24px;
+        }
+
+        /* ── Code editor ────────────────────────────────────────────────── */
+        .editor-section { }
+        .question-tabs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin-bottom: 0;
+            border-bottom: 4px solid var(--black);
+        }
+        .q-tab {
+            padding: 8px 18px;
+            font-family: 'Space Mono', monospace;
+            font-size: 0.8rem;
+            font-weight: 700;
+            cursor: pointer;
+            border: 3px solid var(--black);
+            border-bottom: none;
+            background: var(--white);
+            transition: background 0.1s;
+            position: relative;
+            top: 4px;
+        }
+        .q-tab:hover  { background: var(--yellow-light); }
+        .q-tab.active { background: var(--yellow); }
+        .q-tab.saved::after   { content: ' ✓'; color: var(--green); font-size: 0.7rem; }
+        .q-tab.unsaved::after { content: ' ●'; color: var(--red);   font-size: 0.7rem; }
+
+        .editor-container {
+            border: 4px solid var(--black);
+            box-shadow: var(--shadow-thick);
+        }
+        .editor-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 16px;
+            background: var(--black);
+            color: var(--yellow);
+            gap: 12px;
+        }
+        .editor-filename {
+            font-family: 'Space Mono', monospace;
+            font-size: 0.9rem;
+            font-weight: 700;
+        }
+        .editor-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .save-indicator {
+            font-family: 'Space Mono', monospace;
+            font-size: 0.78rem;
+            padding: 3px 10px;
+            border: 2px solid;
+        }
+        .save-indicator.saved   { color: var(--green); border-color: var(--green); }
+        .save-indicator.unsaved { color: var(--red);   border-color: var(--red); }
+        .save-indicator.saving  { color: var(--yellow); border-color: var(--yellow); }
+
+        .btn-save-file {
+            padding: 6px 16px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            border: 3px solid var(--yellow);
+            background: transparent;
+            color: var(--yellow);
+            cursor: pointer;
+            font-family: 'Space Grotesk', sans-serif;
+            transition: all 0.1s;
+        }
+        .btn-save-file:hover { background: var(--yellow); color: var(--black); }
+
+        .code-editor {
+            display: block;
+            width: 100%;
+            min-height: 420px;
+            padding: 20px;
+            background: var(--black);
+            color: #e0e0ff;
+            font-family: 'Space Mono', 'Courier New', monospace;
+            font-size: 0.85rem;
+            line-height: 1.7;
+            border: none;
+            outline: none;
+            resize: vertical;
+            box-sizing: border-box;
+            tab-size: 4;
+        }
+
+        /* ── Generating overlay ─────────────────────────────────────────── */
+        .generating-overlay {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+            padding: 48px 20px;
+            background: var(--white);
+            border: 4px solid var(--black);
+            box-shadow: var(--shadow-thick);
+            font-weight: 600;
+            font-size: 1rem;
+            text-align: center;
+        }
+        .spinner {
+            font-size: 2.5rem;
+            animation: spin 1.2s linear infinite;
+            display: inline-block;
+        }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+        /* ── Responsive ─────────────────────────────────────────────────── */
+        @media (max-width: 768px) {
+            .steps { gap: 0; }
+            .step-label { font-size: 0.65rem; }
+            .step-circle { width: 36px; height: 36px; font-size: 0.95rem; }
+            .section-actions { flex-direction: column; }
+            .section-actions .btn-primary,
+            .section-actions .btn-secondary { width: 100%; justify-content: center; }
+            .code-editor { min-height: 300px; font-size: 0.78rem; }
+        }
     </style>
 </head>
 <body>
 
-<!-- Decorative background elements -->
 <div class="bg-pattern"></div>
 <div class="bg-dots"></div>
 
 <div class="container">
-    <!-- Header with retro yellow bar -->
     <div class="retro-bar"></div>
-    
+
     <header class="header">
         <div class="header-logo">
             <div class="logo-icon">
@@ -54,9 +297,7 @@
                 <span class="icon-code">IS442</span>
                 <span class="icon-bracket">]</span>
             </div>
-            <div class="logo-text">
-                <h1>AUTO-GRADING<br>SYSTEM</h1>
-            </div>
+            <div class="logo-text"><h1>AUTO-GRADING<br>SYSTEM</h1></div>
         </div>
         <div class="header-status">
             <div class="status-badge" id="systemStatusBadge">
@@ -72,517 +313,719 @@
         <a href="/multi-test">🗂 Multi-Assessment</a>
     </nav>
 
-        <!-- Alert Container -->
+    <!-- Alert Container -->
     <div id="alertContainer"></div>
 
-    <!-- Hero Section -->
     <div class="hero-section">
-        <h2 class="hero-title">
-            Grade your code<br>
-            <span class="highlight">automatically!</span>
-        </h2>
-        <p class="hero-subtitle">Upload, grade, and download results in seconds</p>
+        <h2 class="hero-title">Grade your code<br><span class="highlight">automatically!</span></h2>
+        <p class="hero-subtitle">Upload → confirm marks → review testers → grade</p>
     </div>
 
-    <!-- Upload Section -->
-    <section class="upload-section">
+    <!-- Step Indicator -->
+    <div class="steps">
+        <div class="step active" id="step1"><div class="step-circle">1</div><div class="step-label">Upload</div></div>
+        <div class="step-line" id="line12"></div>
+        <div class="step" id="step2"><div class="step-circle">2</div><div class="step-label">Confirm Marks</div></div>
+        <div class="step-line" id="line23"></div>
+        <div class="step" id="step3"><div class="step-circle">3</div><div class="step-label">Review Testers</div></div>
+        <div class="step-line" id="line34"></div>
+        <div class="step" id="step4"><div class="step-circle">4</div><div class="step-label">Grade</div></div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════════════ -->
+    <!-- STEP 1 — Upload                                                    -->
+    <!-- ══════════════════════════════════════════════════════════════════ -->
+    <section id="uploadSection">
         <div class="section-header">
             <h3>📂 Upload Files</h3>
-            <p>Drag & drop or click to upload (4 files required)</p>
+            <p>All 4 files are required. The exam paper PDF is used by the AI to detect question marks automatically.</p>
         </div>
 
         <div class="upload-grid">
-            
-            <!-- Upload Box 1: Student Submissions -->
-            <div class="upload-box" 
-                 data-file-type="submission"
-                 ondrop="handleDrop(event, 'submission')"
-                 ondragover="handleDragOver(event)"
-                 ondragleave="handleDragLeave(event)"
+            <div class="upload-box" data-file-type="submission"
+                 ondrop="handleDrop(event,'submission')" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)"
                  onclick="document.getElementById('submissionZip').click()">
-                <input type="file" 
-                       id="submissionZip" 
-                       accept=".zip" 
-                       onchange="handleFileSelect(this, 'submission')"
-                       hidden>
+                <input type="file" id="submissionZip" accept=".zip" onchange="handleFileSelect(this,'submission')" hidden>
                 <div class="upload-icon">📦</div>
                 <div class="upload-title">Student Submissions</div>
                 <div class="upload-desc">Master ZIP file</div>
-                <div class="upload-status" id="submissionStatus">
-                    <span class="status-text">Click or drag here</span>
-                </div>
+                <div class="upload-status" id="submissionStatus"><span class="status-text">Click or drag here</span></div>
             </div>
-
-            <!-- Upload Box 2: Template -->
-            <div class="upload-box"
-                 data-file-type="template"
-                 ondrop="handleDrop(event, 'template')"
-                 ondragover="handleDragOver(event)"
-                 ondragleave="handleDragLeave(event)"
+            <div class="upload-box" data-file-type="template"
+                 ondrop="handleDrop(event,'template')" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)"
                  onclick="document.getElementById('templateZip').click()">
-                <input type="file" 
-                       id="templateZip" 
-                       accept=".zip" 
-                       onchange="handleFileSelect(this, 'template')"
-                       hidden>
+                <input type="file" id="templateZip" accept=".zip" onchange="handleFileSelect(this,'template')" hidden>
                 <div class="upload-icon">📄</div>
-                <div class="upload-title">Template/Answer Key</div>
-                <div class="upload-desc">Reference solution</div>
-                <div class="upload-status" id="templateStatus">
-                    <span class="status-text">Click or drag here</span>
-                </div>
+                <div class="upload-title">Template / Answer Key</div>
+                <div class="upload-desc">Reference solution ZIP</div>
+                <div class="upload-status" id="templateStatus"><span class="status-text">Click or drag here</span></div>
             </div>
-
-            <!-- Upload Box 3: Score Sheet -->
-            <div class="upload-box"
-                 data-file-type="scoresheet"
-                 ondrop="handleDrop(event, 'scoresheet')"
-                 ondragover="handleDragOver(event)"
-                 ondragleave="handleDragLeave(event)"
+            <div class="upload-box" data-file-type="scoresheet"
+                 ondrop="handleDrop(event,'scoresheet')" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)"
                  onclick="document.getElementById('scoreSheetCsv').click()">
-                <input type="file" 
-                       id="scoreSheetCsv" 
-                       accept=".csv" 
-                       onchange="handleFileSelect(this, 'scoresheet')"
-                       hidden>
+                <input type="file" id="scoreSheetCsv" accept=".csv" onchange="handleFileSelect(this,'scoresheet')" hidden>
                 <div class="upload-icon">📊</div>
                 <div class="upload-title">Score Sheet CSV</div>
                 <div class="upload-desc">Official student list</div>
-                <div class="upload-status" id="scoresheetStatus">
-                    <span class="status-text">Click or drag here</span>
-                </div>
+                <div class="upload-status" id="scoresheetStatus"><span class="status-text">Click or drag here</span></div>
             </div>
-
-            <!-- Upload Box 4: Test Cases -->
-            <div class="upload-box"
-                 data-file-type="testers"
-                 ondrop="handleDrop(event, 'testers')"
-                 ondragover="handleDragOver(event)"
-                 ondragleave="handleDragLeave(event)"
-                 onclick="document.getElementById('testersZip').click()">
-                <input type="file" 
-                       id="testersZip" 
-                       accept=".zip" 
-                       onchange="handleFileSelect(this, 'testers')"
-                       hidden>
-                <div class="upload-icon">🧪</div>
-                <div class="upload-title">Test Cases</div>
-                <div class="upload-desc">Tester Java files</div>
-                <div class="upload-status" id="testersStatus">
-                    <span class="status-text">Click or drag here</span>
-                </div>
+            <div class="upload-box" data-file-type="exampdf"
+                 ondrop="handleDrop(event,'exampdf')" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)"
+                 onclick="document.getElementById('examPdfFile').click()">
+                <input type="file" id="examPdfFile" accept=".pdf" onchange="handleFileSelect(this,'exampdf')" hidden>
+                <div class="upload-icon">📑</div>
+                <div class="upload-title">Exam Paper PDF</div>
+                <div class="upload-desc">AI reads marks from this</div>
+                <div class="upload-status" id="exampdfStatus"><span class="status-text">Click or drag here</span></div>
             </div>
-
         </div>
 
-        <!-- Upload Button -->
         <div class="action-center">
-            <button class="btn btn-upload" 
-                    id="uploadBtn"
-                    onclick="uploadAllFiles()">
-                <span class="btn-icon">⬆</span>
-                Upload Files
+            <button class="btn btn-upload" id="uploadBtn" onclick="doUpload()" disabled>
+                <span class="btn-icon">⬆</span> Upload Files
             </button>
             <div class="upload-counter" id="uploadCounter">
-                <span class="counter-value">0/4</span> files uploaded
+                <span class="counter-value">0/4</span> files selected
             </div>
         </div>
     </section>
 
-    <!-- Grading Section -->
-    <section class="grading-section" id="gradingSection">
+    <!-- ══════════════════════════════════════════════════════════════════ -->
+    <!-- STEP 2 — Confirm Marks                                             -->
+    <!-- ══════════════════════════════════════════════════════════════════ -->
+    <section id="marksSection" style="display:none;">
         <div class="section-header">
-            <h3>⚡ Start Grading</h3>
-            <p>Run the automated grading pipeline</p>
+            <h3>📋 Confirm Question Marks</h3>
+            <p>The AI has scanned your exam paper and extracted the questions and marks. Verify each row — edit if anything is wrong — then click Generate.</p>
         </div>
 
-        <div class="grading-card">
-            <div class="grading-ready" id="gradingReady">
-                <div class="ready-icon">✓</div>
-                <div class="ready-text">All files uploaded! Ready to grade.</div>
-            </div>
-            
-            <div class="grading-waiting" id="gradingWaiting">
-                <div class="waiting-icon">⏳</div>
-                <div class="waiting-text">Upload all 4 files to begin grading</div>
-            </div>
+        <div id="marksHint" class="pdf-hint">⏳ Scanning exam paper PDF with AI...</div>
 
-            <button class="btn btn-grade" 
-                    id="gradeBtn"
-                    onclick="startGrading()"
-                    disabled>
-                <span class="btn-icon">▶</span>
-                Start Grading!
+        <table id="marksTable" style="width:100%;border-collapse:collapse;margin:1rem 0;font-family:'Space Mono',monospace;font-size:.85rem;">
+            <thead>
+                <tr>
+                    <th style="background:#16213e;color:#f0c040;padding:.5rem .8rem;text-align:left;border-bottom:1px solid #2a2a4a;width:90px;">Question</th>
+                    <th style="background:#16213e;color:#f0c040;padding:.5rem .8rem;text-align:left;border-bottom:1px solid #2a2a4a;">Method</th>
+                    <th style="background:#16213e;color:#f0c040;padding:.5rem .8rem;text-align:left;border-bottom:1px solid #2a2a4a;width:180px;">Marks (= test cases)</th>
+                </tr>
+            </thead>
+            <tbody id="marksTableBody"></tbody>
+            <tfoot>
+                <tr>
+                    <td colspan="2" style="padding:.45rem .8rem;text-align:right;color:#8888aa;font-size:.8rem;border-top:1px solid #2a2a4a;">Total</td>
+                    <td style="padding:.45rem .8rem;border-top:1px solid #2a2a4a;"><span style="color:#f0c040;font-weight:700;" id="marksTotal">0</span></td>
+                </tr>
+            </tfoot>
+        </table>
+
+        <!-- Add question row -->
+        <div class="add-question-row">
+            <input type="text" id="newQId" placeholder="Q1c" maxlength="6">
+            <input type="number" id="newQMarks" placeholder="Marks" min="1" max="30" style="width:70px;">
+            <button class="btn-secondary" onclick="addMarkRow()" style="padding:4px 12px;font-size:.8rem;">+ Add question</button>
+        </div>
+
+        <div class="section-actions">
+            <button class="btn-secondary" onclick="goBack(1)">← Back</button>
+            <button class="btn-primary" id="generateBtn" onclick="doGenerate()">
+                ⚙ Generate Test Cases
             </button>
+        </div>
+    </section>
 
-            <!-- Progress Bar -->
-            <div class="progress-container" id="progressContainer" style="display: none;">
-                <div class="progress-bar">
-                    <div class="progress-fill" id="progressFill"></div>
+    <!-- ══════════════════════════════════════════════════════════════════ -->
+    <!-- STEP 3 — Review Tester Files                                       -->
+    <!-- ══════════════════════════════════════════════════════════════════ -->
+    <section id="editorSection" style="display:none;" class="editor-section">
+        <div class="section-header">
+            <h3>🧪 Review Tester Files</h3>
+            <p>Edit the generated tester source code directly. Save each file before grading.</p>
+        </div>
+
+        <!-- Generating spinner (shown while LLM is running) -->
+        <div id="generatingOverlay" class="generating-overlay" style="display:none;">
+            <span class="spinner">⚙</span>
+            <div>Generating test cases via AI — this may take 1–2 minutes...</div>
+        </div>
+
+        <!-- Tab bar -->
+        <div class="question-tabs" id="questionTabs"></div>
+
+        <!-- Code editor -->
+        <div class="editor-container" id="editorContainer" style="display:none;">
+            <div class="editor-toolbar">
+                <span class="editor-filename" id="editorFilename">—</span>
+                <div class="editor-actions">
+                    <span class="save-indicator" id="saveIndicator">saved</span>
+                    <button class="btn-save-file" id="saveFileBtn" onclick="saveCurrentFile()">💾 Save File</button>
                 </div>
-                <div class="progress-label" id="progressLabel">Initializing...</div>
+            </div>
+            <textarea class="code-editor" id="codeEditor"
+                      spellcheck="false"
+                      oninput="markUnsaved()"
+                      onkeydown="handleTabKey(event)"></textarea>
+        </div>
+
+        <div class="section-actions">
+            <button class="btn-secondary" onclick="goBack(2)">← Back to Marks</button>
+            <button class="btn-secondary" onclick="saveAllFiles()">💾 Save All Files</button>
+            <button class="btn-primary" id="gradeBtn" onclick="doGrade()">▶ Confirm &amp; Grade</button>
+        </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════════════ -->
+    <!-- STEP 4 — Grading + Results                                         -->
+    <!-- ══════════════════════════════════════════════════════════════════ -->
+    <section id="gradingSection" style="display:none;">
+        <div class="section-header"><h3>⚡ Grading</h3></div>
+        <div class="grading-card">
+            <div class="progress-container">
+                <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+                <div class="progress-label" id="progressLabel">Starting...</div>
             </div>
         </div>
     </section>
 
-    <!-- Results Section (Hidden initially) -->
-    <section class="results-section" id="resultsSection" style="display: none;">
+    <section class="results-section" id="resultsSection" style="display:none;">
         <div class="section-header">
             <h3>📊 Results</h3>
-            <p>Grading complete! View stats and download reports</p>
+            <p>Grading complete!</p>
         </div>
-
-        <!-- Stats Cards -->
         <div class="stats-container">
-            <div class="stat-card">
-                <div class="stat-icon">👥</div>
-                <div class="stat-value" id="statStudents">-</div>
-                <div class="stat-label">Students</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon">📝</div>
-                <div class="stat-value" id="statTasks">-</div>
-                <div class="stat-label">Tasks</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon">📈</div>
-                <div class="stat-value" id="statAverage">-</div>
-                <div class="stat-label">Average</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon">✓</div>
-                <div class="stat-value" id="statSuccess">-</div>
-                <div class="stat-label">Success Rate</div>
-            </div>
+            <div class="stat-card"><div class="stat-icon">👥</div><div class="stat-value" id="statStudents">-</div><div class="stat-label">Students</div></div>
+            <div class="stat-card"><div class="stat-icon">📝</div><div class="stat-value" id="statTasks">-</div><div class="stat-label">Tasks</div></div>
+            <div class="stat-card"><div class="stat-icon">📈</div><div class="stat-value" id="statAverage">-</div><div class="stat-label">Average</div></div>
+            <div class="stat-card"><div class="stat-icon">✓</div><div class="stat-value" id="statSuccess">-</div><div class="stat-label">Success Rate</div></div>
         </div>
-
-        <!-- Download Buttons -->
         <div class="download-area">
             <h4>Download Reports</h4>
             <div class="download-buttons">
-                <a href="/download/csv" class="btn btn-download">
-                    <span class="btn-icon">📄</span>
-                    Score Sheet (CSV)
-                </a>
-                <a href="/download/excel" class="btn btn-download">
-                    <span class="btn-icon">📊</span>
-                    Statistics (Excel)
-                </a>
+                <a href="/download/csv"         class="btn btn-download"><span class="btn-icon">📄</span> Score Sheet (CSV)</a>
+                <a href="/download/scoresheet"  class="btn btn-download"><span class="btn-icon">📊</span> Score Sheet (Excel)</a>
+                <a href="/download/excel"       class="btn btn-download"><span class="btn-icon">📈</span> Statistics (Excel)</a>
             </div>
         </div>
-
-        <!-- Execution Log -->
         <div class="log-container">
             <h4>Execution Log</h4>
             <div class="log-terminal" id="logTerminal">
-                <div class="log-line">$ Waiting for grading to start...</div>
+                <div class="log-line">$ Waiting for grading...</div>
             </div>
+        </div>
+        <div class="section-actions" style="margin-top:1.5rem;">
+            <button class="btn-secondary" onclick="location.reload()">↺ Start New Session</button>
         </div>
     </section>
 
 </div>
 
-<!-- Footer -->
 <footer class="footer">
-    <div class="footer-content">
-        <p>IS442 Auto-Grading System • Built by G1T4 </p>
-    </div>
+    <div class="footer-content"><p>IS442 Auto-Grading System • Built by G1T4</p></div>
 </footer>
 
 <script th:inline="javascript">
-    // Session storage for uploaded files
-    const sessionFiles = {
-        submission: null,
-        template: null,
-        scoresheet: null,
-        testers: null
-    };
+// ── State ──────────────────────────────────────────────────────────────────────
+const sessionFiles = { submission: null, template: null, scoresheet: null, exampdf: null };
 
-    // Initialize on page load
-    window.addEventListener('DOMContentLoaded', function() {
-        checkExistingUploads();
-        updateUI();
-    });
+// testerSources: { Q1a: "...java source...", Q1b: "..." }
+// Always reflects the latest content — flushed from editor on every switch/save/grade.
+let testerSources  = {};
+// savedState: { Q1a: true/false } — false means not yet written to disk
+let savedState     = {};
+// templateSpecs: question metadata returned from backend
+let templateSpecs  = {};
+// activeTab: currently visible question id
+let activeTab      = null;
 
-    // Drag and Drop Handlers
-    function handleDragOver(event) {
-        event.preventDefault();
-        event.stopPropagation();
-        event.currentTarget.classList.add('drag-over');
+// ── Init ───────────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', updateUploadUI);
+
+// ── Drag & Drop / File Select ──────────────────────────────────────────────────
+function handleDragOver(e) { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }
+function handleDragLeave(e) { e.preventDefault(); e.currentTarget.classList.remove('drag-over'); }
+function handleDrop(e, type) {
+    e.preventDefault(); e.currentTarget.classList.remove('drag-over');
+    const f = e.dataTransfer.files[0];
+    if (f && validateFileType(f, type)) { sessionFiles[type] = f; updateFileStatus(type, f); updateUploadUI(); }
+    else showAlert('error', 'Invalid file type for ' + type);
+}
+function handleFileSelect(input, type) {
+    const f = input.files[0];
+    if (f && validateFileType(f, type)) { sessionFiles[type] = f; updateFileStatus(type, f); updateUploadUI(); }
+}
+function validateFileType(f, type) {
+    if (type === 'scoresheet') return f.name.endsWith('.csv');
+    if (type === 'exampdf')    return f.name.endsWith('.pdf');
+    return f.name.endsWith('.zip');
+}
+function updateFileStatus(type, file) {
+    document.getElementById(type + 'Status').innerHTML =
+        `<span class="status-uploaded">✓ ${file.name} <span class="file-size">(${fmt(file.size)})</span></span>`;
+    document.querySelector(`[data-file-type="${type}"]`).classList.add('uploaded');
+}
+function updateUploadUI() {
+    const count = Object.values(sessionFiles).filter(Boolean).length;
+    document.getElementById('uploadCounter').innerHTML =
+        `<span class="counter-value">${count}/4</span> files selected`;
+    document.getElementById('uploadBtn').disabled = count < 4;
+}
+
+// ── STEP 1 → 2: Upload ─────────────────────────────────────────────────────────
+async function doUpload() {
+    const btn = document.getElementById('uploadBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-icon">⏳</span> Uploading...';
+
+    const fd = new FormData();
+    if (sessionFiles.submission) fd.append('submission',  sessionFiles.submission);
+    if (sessionFiles.template)   fd.append('template',    sessionFiles.template);
+    if (sessionFiles.scoresheet) fd.append('scoresheet',  sessionFiles.scoresheet);
+    if (sessionFiles.exampdf)    fd.append('examPdf',     sessionFiles.exampdf);
+
+    try {
+        const res  = await fetch('/upload', { method:'POST', body:fd });
+        const data = await res.json();
+        if (!data.success) { showAlert('error', 'Upload failed: ' + data.message); return; }
+        showAlert('success', 'Files uploaded ✓');
+    } catch (e) {
+        showAlert('error', 'Upload error: ' + e.message); return;
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="btn-icon">⬆</span> Upload Files';
     }
 
-    function handleDragLeave(event) {
-        event.preventDefault();
-        event.stopPropagation();
-        event.currentTarget.classList.remove('drag-over');
-    }
+    gotoStep(2);
+    document.getElementById('uploadSection').style.display   = 'none';
+    document.getElementById('marksSection').style.display    = 'block';
+    document.getElementById('marksSection').scrollIntoView({ behavior:'smooth' });
 
-    function handleDrop(event, fileType) {
-        event.preventDefault();
-        event.stopPropagation();
-        event.currentTarget.classList.remove('drag-over');
+    await loadMarks();
+}
 
-        const files = event.dataTransfer.files;
-        if (files.length > 0) {
-            const file = files[0];
-            
-            // Validate file type
-            const isValid = validateFileType(file, fileType);
-            if (!isValid) {
-                showAlert('error', `Invalid file type. Expected ${getExpectedExtension(fileType)}`);
-                return;
-            }
+// ── STEP 2: Load marks from PDF ────────────────────────────────────────────────
+async function loadMarks() {
+    const hint    = document.getElementById('marksHint');
+    const genBtn  = document.getElementById('generateBtn');
+    hint.textContent     = '⏳ Scanning exam paper PDF with AI — this may take a moment...';
+    hint.className       = 'pdf-hint';
+    hint.style.borderColor = '';
+    hint.style.color       = '';
+    hint.style.background  = '';
+    genBtn.disabled = true;
 
-            // Store file
-            sessionFiles[fileType] = file;
-            updateFileStatus(fileType, file);
-            updateUI();
-        }
-    }
+    try {
+        const res  = await fetch('/parse-exam-marks', { method:'POST' });
+        let data;
+        try { data = await res.json(); }
+        catch { data = { success: false, message: 'Server returned an unreadable response (HTTP ' + res.status + ').' }; }
 
-    // File selection handler
-    function handleFileSelect(input, fileType) {
-        const file = input.files[0];
-        if (file) {
-            const isValid = validateFileType(file, fileType);
-            if (!isValid) {
-                showAlert('error', `Invalid file type. Expected ${getExpectedExtension(fileType)}`);
-                input.value = '';
-                return;
-            }
-
-            sessionFiles[fileType] = file;
-            updateFileStatus(fileType, file);
-            updateUI();
-        }
-    }
-
-    // Validate file type
-    function validateFileType(file, fileType) {
-        if (fileType === 'scoresheet') {
-            return file.name.endsWith('.csv');
-        }
-        return file.name.endsWith('.zip');
-    }
-
-    // Get expected extension
-    function getExpectedExtension(fileType) {
-        return fileType === 'scoresheet' ? '.csv' : '.zip';
-    }
-
-    // Update file status display
-    function updateFileStatus(fileType, file) {
-        const statusEl = document.getElementById(fileType + 'Status');
-        const boxEl = document.querySelector(`[data-file-type="${fileType}"]`);
-        
-        statusEl.innerHTML = `
-            <span class="status-uploaded">
-                ✓ ${file.name}
-                <span class="file-size">(${formatFileSize(file.size)})</span>
-            </span>
-        `;
-        
-        boxEl.classList.add('uploaded');
-    }
-
-    // Update UI state
-    function updateUI() {
-        const uploadedCount = Object.values(sessionFiles).filter(f => f !== null).length;
-        
-        // Update counter
-        document.getElementById('uploadCounter').innerHTML = `
-            <span class="counter-value">${uploadedCount}/4</span> files uploaded
-        `;
-
-        // Update grading button and status
-        const gradeBtn = document.getElementById('gradeBtn');
-        const readyEl = document.getElementById('gradingReady');
-        const waitingEl = document.getElementById('gradingWaiting');
-
-        if (uploadedCount === 4) {
-            gradeBtn.disabled = false;
-            readyEl.style.display = 'flex';
-            waitingEl.style.display = 'none';
-        } else {
-            gradeBtn.disabled = true;
-            readyEl.style.display = 'none';
-            waitingEl.style.display = 'flex';
-        }
-    }
-
-    // Upload all files
-    function uploadAllFiles() {
-        const formData = new FormData();
-        let hasFiles = false;
-
-        Object.keys(sessionFiles).forEach(key => {
-            if (sessionFiles[key]) {
-                formData.append(key, sessionFiles[key]);
-                hasFiles = true;
-            }
-        });
-
-        if (!hasFiles) {
-            showAlert('error', 'Please select at least one file to upload');
+        if (!data.success) {
+            hint.style.borderColor = '#dc6f6f';
+            hint.style.color       = '#dc6f6f';
+            hint.style.background  = '#1a0a0a';
+            hint.textContent = '❌ ' + (data.message || 'Failed to parse exam PDF.');
+            genBtn.disabled = true;
             return;
         }
 
-        const uploadBtn = document.getElementById('uploadBtn');
-        uploadBtn.disabled = true;
-        uploadBtn.innerHTML = '<span class="btn-icon">⏳</span> Uploading...';
+        hint.className = 'pdf-hint pdf-detected';
+        hint.textContent = `✓ ${data.pdfName || 'Exam PDF'} scanned — ${data.message || 'Please verify marks below.'}`;
+        genBtn.disabled = false;
 
-        fetch('/upload', {
-            method: 'POST',
-            body: formData
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                showAlert('success', 'Files uploaded successfully! ✓');
-                sessionStorage.setItem('filesUploaded', JSON.stringify(data.uploaded));
-            } else {
-                showAlert('error', 'Upload failed: ' + data.message);
-            }
-        })
-        .catch(error => {
-            showAlert('error', 'Upload error: ' + error.message);
-        })
-        .finally(() => {
-            uploadBtn.disabled = false;
-            uploadBtn.innerHTML = '<span class="btn-icon">⬆</span> Upload Files';
+        buildMarksTable(data.marks && Object.keys(data.marks).length > 0 ? data.marks : {});
+
+    } catch (e) {
+        hint.style.borderColor = '#dc6f6f';
+        hint.style.color       = '#dc6f6f';
+        hint.style.background  = '#1a0a0a';
+        hint.textContent = '⚠️ Network error: ' + e.message;
+        genBtn.disabled = true;
+    }
+}
+
+function buildMarksTable(marks) {
+    const tbody = document.getElementById('marksTableBody');
+    tbody.innerHTML = '';
+    const sortedIds = Object.keys(marks).sort();
+    if (sortedIds.length === 0) {
+        addMarkRow('Q1a', 1);
+    } else {
+        sortedIds.forEach(qId => addMarkRowToTable(qId, marks[qId], '—'));
+    }
+    updateMarksTotal();
+}
+
+function addMarkRowToTable(qId, marks, method) {
+    const tbody = document.getElementById('marksTableBody');
+    const tr = document.createElement('tr');
+    tr.id = 'markrow-' + qId;
+    const tdStyle = 'padding:.45rem .8rem;border-bottom:1px solid #1a1a2e;';
+    tr.innerHTML = `
+        <td style="${tdStyle}"><code style="color:#f0c040;font-family:Space Mono,monospace;">${qId}</code></td>
+        <td style="${tdStyle}color:#8888aa;font-size:.8rem;" id="method-${qId}">${method || '—'}</td>
+        <td style="${tdStyle}">
+            <input style="background:#0a0a18;border:1px solid #2a2a4a;border-radius:5px;color:#e0e0ff;font-family:Space Mono,monospace;font-size:.85rem;padding:3px 8px;width:60px;text-align:center;"
+                   type="number" min="1" max="30"
+                   id="marks-${qId}" value="${marks}"
+                   oninput="updateMarksTotal()">
+            <button onclick="removeMarkRow('${qId}')"
+                    style="background:none;border:none;color:#dc6f6f;cursor:pointer;font-size:.9rem;margin-left:.3rem;">✕</button>
+        </td>`;
+    tbody.appendChild(tr);
+}
+
+function addMarkRow(qId, marksVal) {
+    qId = qId || document.getElementById('newQId').value.trim().toUpperCase();
+    marksVal = marksVal || parseInt(document.getElementById('newQMarks').value) || 1;
+    if (!qId) { showAlert('error', 'Enter a question ID'); return; }
+    if (document.getElementById('markrow-' + qId)) { showAlert('error', qId + ' already in table'); return; }
+    addMarkRowToTable(qId, marksVal, '—');
+    document.getElementById('newQId').value = '';
+    document.getElementById('newQMarks').value = '';
+    updateMarksTotal();
+}
+
+function removeMarkRow(qId) {
+    const row = document.getElementById('markrow-' + qId);
+    if (row) row.remove();
+    updateMarksTotal();
+}
+
+function updateMarksTotal() {
+    const inputs = document.querySelectorAll('.marks-input');
+    let total = 0;
+    inputs.forEach(inp => { total += parseInt(inp.value) || 0; });
+    document.getElementById('marksTotal').textContent = total;
+}
+
+function getConfirmedMarks() {
+    const marks = {};
+    document.querySelectorAll('#marksTableBody tr').forEach(tr => {
+        const qId  = tr.id.replace('markrow-', '');
+        const inp  = document.getElementById('marks-' + qId);
+        if (inp) marks[qId] = parseInt(inp.value) || 1;
+    });
+    return marks;
+}
+
+// ── STEP 2 → 3: Generate testers ──────────────────────────────────────────────
+async function doGenerate() {
+    const marks = getConfirmedMarks();
+    if (Object.keys(marks).length === 0) {
+        showAlert('error', 'Add at least one question and mark allocation');
+        return;
+    }
+
+    const btn = document.getElementById('generateBtn');
+    btn.disabled = true;
+    btn.textContent = '⏳ Generating...';
+
+    gotoStep(3);
+    document.getElementById('marksSection').style.display  = 'none';
+    document.getElementById('editorSection').style.display = 'block';
+    document.getElementById('editorSection').scrollIntoView({ behavior:'smooth' });
+
+    document.getElementById('generatingOverlay').style.display = 'block';
+    document.getElementById('editorContainer').style.display   = 'none';
+    document.getElementById('questionTabs').innerHTML = '';
+
+    setStatus('GENERATING');
+
+    try {
+        const res  = await fetch('/generate-testers', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ marks })
         });
-    }
+        const data = await res.json();
 
-    // Check existing uploads
-    function checkExistingUploads() {
-        fetch('/check-uploads')
-            .then(response => response.json())
-            .then(data => {
-                if (data.exists) {
-                    // Mark existing files as uploaded
-                    // (This would require additional backend support to return filenames)
-                }
-            })
-            .catch(error => {
-                console.log('Could not check existing uploads:', error);
-            });
-    }
-
-    // Start grading
-    function startGrading() {
-        const gradeBtn = document.getElementById('gradeBtn');
-        gradeBtn.disabled = true;
-        gradeBtn.innerHTML = '<span class="btn-icon">⏳</span> Grading...';
-
-        // Update status badge
-        const statusBadge = document.getElementById('systemStatusBadge');
-        statusBadge.innerHTML = '<span class="badge-dot running"></span><span class="badge-text">RUNNING</span>';
-
-        // Show progress
-        document.getElementById('progressContainer').style.display = 'block';
-        simulateProgress();
-
-        fetch('/grade', {
-            method: 'POST'
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                showAlert('success', 'Grading completed successfully! ✓');
-                displayResults(data);
-            } else {
-                showAlert('error', 'Grading failed. Check logs for details.');
-                displayResults(data);
-            }
-        })
-        .catch(error => {
-            showAlert('error', 'Grading error: ' + error.message);
-        })
-        .finally(() => {
-            gradeBtn.disabled = false;
-            gradeBtn.innerHTML = '<span class="btn-icon">▶</span> Start Grading!';
-            statusBadge.innerHTML = '<span class="badge-dot"></span><span class="badge-text">READY</span>';
-            document.getElementById('progressContainer').style.display = 'none';
-        });
-    }
-
-    // Simulate progress (for visual feedback)
-    function simulateProgress() {
-        const progressFill = document.getElementById('progressFill');
-        const progressLabel = document.getElementById('progressLabel');
-        
-        let progress = 0;
-        const stages = ['Extracting...', 'Validating...', 'Compiling...', 'Grading...', 'Analyzing...'];
-        let stageIndex = 0;
-
-        const interval = setInterval(() => {
-            progress += Math.random() * 15;
-            if (progress > 95) progress = 95;
-            
-            progressFill.style.width = progress + '%';
-            progressLabel.textContent = stages[Math.min(stageIndex, stages.length - 1)];
-            
-            if (progress > (stageIndex + 1) * 20) {
-                stageIndex++;
-            }
-        }, 500);
-
-        // Store interval to clear later
-        window.gradingInterval = interval;
-    }
-
-    // Display results
-    function displayResults(data) {
-        if (window.gradingInterval) clearInterval(window.gradingInterval);
-        
-        document.getElementById('resultsSection').style.display = 'block';
-        
-        // Update stats
-        document.getElementById('statStudents').textContent = data.studentCount || '-';
-        document.getElementById('statTasks').textContent = data.taskCount || '-';
-        document.getElementById('statAverage').textContent = data.averageScore ? data.averageScore.toFixed(1) + '%' : '-';
-        document.getElementById('statSuccess').textContent = data.successRate ? data.successRate.toFixed(1) + '%' : '-';
-        
-        // Display logs
-        const logTerminal = document.getElementById('logTerminal');
-        logTerminal.innerHTML = '';
-        if (data.logs && data.logs.length > 0) {
-            data.logs.forEach(log => {
-                const logLine = document.createElement('div');
-                logLine.className = 'log-line';
-                logLine.textContent = '$ ' + log;
-                logTerminal.appendChild(logLine);
-            });
+        if (!data.success) {
+            showAlert('error', 'Generation failed: ' + data.message);
+            return;
         }
-        
-        // Scroll to results
-        document.getElementById('resultsSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
 
-    // Show alert
-    function showAlert(type, message) {
-        const alertContainer = document.getElementById('alertContainer');
-        const alert = document.createElement('div');
-        alert.className = `alert alert-${type}`;
-        alert.innerHTML = `
-            <div class="alert-content">
-                <span class="alert-icon">${type === 'success' ? '✓' : '✕'}</span>
-                <span class="alert-message">${message}</span>
-            </div>
-            <button class="alert-close" onclick="this.parentElement.remove()">×</button>
-        `;
-        alertContainer.appendChild(alert);
-        
-        setTimeout(() => alert.remove(), 5000);
-    }
+        // FIX 1: Reset both state maps before loading fresh generated sources.
+        // Previously testerSources could carry stale entries from a prior session
+        // which would shadow the newly generated content.
+        testerSources = {};
+        savedState    = {};
 
-    // Format file size
-    function formatFileSize(bytes) {
-        if (bytes < 1024) return bytes + ' B';
-        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        for (const [qId, info] of Object.entries(data.testers)) {
+            testerSources[qId] = info.source;
+            savedState[qId]    = false; // not yet saved to disk
+        }
+
+        renderTabs();
+        showAlert('success', `Generated ${Object.keys(testerSources).length} tester file(s) ✓`);
+
+    } catch (e) {
+        showAlert('error', 'Generation error: ' + e.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '⚙ Generate Test Cases';
+        document.getElementById('generatingOverlay').style.display = 'none';
+        setStatus('READY');
     }
+}
+
+// ── Editor: tabs + source editing ─────────────────────────────────────────────
+function renderTabs() {
+    const tabBar = document.getElementById('questionTabs');
+    tabBar.innerHTML = '';
+
+    const sortedIds = Object.keys(testerSources).sort();
+    sortedIds.forEach(qId => {
+        const tab = document.createElement('div');
+        tab.className = 'q-tab' + (savedState[qId] ? ' saved' : ' unsaved');
+        tab.id = 'tab-' + qId;
+        tab.textContent = qId + 'Tester.java';
+        tab.onclick = () => switchTab(qId);
+        tabBar.appendChild(tab);
+    });
+
+    document.getElementById('editorContainer').style.display = 'block';
+
+    if (sortedIds.length > 0) switchTab(sortedIds[0]);
+}
+
+// FIX 2: flushActiveEditor() — single, reliable place to commit the textarea
+// content back into testerSources for the currently visible tab.
+// Called before every tab switch, save, and grade operation so testerSources
+// always reflects what the examiner actually typed.
+function flushActiveEditor() {
+    if (activeTab) {
+        testerSources[activeTab] = document.getElementById('codeEditor').value;
+    }
+}
+
+function switchTab(qId) {
+    // FIX 2 applied: flush the editor before switching away
+    flushActiveEditor();
+
+    activeTab = qId;
+
+    document.querySelectorAll('.q-tab').forEach(t => t.classList.remove('active'));
+    const tab = document.getElementById('tab-' + qId);
+    if (tab) tab.classList.add('active');
+
+    document.getElementById('codeEditor').value = testerSources[qId] || '';
+    document.getElementById('editorFilename').textContent = qId + 'Tester.java';
+    updateSaveIndicator(qId);
+}
+
+function markUnsaved() {
+    if (!activeTab) return;
+    // FIX 3: Keep testerSources in sync on every keystroke so that
+    // saveAllFiles() and doGrade() always have the latest content
+    // even without an explicit flushActiveEditor() call.
+    testerSources[activeTab] = document.getElementById('codeEditor').value;
+
+    savedState[activeTab] = false;
+    updateSaveIndicator(activeTab);
+    const tab = document.getElementById('tab-' + activeTab);
+    if (tab) { tab.classList.remove('saved'); tab.classList.add('unsaved'); }
+}
+
+function updateSaveIndicator(qId) {
+    const ind = document.getElementById('saveIndicator');
+    if (savedState[qId]) {
+        ind.className = 'save-indicator saved'; ind.textContent = '✓ saved';
+    } else {
+        ind.className = 'save-indicator unsaved'; ind.textContent = '● unsaved changes';
+    }
+}
+
+function handleTabKey(e) {
+    if (e.key !== 'Tab') return;
+    e.preventDefault();
+    const ta  = e.target;
+    const s   = ta.selectionStart, end = ta.selectionEnd;
+    ta.value  = ta.value.substring(0, s) + '    ' + ta.value.substring(end);
+    ta.selectionStart = ta.selectionEnd = s + 4;
+    markUnsaved();
+}
+
+// ── Save file(s) to disk ───────────────────────────────────────────────────────
+async function saveCurrentFile() {
+    if (!activeTab) return;
+
+    // FIX 2 applied: use flushActiveEditor() instead of a one-off assignment
+    flushActiveEditor();
+
+    const btn = document.getElementById('saveFileBtn');
+    btn.disabled = true;
+    btn.textContent = '⏳ Saving...';
+    document.getElementById('saveIndicator').className = 'save-indicator saving';
+    document.getElementById('saveIndicator').textContent = 'saving...';
+
+    const testers = { [activeTab]: testerSources[activeTab] };
+    const ok = await callSaveTesters(testers);
+
+    btn.disabled = false;
+    btn.textContent = '💾 Save File';
+
+    if (ok) {
+        savedState[activeTab] = true;
+        updateSaveIndicator(activeTab);
+        const tab = document.getElementById('tab-' + activeTab);
+        if (tab) { tab.classList.remove('unsaved'); tab.classList.add('saved'); }
+        showAlert('success', activeTab + 'Tester.java saved ✓');
+    }
+}
+
+async function saveAllFiles() {
+    // FIX 2 applied: flush active editor before saving everything
+    flushActiveEditor();
+
+    const ok = await callSaveTesters(testerSources);
+    if (ok) {
+        Object.keys(testerSources).forEach(qId => {
+            savedState[qId] = true;
+            const tab = document.getElementById('tab-' + qId);
+            if (tab) { tab.classList.remove('unsaved'); tab.classList.add('saved'); }
+        });
+        if (activeTab) updateSaveIndicator(activeTab);
+        showAlert('success', 'All tester files saved ✓');
+    }
+}
+
+async function callSaveTesters(testers) {
+    try {
+        const res  = await fetch('/save-testers', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ testers })
+        });
+        const data = await res.json();
+        if (!data.success) { showAlert('error', 'Save failed: ' + data.message); return false; }
+        return true;
+    } catch (e) {
+        showAlert('error', 'Save error: ' + e.message);
+        return false;
+    }
+}
+
+// ── STEP 3 → 4: Grade ─────────────────────────────────────────────────────────
+async function doGrade() {
+    // FIX 2 applied: flush the active editor so its content is in testerSources
+    // before we save everything to disk.
+    flushActiveEditor();
+
+    // FIX 4: Always save ALL tester sources to disk before grading,
+    // regardless of savedState flags. This is the only way to guarantee that
+    // every edit — including edits on non-active tabs and edits made without
+    // clicking "Save File" — is written before /grade is called.
+    // The backend's savedTestersExist() guard will then correctly skip AI
+    // regeneration and use these files.
+    const ok = await callSaveTesters(testerSources);
+    if (!ok) return; // save failed — do not proceed to grade
+
+    // Mark all as saved in UI
+    Object.keys(testerSources).forEach(q => {
+        savedState[q] = true;
+        const tab = document.getElementById('tab-' + q);
+        if (tab) { tab.classList.remove('unsaved'); tab.classList.add('saved'); }
+    });
+    if (activeTab) updateSaveIndicator(activeTab);
+
+    gotoStep(4);
+    document.getElementById('editorSection').style.display  = 'none';
+    document.getElementById('gradingSection').style.display = 'block';
+    document.getElementById('gradingSection').scrollIntoView({ behavior:'smooth' });
+
+    setStatus('GRADING');
+    simulateProgress();
+
+    try {
+        const res  = await fetch('/grade', { method:'POST' });
+        const data = await res.json();
+        if (window.gradingInterval) clearInterval(window.gradingInterval);
+        document.getElementById('progressFill').style.width = '100%';
+
+        document.getElementById('gradingSection').style.display = 'none';
+        document.getElementById('resultsSection').style.display = 'block';
+        displayResults(data);
+        setStatus('READY');
+        if (data.success) showAlert('success', 'Grading complete ✓');
+        else showAlert('error', 'Grading finished with errors — check log');
+    } catch (e) {
+        showAlert('error', 'Grading error: ' + e.message);
+        setStatus('READY');
+    }
+}
+
+function simulateProgress() {
+    const fill   = document.getElementById('progressFill');
+    const label  = document.getElementById('progressLabel');
+    const stages = ['Extracting...','Validating...','Compiling...','Grading...','Analyzing...'];
+    let p = 0, si = 0;
+    window.gradingInterval = setInterval(() => {
+        p += Math.random() * 12;
+        if (p > 95) p = 95;
+        fill.style.width = p + '%';
+        label.textContent = stages[Math.min(si, stages.length - 1)];
+        if (p > (si + 1) * 19) si++;
+    }, 600);
+}
+
+function displayResults(data) {
+    document.getElementById('statStudents').textContent = data.studentCount || '-';
+    document.getElementById('statTasks').textContent    = data.taskCount    || '-';
+    document.getElementById('statAverage').textContent  = data.averageScore ? data.averageScore.toFixed(1)+'%' : '-';
+    document.getElementById('statSuccess').textContent  = data.successRate  ? data.successRate.toFixed(1)+'%'  : '-';
+    const term = document.getElementById('logTerminal');
+    term.innerHTML = '';
+    (data.logs || []).forEach(log => {
+        const d = document.createElement('div');
+        d.className = 'log-line'; d.textContent = '$ ' + log; term.appendChild(d);
+    });
+    document.getElementById('resultsSection').scrollIntoView({ behavior:'smooth' });
+}
+
+// ── Navigation ─────────────────────────────────────────────────────────────────
+function gotoStep(n) {
+    [1,2,3,4].forEach(i => {
+        const el = document.getElementById('step' + i);
+        el.classList.remove('active','done');
+        if (i < n)  el.classList.add('done');
+        if (i === n) el.classList.add('active');
+    });
+    ['12','23','34'].forEach((pair, idx) => {
+        const el = document.getElementById('line' + pair);
+        if (el) el.classList.toggle('done', n > idx + 1);
+    });
+}
+
+function goBack(toStep) {
+    const sections = { 1:'uploadSection', 2:'marksSection', 3:'editorSection', 4:'gradingSection' };
+    Object.values(sections).forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    });
+    gotoStep(toStep);
+    const target = document.getElementById(sections[toStep]);
+    if (target) { target.style.display = 'block'; target.scrollIntoView({ behavior:'smooth' }); }
+}
+
+// ── Utils ──────────────────────────────────────────────────────────────────────
+function setStatus(s) {
+    const badge = document.getElementById('systemStatusBadge');
+    badge.innerHTML = `<span class="badge-dot ${s==='READY'?'':'running'}"></span><span class="badge-text">${s}</span>`;
+}
+
+function showAlert(type, message) {
+    const c = document.getElementById('alertContainer');
+    const a = document.createElement('div');
+    a.className = `alert alert-${type}`;
+    a.innerHTML = `<div class="alert-content"><span class="alert-icon">${type==='success'?'✓':'✕'}</span><span class="alert-message">${message}</span></div><button class="alert-close" onclick="this.parentElement.remove()">×</button>`;
+    c.appendChild(a);
+    setTimeout(() => a.remove(), 6000);
+}
+
+function fmt(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes/1024).toFixed(1) + ' KB';
+    return (bytes/1048576).toFixed(1) + ' MB';
+}
 </script>
-
 </body>
 </html>

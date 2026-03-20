@@ -19,24 +19,12 @@ import java.util.Map;
  * 1. Console display of grading results
  * 2. Export official score sheet → IS442-ScoreSheet-Updated.xlsx (two tabs)
  * 3. Export statistics report    → IS442-Statistics.xlsx
- *
- * CHANGES IN v2.8 (multi-assessment):
- * - Added path-aware constructor accepting csvScoresheet + outputReports paths.
- * - ScoreSheetExporter and StatisticsReportExporter are constructed with
- *   explicit paths when provided, otherwise default to PathConfig.
- *
- * @author IS442 Team
- * @version 2.8
  */
 public class AnalysisController {
 
     private final ScoreSheetExporter       scoreSheetExporter;
     private final StatisticsReportExporter statisticsReportExporter;
     private final java.nio.file.Path       inputTesters;
-
-    // ================================================================
-    // CONSTRUCTORS
-    // ================================================================
 
     /**
      * Default constructor — uses global PathConfig static paths.
@@ -57,14 +45,10 @@ public class AnalysisController {
      * @param inputTesters  Path to this assessment's testers directory
      */
     public AnalysisController(Path csvScoresheet, Path outputReports, Path inputTesters) {
-        this.scoreSheetExporter       = new ScoreSheetExporter(csvScoresheet, outputReports);
-        this.statisticsReportExporter = new StatisticsReportExporter(outputReports);
+        this.scoreSheetExporter       = new ScoreSheetExporter(csvScoresheet, outputReports, inputTesters);
+        this.statisticsReportExporter = new StatisticsReportExporter(outputReports, inputTesters);
         this.inputTesters             = inputTesters;
     }
-
-    // ================================================================
-    // PUBLIC API
-    // ================================================================
 
     // ── Original overload — backward compatible ────────────────────────────
 

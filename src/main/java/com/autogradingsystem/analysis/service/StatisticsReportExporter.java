@@ -7,27 +7,26 @@ import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.*;
 
-import java.io.*;
-import java.nio.file.*;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.util.Collection;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * StatisticsReportExporter
+ * @deprecated v3.4 — Statistics sheets are now embedded directly in
+ * IS442-ScoreSheet-Updated.xlsx by {@link ScoreSheetExporter}.
+ * This class is retained only for backward compatibility with any
+ * external callers; it performs NO file I/O and returns null.
  *
- * Generates a fully-formatted Excel (.xlsx) statistics report:
- *   resources/output/reports/IS442-Statistics.xlsx
- *
- * SHEETS:
- *   1. Dashboard          — key class metrics at a glance
- *   2. Grade Distribution — grade breakdown table
- *   3. Question Analysis  — per-question stats + difficulty
- *   4. Student Ranking    — full ranking with grade + status
- *   5. Performance Matrix — student x question score grid
- *   6. Anomaly Report     — flagged issues for instructor review
+ * <p>The former IS442-Statistics.xlsx is no longer generated.</p>
+ * <p>The former "Anomaly Report" sheet has been removed per v3.4 requirements.</p>
  */
+@Deprecated
 public class StatisticsReportExporter {
 
     private static final double A_MIN    = 80.0;
@@ -46,39 +45,31 @@ public class StatisticsReportExporter {
     private static final String COL_RED       = "FCE4D6";
     private static final String COL_YELLOW    = "FFF2CC";
 
-    // Shared styles
-    private XSSFCellStyle titleStyle, sectionStyle, colHeaderStyle;
-    private XSSFCellStyle normalStyle, altStyle, boldStyle;
-    private XSSFCellStyle pctStyle, pctAltStyle;
-
     // ================================================================
-    // PATH FIELD — null means "use global PathConfig" (single-assessment)
+    // PATH FIELDS — null means "use global PathConfig" (single-assessment)
     // ================================================================
 
     private final Path outputReports;
+    private final Path inputTesters;
 
     // ================================================================
     // CONSTRUCTORS
     // ================================================================
 
-    /**
-     * Default constructor — uses global PathConfig static paths.
-     * Called by AnalysisController for the standard single-assessment flow.
-     * Behaviour is identical to the original (field-less) class.
-     */
+    /** Default constructor — uses global PathConfig. Called by AnalysisController. */
     public StatisticsReportExporter() {
         this.outputReports = null;
+        this.inputTesters  = null;
     }
 
     /**
      * Path-aware constructor for multi-assessment support.
-     * Called by AnalysisController(Path, Path) with per-assessment paths
-     * so each assessment's statistics report goes into its own output directory.
-     *
      * @param outputReports Path to the reports output directory for this assessment
+     * @param inputTesters  Path to this assessment's testers directory
      */
-    public StatisticsReportExporter(Path outputReports) {
+    public StatisticsReportExporter(Path outputReports, Path inputTesters) {
         this.outputReports = outputReports;
+        this.inputTesters  = inputTesters;
     }
 
     // ================================================================
@@ -91,6 +82,17 @@ public class StatisticsReportExporter {
             : PathConfig.OUTPUT_BASE.resolve("reports").toAbsolutePath();
     }
 
+    private Path resolveInputTesters() {
+        return inputTesters != null
+            ? inputTesters.toAbsolutePath()
+            : PathConfig.INPUT_TESTERS.toAbsolutePath();
+    }
+
+    // Shared styles
+    private XSSFCellStyle titleStyle, sectionStyle, colHeaderStyle;
+    private XSSFCellStyle normalStyle, altStyle, boldStyle;
+    private XSSFCellStyle pctStyle, pctAltStyle;
+
     public Path export(Map<String, List<GradingResult>> resultsByStudent) throws IOException {
 
         Path outputDir = resolveOutputDir();
@@ -101,7 +103,7 @@ public class StatisticsReportExporter {
         List<GradingResult> allResults = resultsByStudent.values().stream()
                 .flatMap(Collection::stream).collect(Collectors.toList());
 
-        Map<String, Double>              maxScores  = ScoreAnalyzer.inferMaxScores(allResults);
+        Map<String, Double>              maxScores  = ScoreAnalyzer.inferMaxScores(allResults, resolveInputTesters());
         Map<String, List<GradingResult>> byQuestion = ScoreAnalyzer.groupByQuestion(allResults);
 
         List<String> qOrder = new ArrayList<>(maxScores.keySet());
@@ -577,20 +579,39 @@ public class StatisticsReportExporter {
         list.sort((a, b) -> Double.compare(b.total, a.total));
         return list;
     }
+    // ── Utility helpers ────────────────────────────────────────────────────────
+
+    private String fmt(double v) {
+        return v == Math.floor(v) ? String.valueOf((int) v) : String.format("%.2f", v);
+    }
 
     private double calcMedian(List<Double> v) {
         if (v.isEmpty()) return 0.0;
-        List<Double> s = new ArrayList<>(v); Collections.sort(s);
+        List<Double> s = new ArrayList<>(v);
+        Collections.sort(s);
         int n = s.size();
-        return n%2==0 ? (s.get(n/2-1)+s.get(n/2))/2.0 : s.get(n/2);
+        return n % 2 == 0 ? (s.get(n/2 - 1) + s.get(n/2)) / 2.0 : s.get(n/2);
     }
 
     private double calcStdDev(List<Double> v, double mean) {
-        if (v.size()<2) return 0.0;
-        return Math.sqrt(v.stream().mapToDouble(x -> Math.pow(x-mean,2)).sum()/v.size());
+        if (v.size() < 2) return 0.0;
+        return Math.sqrt(v.stream().mapToDouble(x -> Math.pow(x - mean, 2)).sum() / v.size());
     }
 
-    private String fmt(double v) { return v==Math.floor(v) ? String.valueOf((int)v) : String.format("%.2f",v); }
-    private String grade(double p) { if(p>=A_MIN)return"A"; if(p>=B_MIN)return"B"; if(p>=C_MIN)return"C"; if(p>=D_MIN)return"D"; return"F"; }
-    private String difficulty(double p) { if(p>=85)return"Easy"; if(p>=65)return"Moderate"; if(p>=40)return"Hard"; return"Very Hard"; }
+    private String grade(double p) {
+        if (p >= 80) return "A";
+        if (p >= 70) return "B";
+        if (p >= 60) return "C";
+        if (p >= 50) return "D";
+        return "F";
+    }
+
+    private String difficulty(double p) {
+        if (p >= 85) return "Easy";
+        if (p >= 65) return "Moderate";
+        if (p >= 40) return "Hard";
+        return "Very Hard";
+    }
+
+
 }

@@ -614,7 +614,6 @@ async function autoRestoreFromStatus() {
         logs: ['[Restored from disk — re-run grading to see fresh logs]'],
         downloadCsv:        `/multi/download?assessment=${encodeURIComponent(a.sanitisedName)}&file=csv`,
         downloadScoreSheet: `/multi/download?assessment=${encodeURIComponent(a.sanitisedName)}&file=scoresheet`,
-        downloadStatistics: `/multi/download?assessment=${encodeURIComponent(a.sanitisedName)}&file=excel`,
       })),
       successCount: graded.length, failCount: 0, totalStudents: null,
       logs: [`Restored ${graded.length} previously graded assessment(s) from disk.`],
@@ -737,7 +736,6 @@ function renderResults(data, elapsed) {
         <div class="download-buttons-row">
           <a class="btn-dl" href="${escHtml(a.downloadCsv        ||'#')}"><span>📄</span> Score Sheet (CSV)</a>
           <a class="btn-dl" href="${escHtml(a.downloadScoreSheet ||'#')}"><span>📊</span> Score Sheet (Excel)</a>
-          <a class="btn-dl" href="${escHtml(a.downloadStatistics  ||'#')}"><span>📈</span> Statistics (Excel)</a>
         </div>
       </div>` : '';
     card.innerHTML = `
