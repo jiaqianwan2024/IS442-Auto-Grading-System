@@ -280,6 +280,266 @@
             .section-actions .btn-secondary { width: 100%; justify-content: center; }
             .code-editor { min-height: 300px; font-size: 0.78rem; }
         }
+
+        /* ══════════════════════════════════════════════════════════════════
+           TEST CASE STUDIO — styles matching retro design system
+           ══════════════════════════════════════════════════════════════════ */
+
+        /* Studio nav link in mode-nav */
+        .mode-nav a.studio-link { border-right: none; }
+
+        /* Studio section wrapper */
+        #studioSection { display: none; }
+
+        /* Upload bar */
+        .studio-upload-bar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            padding: 18px 20px;
+            background: var(--gray-light);
+            border: 4px solid var(--black);
+            box-shadow: var(--shadow-medium);
+            margin-bottom: 24px;
+        }
+        .studio-upload-bar label {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 0.9rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            white-space: nowrap;
+            color: var(--black);
+        }
+        .studio-upload-bar input[type="file"] {
+            flex: 1;
+            min-width: 180px;
+            font-size: 0.85rem;
+            font-family: 'Space Mono', monospace;
+            color: #555;
+        }
+
+        /* Shell: 2-column layout */
+        .studio-shell {
+            display: grid;
+            grid-template-columns: 260px 1fr;
+            border: 4px solid var(--black);
+            box-shadow: var(--shadow-thick);
+            background: var(--white);
+            min-height: 560px;
+        }
+
+        /* Sidebar */
+        .studio-sidebar {
+            border-right: 4px solid var(--black);
+            overflow-y: auto;
+            background: var(--white);
+        }
+        .studio-sidebar-header {
+            padding: 10px 14px;
+            background: var(--black);
+            color: var(--yellow);
+            font-family: 'Space Mono', monospace;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+        .studio-q-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 14px;
+            cursor: pointer;
+            border-bottom: 3px solid var(--black);
+            transition: background 0.1s;
+        }
+        .studio-q-item:hover   { background: var(--yellow-light); }
+        .studio-q-item.active  { background: var(--yellow); }
+        .studio-q-badge {
+            font-family: 'Space Mono', monospace;
+            font-size: 0.75rem;
+            font-weight: 700;
+            background: var(--black);
+            color: var(--yellow);
+            padding: 3px 7px;
+            white-space: nowrap;
+        }
+        .studio-q-item.active .studio-q-badge {
+            background: var(--yellow-dark);
+            color: var(--black);
+        }
+        .studio-q-info { flex: 1; min-width: 0; }
+        .studio-q-classname {
+            font-size: 0.8rem;
+            font-weight: 700;
+            font-family: 'Space Grotesk', sans-serif;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .studio-q-methods {
+            font-size: 0.72rem;
+            color: #666;
+            font-family: 'Space Mono', monospace;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            margin-top: 2px;
+        }
+        .studio-marks-input {
+            width: 40px;
+            padding: 3px 5px;
+            font-size: 0.8rem;
+            font-family: 'Space Mono', monospace;
+            border: 2px solid var(--black);
+            text-align: center;
+            background: var(--white);
+        }
+        .studio-marks-input:focus { outline: none; background: var(--yellow-light); }
+        .studio-marks-label {
+            font-size: 0.65rem;
+            color: #888;
+            text-align: center;
+            font-family: 'Space Grotesk', sans-serif;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        /* Editor pane */
+        .studio-editor-pane {
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+        .studio-editor-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 16px;
+            background: var(--black);
+            color: var(--yellow);
+            flex-shrink: 0;
+            flex-wrap: wrap;
+        }
+        .studio-editor-title {
+            font-family: 'Space Mono', monospace;
+            font-size: 0.85rem;
+            font-weight: 700;
+            flex: 1;
+        }
+        .studio-editor-status {
+            font-family: 'Space Mono', monospace;
+            font-size: 0.75rem;
+            padding: 2px 8px;
+            border: 2px solid;
+        }
+        .studio-editor-status.saved   { color: var(--green); border-color: var(--green); }
+        .studio-editor-status.unsaved { color: var(--red);   border-color: var(--red); }
+        .studio-editor-status.idle    { color: #888;         border-color: #888; }
+
+        .btn-studio {
+            padding: 5px 14px;
+            font-size: 0.78rem;
+            font-weight: 700;
+            font-family: 'Space Grotesk', sans-serif;
+            text-transform: uppercase;
+            border: 3px solid var(--yellow);
+            background: transparent;
+            color: var(--yellow);
+            cursor: pointer;
+            transition: all 0.1s;
+        }
+        .btn-studio:hover:not(:disabled) { background: var(--yellow); color: var(--black); }
+        .btn-studio:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn-studio.green {
+            border-color: var(--green); color: var(--green);
+        }
+        .btn-studio.green:hover:not(:disabled) { background: var(--green); color: var(--white); }
+
+        .studio-editor-area {
+            flex: 1;
+            min-height: 420px;
+            position: relative;
+            overflow: hidden;
+        }
+        .studio-code-editor {
+            display: block;
+            width: 100%;
+            height: 100%;
+            min-height: 420px;
+            padding: 20px;
+            background: var(--black);
+            color: #e0e0ff;
+            font-family: 'Space Mono', 'Courier New', monospace;
+            font-size: 0.82rem;
+            line-height: 1.7;
+            border: none;
+            outline: none;
+            resize: vertical;
+            box-sizing: border-box;
+            tab-size: 4;
+        }
+
+        /* Empty state */
+        .studio-empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            min-height: 360px;
+            gap: 14px;
+            color: #999;
+            font-size: 0.9rem;
+            text-align: center;
+            padding: 40px;
+            font-family: 'Space Grotesk', sans-serif;
+            background: var(--black);
+        }
+        .studio-empty-state .icon { font-size: 3rem; opacity: 0.3; }
+        .studio-empty-state p { margin: 0; max-width: 280px; line-height: 1.5; color: #888; }
+        .studio-empty-state strong { color: var(--yellow); }
+
+        /* Status bar */
+        .studio-status-bar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 16px;
+            background: var(--black);
+            color: #aaa;
+            font-family: 'Space Mono', monospace;
+            font-size: 0.75rem;
+            border-top: 3px solid var(--black);
+            min-height: 36px;
+        }
+        .studio-status-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #555;
+            flex-shrink: 0;
+        }
+        .studio-status-dot.ok  { background: var(--green); }
+        .studio-status-dot.err { background: var(--red); }
+        .studio-status-dot.run {
+            background: var(--yellow);
+            animation: pulse 0.8s infinite;
+        }
+        .studio-status-msg { flex: 1; }
+
+        /* Action row above shell */
+        .studio-action-row {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 16px;
+        }
+
+        @media (max-width: 768px) {
+            .studio-shell { grid-template-columns: 1fr; }
+            .studio-sidebar { border-right: none; border-bottom: 4px solid var(--black); max-height: 220px; }
+        }
     </style>
 </head>
 <body>
@@ -311,6 +571,7 @@
     <nav class="mode-nav">
         <a href="/" class="active">⚡ Single Assessment</a>
         <a href="/multi-test">🗂 Multi-Assessment</a>
+        <a href="#" class="studio-link" onclick="toggleStudio(event)">🧪 Test Case Studio</a>
     </nav>
 
     <!-- Alert Container -->
@@ -516,9 +777,98 @@
         </div>
     </section>
 
-</div>
+    <!-- ══════════════════════════════════════════════════════════════════ -->
+    <!-- TEST CASE STUDIO                                                   -->
+    <!-- ══════════════════════════════════════════════════════════════════ -->
+    <section id="studioSection">
+        <div class="section-header">
+            <h3>🧪 Test Case Studio</h3>
+            <p>Optionally top up or generate tester files using AI. Upload your template ZIP and any existing tester files — the AI will add test cases up to the mark count for each question, or generate from scratch if none exist.</p>
+        </div>
 
-<footer class="footer">
+        <!-- Step 1: Upload template + existing testers -->
+        <div class="studio-upload-bar" style="flex-direction:column; align-items:flex-start; gap:14px;">
+            <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; width:100%;">
+                <label for="studioZipInput" style="min-width:120px;">Template ZIP:</label>
+                <input type="file" id="studioZipInput" accept=".zip" style="flex:1;" />
+                <button class="btn-secondary" id="btnStudioAnalyze" onclick="studioAnalyze()"
+                        style="padding:8px 18px; font-size:0.85rem; white-space:nowrap;">
+                    🔍 Analyze Template
+                </button>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                <label style="min-width:120px; font-size:0.85rem; color:#666; font-weight:600;">
+                    Existing Testers <span style="font-weight:400;">(optional):</span>
+                </label>
+                <input type="file" id="studioExistingTesters" accept=".java" multiple
+                       onchange="studioReadExistingTesters(this)"
+                       style="font-size:0.82rem; color:#555;" />
+                <span style="font-size:0.78rem; color:#999;">Upload any *Tester.java files you already have — AI will top them up</span>
+            </div>
+        </div>
+
+        <!-- Action buttons -->
+        <div class="studio-action-row">
+            <button class="btn-primary" id="btnStudioGenAll" onclick="studioAugmentAll()" disabled
+                    style="font-size:0.9rem; padding:10px 24px;">
+                ⚙ Generate / Top Up All
+            </button>
+            <button class="btn-secondary" id="btnStudioSaveAll" onclick="studioSaveAll()" disabled
+                    style="padding:10px 24px; font-size:0.9rem;">
+                💾 Save All to Disk
+            </button>
+        </div>
+
+        <!-- Shell: sidebar + editor -->
+        <div class="studio-shell">
+
+            <!-- Sidebar -->
+            <div class="studio-sidebar">
+                <div class="studio-sidebar-header">Questions — marks = target test count</div>
+                <div id="studioQuestionList">
+                    <div class="studio-empty-state" style="min-height:200px;">
+                        <div class="icon">📂</div>
+                        <p>Upload a template ZIP and click <strong>Analyze Template</strong>.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Editor pane -->
+            <div class="studio-editor-pane">
+                <div class="studio-editor-toolbar">
+                    <span class="studio-editor-title" id="studioEditorTitle">No file open</span>
+                    <span class="studio-editor-status idle" id="studioEditorStatus">—</span>
+                    <button class="btn-studio" id="btnStudioGenOne" onclick="studioAugmentOne()" disabled>
+                        Generate / Top Up This
+                    </button>
+                    <button class="btn-studio green" id="btnStudioSaveOne" onclick="studioSaveOne()" disabled>
+                        Save This
+                    </button>
+                </div>
+
+                <div class="studio-editor-area">
+                    <div class="studio-empty-state" id="studioEditorPlaceholder">
+                        <div class="icon">🗂️</div>
+                        <p>Select a question from the sidebar, then click <strong>Generate / Top Up This</strong>.</p>
+                    </div>
+                    <textarea class="studio-code-editor" id="studioCodeEditor"
+                              style="display:none;"
+                              spellcheck="false"
+                              onkeydown="studioHandleTab(event)"
+                              oninput="studioMarkDirty()"></textarea>
+                </div>
+
+                <!-- Status bar -->
+                <div class="studio-status-bar">
+                    <div class="studio-status-dot" id="studioDot"></div>
+                    <span class="studio-status-msg" id="studioStatusMsg">Ready — upload a template to begin.</span>
+                </div>
+            </div>
+
+        </div><!-- /.studio-shell -->
+    </section>
+
+</div>
     <div class="footer-content"><p>IS442 Auto-Grading System • Built by G1T4</p></div>
 </footer>
 
@@ -1025,6 +1375,358 @@ function fmt(bytes) {
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1048576) return (bytes/1024).toFixed(1) + ' KB';
     return (bytes/1048576).toFixed(1) + ' MB';
+}
+
+// ── TEST CASE STUDIO ──────────────────────────────────────────────────────────
+
+const Studio = {
+    questions:       {},   // { Q1a: { className, methods, ... } }
+    testers:         {},   // { Q1a: "...java source..." }
+    dirty:           {},   // { Q1a: true/false }
+    existingTesters: {},   // { Q1a: File } — uploaded existing *Tester.java files
+    activeQ:         null,
+    templateFile:    null,
+};
+
+function toggleStudio(e) {
+    e.preventDefault();
+    const studio   = document.getElementById('studioSection');
+    const isHidden = studio.style.display === 'none' || studio.style.display === '';
+    ['uploadSection','marksSection','editorSection','gradingSection','resultsSection'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = isHidden ? 'none' : (id === 'uploadSection' ? 'block' : 'none');
+    });
+    studio.style.display = isHidden ? 'block' : 'none';
+    document.querySelectorAll('.mode-nav a').forEach(a => a.classList.remove('active'));
+    if (isHidden) e.target.classList.add('active');
+    else document.querySelector('.mode-nav a:first-child').classList.add('active');
+    if (isHidden) studio.scrollIntoView({ behavior: 'smooth' });
+}
+
+function studioStatus(msg, state) {
+    document.getElementById('studioStatusMsg').textContent = msg;
+    const dot = document.getElementById('studioDot');
+    dot.className = 'studio-status-dot'
+        + (state === 'ok' ? ' ok' : state === 'err' ? ' err' : state === 'run' ? ' run' : '');
+}
+
+function studioSetBusy(busy) {
+    ['btnStudioAnalyze','btnStudioGenAll','btnStudioSaveAll','btnStudioGenOne','btnStudioSaveOne']
+        .forEach(id => { const el = document.getElementById(id); if (el) el.disabled = busy; });
+    if (!busy) studioRefreshButtons();
+}
+
+function studioRefreshButtons() {
+    const hasQ = Object.keys(Studio.questions).length > 0;
+    const hasT = Object.keys(Studio.testers).length > 0;
+    document.getElementById('btnStudioGenAll').disabled  = !hasQ;
+    document.getElementById('btnStudioSaveAll').disabled = !hasT;
+    document.getElementById('btnStudioGenOne').disabled  = !Studio.activeQ;
+    document.getElementById('btnStudioSaveOne').disabled =
+        !(Studio.activeQ && Studio.testers[Studio.activeQ] !== undefined);
+}
+
+// Read uploaded existing tester files into Studio.existingTesters map
+function studioReadExistingTesters(input) {
+    Studio.existingTesters = {};
+    Array.from(input.files).forEach(file => {
+        // Expect filenames like Q1aTester.java → extract Q1a
+        const match = file.name.match(/^([A-Za-z0-9]+)Tester\.java$/i);
+        if (match) {
+            Studio.existingTesters[match[1]] = file;
+        }
+    });
+    const count = Object.keys(Studio.existingTesters).length;
+    if (count > 0) {
+        showAlert('success', count + ' existing tester file(s) loaded: '
+            + Object.keys(Studio.existingTesters).join(', '));
+    }
+}
+
+async function studioAnalyze() {
+    const input = document.getElementById('studioZipInput');
+    if (!input.files.length) { showAlert('error', 'Select a template ZIP first.'); return; }
+    Studio.templateFile = input.files[0];
+    studioSetBusy(true);
+    studioStatus('Analyzing template…', 'run');
+    try {
+        const fd = new FormData();
+        fd.append('template', Studio.templateFile);
+        const res  = await fetch('/analyze-template', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!data.success) {
+            studioStatus('Analysis failed: ' + data.message, 'err');
+            studioSetBusy(false);
+            return;
+        }
+        Studio.questions = data.questions;
+        Studio.testers   = {};
+        Studio.dirty     = {};
+        Studio.activeQ   = null;
+        studioRenderSidebar();
+        studioStatus(data.message + ' — set marks then click Generate / Top Up.', 'ok');
+        showAlert('success', data.message);
+        studioSetBusy(false);
+        const firstQ = Object.keys(Studio.questions)[0];
+        if (firstQ) studioSelectQuestion(firstQ);
+    } catch (err) {
+        studioStatus('Network error: ' + err.message, 'err');
+        studioSetBusy(false);
+    }
+}
+
+function studioRenderSidebar() {
+    const container = document.getElementById('studioQuestionList');
+    container.innerHTML = '';
+    for (const [qId, qData] of Object.entries(Studio.questions)) {
+        const item = document.createElement('div');
+        item.className = 'studio-q-item' + (qId === Studio.activeQ ? ' active' : '');
+        item.id = 'studioQItem-' + qId;
+        item.onclick = () => studioSelectQuestion(qId);
+
+        const badge = document.createElement('div');
+        badge.className = 'studio-q-badge';
+        badge.textContent = qId;
+
+        const info = document.createElement('div');
+        info.className = 'studio-q-info';
+        const cn = document.createElement('div');
+        cn.className = 'studio-q-classname';
+        cn.textContent = qData.className || qId;
+        const mth = document.createElement('div');
+        mth.className = 'studio-q-methods';
+        const testable = (qData.methods || []).filter(m => m.name !== 'main');
+        mth.textContent = testable.length
+            ? testable.map(m => m.name + '()').join(', ')
+            : 'no testable methods';
+        info.appendChild(cn);
+        info.appendChild(mth);
+
+        // Marks input — this is the TARGET total (= marks for the question)
+        const marksWrap = document.createElement('div');
+        marksWrap.style.textAlign = 'center';
+        const mi = document.createElement('input');
+        mi.type = 'number'; mi.min = 1; mi.max = 30; mi.value = 3;
+        mi.className = 'studio-marks-input';
+        mi.id = 'studioMarks-' + qId;
+        mi.title = 'Marks for this question (= target test case count)';
+        mi.onclick = e => e.stopPropagation();
+        const ml = document.createElement('div');
+        ml.className = 'studio-marks-label';
+        ml.textContent = 'marks';
+        marksWrap.appendChild(mi);
+        marksWrap.appendChild(ml);
+
+        item.appendChild(badge);
+        item.appendChild(info);
+        item.appendChild(marksWrap);
+        container.appendChild(item);
+    }
+}
+
+function studioSelectQuestion(qId) {
+    if (Studio.activeQ) {
+        const ed = document.getElementById('studioCodeEditor');
+        if (ed.style.display !== 'none') Studio.testers[Studio.activeQ] = ed.value;
+    }
+    Studio.activeQ = qId;
+    document.querySelectorAll('.studio-q-item').forEach(el => el.classList.remove('active'));
+    const item = document.getElementById('studioQItem-' + qId);
+    if (item) item.classList.add('active');
+
+    const editor      = document.getElementById('studioCodeEditor');
+    const placeholder = document.getElementById('studioEditorPlaceholder');
+    const title       = document.getElementById('studioEditorTitle');
+    const status      = document.getElementById('studioEditorStatus');
+    title.textContent = qId + 'Tester.java';
+
+    if (Studio.testers[qId] !== undefined) {
+        editor.value = Studio.testers[qId];
+        editor.style.display = 'block';
+        placeholder.style.display = 'none';
+        status.className  = Studio.dirty[qId] ? 'studio-editor-status unsaved' : 'studio-editor-status saved';
+        status.textContent = Studio.dirty[qId] ? '● unsaved' : '✓ saved';
+    } else {
+        editor.style.display = 'none';
+        placeholder.style.display = 'flex';
+        const hasExisting = !!Studio.existingTesters[qId];
+        placeholder.innerHTML = `<div class="icon">${hasExisting ? '📄' : '⚡'}</div>
+            <p>${hasExisting
+                ? 'Existing <strong>' + qId + 'Tester.java</strong> loaded — click <strong>Generate / Top Up This</strong> to add AI test cases up to the mark count.'
+                : 'No existing tester — click <strong>Generate / Top Up This</strong> to generate from scratch.'
+            }</p>`;
+        status.className  = 'studio-editor-status idle';
+        status.textContent = hasExisting ? 'existing loaded' : 'not generated';
+    }
+    studioRefreshButtons();
+}
+
+// Build FormData for the /studio-augment endpoint
+function studioBuildAugmentForm(questionIds) {
+    const fd = new FormData();
+    fd.append('template', Studio.templateFile);
+
+    const marks = {};
+    for (const qId of questionIds) {
+        const el = document.getElementById('studioMarks-' + qId);
+        marks[qId] = el ? (parseInt(el.value) || 3) : 3;
+        // Attach existing tester file if uploaded for this question
+        if (Studio.existingTesters[qId]) {
+            fd.append('tester_' + qId, Studio.existingTesters[qId]);
+        }
+    }
+    fd.append('marksJson', JSON.stringify(marks));
+    return fd;
+}
+
+async function studioAugmentAll() {
+    if (!Studio.templateFile) { showAlert('error', 'Analyze a template first.'); return; }
+    studioSetBusy(true);
+    studioStatus('Generating / topping up all testers via qwen2.5-coder:7b…', 'run');
+    try {
+        const fd   = studioBuildAugmentForm(Object.keys(Studio.questions));
+        const res  = await fetch('/studio-augment', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!data.success) {
+            studioStatus('Failed: ' + data.message, 'err');
+            showAlert('error', data.message);
+            studioSetBusy(false);
+            return;
+        }
+        let summary = [];
+        for (const [qId, tData] of Object.entries(data.testers)) {
+            Studio.testers[qId] = tData.source;
+            Studio.dirty[qId]   = false;
+            summary.push(qId + ': ' + tData.existingCount + '+' + tData.addedCount
+                + '=' + tData.totalCount);
+        }
+        studioStatus('Done — ' + summary.join(', '), 'ok');
+        showAlert('success', 'Testers ready: ' + summary.join(' | '));
+        studioSetBusy(false);
+        if (Studio.activeQ) studioSelectQuestion(Studio.activeQ);
+        else {
+            const firstQ = Object.keys(Studio.testers)[0];
+            if (firstQ) studioSelectQuestion(firstQ);
+        }
+    } catch (err) {
+        studioStatus('Error: ' + err.message + ' — is Ollama running?', 'err');
+        showAlert('error', err.message);
+        studioSetBusy(false);
+    }
+}
+
+async function studioAugmentOne() {
+    const qId = Studio.activeQ;
+    if (!qId || !Studio.templateFile) return;
+    studioSetBusy(true);
+    studioStatus('Generating / topping up ' + qId + 'Tester.java…', 'run');
+    try {
+        const fd   = studioBuildAugmentForm([qId]);
+        const res  = await fetch('/studio-augment', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!data.success) {
+            studioStatus('Failed: ' + data.message, 'err');
+            showAlert('error', data.message);
+            studioSetBusy(false);
+            return;
+        }
+        const tData = data.testers[qId];
+        if (tData) {
+            Studio.testers[qId] = tData.source;
+            Studio.dirty[qId]   = false;
+            studioStatus(qId + ': ' + tData.existingCount + ' existing + '
+                + tData.addedCount + ' added = ' + tData.totalCount + ' total.', 'ok');
+            showAlert('success', qId + 'Tester.java ready ('
+                + tData.existingCount + ' existing + ' + tData.addedCount + ' added) ✓');
+        }
+        studioSetBusy(false);
+        studioSelectQuestion(qId);
+    } catch (err) {
+        studioStatus('Error: ' + err.message, 'err');
+        studioSetBusy(false);
+    }
+}
+
+async function studioSaveOne() {
+    const qId = Studio.activeQ;
+    if (!qId) return;
+    Studio.testers[qId] = document.getElementById('studioCodeEditor').value;
+    studioSetBusy(true);
+    studioStatus('Saving ' + qId + 'Tester.java…', 'run');
+    try {
+        const res  = await fetch('/save-testers', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ testers: { [qId]: Studio.testers[qId] } }),
+        });
+        const data = await res.json();
+        if (data.success) {
+            Studio.dirty[qId] = false;
+            const st = document.getElementById('studioEditorStatus');
+            st.className = 'studio-editor-status saved';
+            st.textContent = '✓ saved';
+            studioStatus(qId + 'Tester.java saved to resources/input/testers/.', 'ok');
+            showAlert('success', qId + 'Tester.java saved ✓');
+        } else {
+            studioStatus('Save failed: ' + data.message, 'err');
+            showAlert('error', data.message);
+        }
+    } catch (err) {
+        studioStatus('Save error: ' + err.message, 'err');
+    }
+    studioSetBusy(false);
+}
+
+async function studioSaveAll() {
+    if (!Object.keys(Studio.testers).length) return;
+    if (Studio.activeQ) {
+        const ed = document.getElementById('studioCodeEditor');
+        if (ed.style.display !== 'none') Studio.testers[Studio.activeQ] = ed.value;
+    }
+    studioSetBusy(true);
+    studioStatus('Saving all testers to disk…', 'run');
+    try {
+        const res  = await fetch('/save-testers', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ testers: Studio.testers }),
+        });
+        const data = await res.json();
+        if (data.success) {
+            for (const qId of Object.keys(Studio.testers)) Studio.dirty[qId] = false;
+            if (Studio.activeQ) {
+                const st = document.getElementById('studioEditorStatus');
+                st.className = 'studio-editor-status saved';
+                st.textContent = '✓ saved';
+            }
+            studioStatus('All ' + data.saved.length + ' tester(s) saved.', 'ok');
+            showAlert('success', 'All ' + data.saved.length + ' tester(s) saved ✓');
+        } else {
+            studioStatus('Save failed: ' + data.message, 'err');
+            showAlert('error', data.message);
+        }
+    } catch (err) {
+        studioStatus('Save error: ' + err.message, 'err');
+    }
+    studioSetBusy(false);
+}
+
+function studioMarkDirty() {
+    if (!Studio.activeQ) return;
+    Studio.testers[Studio.activeQ] = document.getElementById('studioCodeEditor').value;
+    Studio.dirty[Studio.activeQ] = true;
+    const st = document.getElementById('studioEditorStatus');
+    st.className = 'studio-editor-status unsaved';
+    st.textContent = '● unsaved';
+}
+
+function studioHandleTab(e) {
+    if (e.key !== 'Tab') return;
+    e.preventDefault();
+    const ta = e.target, s = ta.selectionStart, end = ta.selectionEnd;
+    ta.value = ta.value.substring(0, s) + '    ' + ta.value.substring(end);
+    ta.selectionStart = ta.selectionEnd = s + 4;
+    studioMarkDirty();
 }
 </script>
 </body>
