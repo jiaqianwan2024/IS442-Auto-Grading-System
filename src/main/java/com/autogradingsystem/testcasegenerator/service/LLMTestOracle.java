@@ -20,12 +20,9 @@ import java.util.regex.*;
 /**
  * LLMTestOracle — generates test cases via the configured LLM provider.
  *
- * v3.5-ollama: Updated to use Ollama (qwen2.5-coder:7b) via LLMConfig.
- * No API key is required; fromEnvironment() constructs the oracle directly.
- *
  * SPEED FIX: Collapsed from 2 API calls per method to 1.
  *   Previously: reasoning call (up to 120s) + JSON call (up to 120s) = up to 4 min per question.
- *   Now: single combined call with inline scratchpad → JSON output = ~15–30s per question.
+ *   Now: single combined call with inline scratchpad → JSON output = ~15-30s per question.
  *   The prompt instructs the model to think first then immediately produce JSON in the same response.
  *
  * ACCURACY FIX: main() examples are extracted from the template source and
@@ -35,6 +32,7 @@ import java.util.regex.*;
  */
 public class LLMTestOracle {
 
+    private final String       apiKey;
     private final HttpClient   http;
     private final ObjectMapper mapper;
 
@@ -48,24 +46,16 @@ public class LLMTestOracle {
             "float", "boolean", "char", "Object"
     );
 
-    /** Primary constructor — no API key needed for Ollama. */
-    public LLMTestOracle() {
+    public LLMTestOracle(String apiKey) {
+        this.apiKey = apiKey;
         this.http   = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(LLMConfig.TIMEOUT_S))
                 .build();
         this.mapper = new ObjectMapper();
     }
 
-    /**
-     * Legacy constructor — apiKey parameter accepted for compile compatibility
-     * but ignored (Ollama requires no key).
-     */
-    public LLMTestOracle(String apiKey) {
-        this();
-    }
-
     public static LLMTestOracle fromEnvironment() {
-        return new LLMTestOracle();
+        return new LLMTestOracle(LLMConfig.resolveApiKey());
     }
 
     // -------------------------------------------------------------------------
@@ -103,15 +93,20 @@ public class LLMTestOracle {
     private List<GeneratedTestCase> callLLM(
             String questionId, QuestionSpec spec, MethodSpec method, int numTests) {
 
+        if (apiKey == null || apiKey.isBlank()) {
+            System.err.println("⚠️  No API key — cannot generate test cases for " + questionId);
+            return new ArrayList<>();
+        }
+
         try {
             String prompt   = buildCombinedPrompt(questionId, spec, method, numTests);
             String payload  = LLMConfig.buildTextPayload(prompt, mapper);
 
             HttpRequest req = LLMConfig.addAuthHeaders(
                     HttpRequest.newBuilder()
-                            .uri(URI.create(LLMConfig.buildUrl("")))
+                            .uri(URI.create(LLMConfig.buildUrl(apiKey)))
                             .timeout(Duration.ofSeconds(LLMConfig.TIMEOUT_S)),
-                    "")
+                    apiKey)
                     .POST(HttpRequest.BodyPublishers.ofString(payload))
                     .build();
 
@@ -120,7 +115,6 @@ public class LLMTestOracle {
             if (res.statusCode() != 200) {
                 System.err.println("⚠️  LLMTestOracle: HTTP " + res.statusCode()
                         + " for " + questionId + "::" + method.getName());
-                System.err.println("    Is Ollama running? Try: ollama serve");
                 return new ArrayList<>();
             }
 
@@ -132,8 +126,6 @@ public class LLMTestOracle {
         } catch (Exception e) {
             System.err.println("⚠️  LLMTestOracle: failed for "
                     + questionId + "::" + method.getName() + " — " + e.getMessage());
-            System.err.println("    Ensure Ollama is running with: ollama serve");
-            System.err.println("    And the model is pulled: ollama pull " + LLMConfig.MODEL);
             return new ArrayList<>();
         }
     }
@@ -245,21 +237,33 @@ public class LLMTestOracle {
 
     // -------------------------------------------------------------------------
     // Extract main() examples from source
+    // Each example is a structured input→expected pair parsed from the main() body
     // -------------------------------------------------------------------------
 
     private static class MainExample {
-        String argsDescription;
-        String expectedDescription;
+        String argsDescription;    // human-readable for the scratchpad
+        String expectedDescription; // human-readable for the scratchpad
     }
 
+    /**
+     * Parses the main() method body to extract input→expected pairs.
+     * These are injected verbatim into the prompt so the LLM copies rather than recomputes.
+     * Handles the common IS442 pattern:
+     *   - ArrayList<> inputs built with .add() calls
+     *   - expected = literal value
+     *   - String filename + String surname/courseName args
+     *   - Shape list args
+     */
     private List<MainExample> extractMainExamples(String source, MethodSpec method) {
         List<MainExample> examples = new ArrayList<>();
         try {
+            // Find main() body
             int mainIdx = source.indexOf("public static void main(");
             if (mainIdx < 0) return examples;
             int braceStart = source.indexOf('{', mainIdx);
             if (braceStart < 0) return examples;
 
+            // Find all { } blocks inside main — each is a test case block
             int depth = 1, i = braceStart + 1;
             int blockStart = -1;
             List<String> blocks = new ArrayList<>();
@@ -292,20 +296,24 @@ public class LLMTestOracle {
     private MainExample parseBlock(String block, MethodSpec method) {
         MainExample ex = new MainExample();
 
+        // Extract expected value — look for: type expected = <value>;
         Pattern expectedPat = Pattern.compile(
                 "(?:int|double|float|long|boolean|String)\\s+expected\\s*=\\s*([^;]+);");
         Matcher em = expectedPat.matcher(block);
         if (!em.find()) return null;
         String expectedRaw = em.group(1).trim();
 
+        // Build args description based on method parameter types
         List<ParamSpec> params = method.getParams();
         StringBuilder argsDesc = new StringBuilder();
 
         if (params.size() == 1 && isListType(params.get(0).getType())) {
+            // ArrayList-based question (Q1a, Q1b, Q3)
             argsDesc.append(extractListContents(block, params.get(0).getType()));
         } else if (params.size() == 2
                 && "String".equals(params.get(0).getType())
                 && "String".equals(params.get(1).getType())) {
+            // File-based question (Q2a, Q2b) — extract string literals
             List<String> strArgs = extractStringArgs(block, method.getName());
             if (strArgs.size() >= 2) {
                 argsDesc.append("\"").append(strArgs.get(0)).append("\", \"")
@@ -321,6 +329,7 @@ public class LLMTestOracle {
     }
 
     private String extractListContents(String block, String paramType) {
+        // Look for .add(...) calls and collect them
         Pattern addPat = Pattern.compile("\\.add\\(([^)]+)\\)");
         Matcher m = addPat.matcher(block);
         List<String> items = new ArrayList<>();
@@ -332,12 +341,17 @@ public class LLMTestOracle {
         String elemType = extractGenericType(paramType);
         StringBuilder sb = new StringBuilder("new java.util.ArrayList<>(java.util.Arrays.asList(");
 
+        // For Object lists, cast each item
         boolean isObjectList = "Object".equals(elemType);
 
         for (int i = 0; i < items.size(); i++) {
             String item = items.get(i);
             if (isObjectList) {
-                sb.append("(Object)").append(item);
+                // Determine cast type
+                if (item.startsWith("\"")) sb.append("(Object)").append(item);
+                else if (item.equals("true") || item.equals("false")) sb.append("(Object)").append(item);
+                else if (item.contains(".") && !item.startsWith("\"")) sb.append("(Object)").append(item);
+                else sb.append("(Object)").append(item);
             } else {
                 sb.append(item);
             }
@@ -348,12 +362,14 @@ public class LLMTestOracle {
     }
 
     private List<String> extractStringArgs(String block, String methodName) {
+        // Find the method call line: methodName("arg1", "arg2")
         Pattern callPat = Pattern.compile(
                 methodName + "\\s*\\(\\s*\"([^\"]+)\"\\s*,\\s*\"([^\"]+)\"\\s*\\)");
         Matcher m = callPat.matcher(block);
         if (m.find()) {
             return List.of(m.group(1), m.group(2));
         }
+        // Fallback: find printf line which shows the args
         Pattern printfPat = Pattern.compile("printf[^,]+,\\s*\"([^\"]+)\"\\s*,\\s*\"([^\"]+)\"");
         Matcher m2 = printfPat.matcher(block);
         if (m2.find()) {
@@ -363,7 +379,7 @@ public class LLMTestOracle {
     }
 
     // -------------------------------------------------------------------------
-    // Strategy guide
+    // Strategy guide — tailored per return type
     // -------------------------------------------------------------------------
 
     private String buildStrategyGuide(String returnType, QuestionSpec spec) {
@@ -392,6 +408,10 @@ public class LLMTestOracle {
         }
         return "Use \"equals\" for object types, \"==\" for primitives, \"eq_float\" for double/float.";
     }
+
+    // -------------------------------------------------------------------------
+    // Abstract class warning
+    // -------------------------------------------------------------------------
 
     private String buildAbstractClassWarning(QuestionSpec spec) {
         List<String> abstractClasses = new ArrayList<>();
@@ -427,7 +447,7 @@ public class LLMTestOracle {
     }
 
     // -------------------------------------------------------------------------
-    // Post-processing sanitiser
+    // Post-processing sanitiser (unchanged)
     // -------------------------------------------------------------------------
 
     private List<GeneratedTestCase> sanitiseAll(List<GeneratedTestCase> cases, MethodSpec method) {
@@ -505,7 +525,7 @@ public class LLMTestOracle {
     private String repairPythonList(String bracketExpr, String returnType) {
         String inner = bracketExpr.substring(1, bracketExpr.length() - 1).trim();
         if (inner.isEmpty()) return "new java.util.ArrayList<>()";
-        String[] items = inner.split(",(?![^<>]*>)");
+        String[] items = inner.split(",(?![^<>]*>)"); // split on comma not inside generics
         String elementType = extractGenericType(returnType);
         StringBuilder sb = new StringBuilder("new java.util.ArrayList<>(java.util.Arrays.asList(");
         for (int i = 0; i < items.length; i++) {
@@ -530,7 +550,7 @@ public class LLMTestOracle {
     }
 
     // -------------------------------------------------------------------------
-    // Response parsing
+    // Response parsing — extracts the JSON array from end of response
     // -------------------------------------------------------------------------
 
     private List<GeneratedTestCase> parseTestCases(
@@ -538,10 +558,12 @@ public class LLMTestOracle {
 
         String cleaned = llmText.trim();
 
+        // Strip markdown fences
         if (cleaned.contains("```")) {
             cleaned = cleaned.replaceAll("```[a-zA-Z]*\\n?", "").trim();
         }
 
+        // Find the LAST [ ... ] array in the response (after the scratchpad)
         int arrayStart = cleaned.lastIndexOf('[');
         int arrayEnd   = cleaned.lastIndexOf(']');
         if (arrayStart >= 0 && arrayEnd > arrayStart) {
@@ -631,6 +653,16 @@ public class LLMTestOracle {
                     : tc);
         }
         return repaired;
+    }
+
+    // -------------------------------------------------------------------------
+    // Fallbacks
+    // -------------------------------------------------------------------------
+
+    private GeneratedTestCase smokeTestFallback(MethodSpec method, int index) {
+        List<String> args = new ArrayList<>();
+        for (ParamSpec p : method.getParams()) args.add(safeDefault(p.getType(), index));
+        return GeneratedTestCase.smokeTest(args, "Smoke test fallback");
     }
 
     // -------------------------------------------------------------------------
