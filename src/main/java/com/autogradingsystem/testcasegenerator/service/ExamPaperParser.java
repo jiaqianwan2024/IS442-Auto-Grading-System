@@ -16,9 +16,10 @@ import java.util.*;
  *
  * PACKAGE: com.autogradingsystem.testcasegenerator.service
  *
- * Uses raw HTTP for all providers. For Cohere and other non-Anthropic providers,
- * PDF text is extracted via PDFBox and embedded in the prompt as plain text.
- * For Anthropic, the PDF is sent as a native base64 document block.
+ * v3.5-ollama: Updated to use Ollama (qwen2.5-coder:7b) via LLMConfig.
+ * Ollama does not accept native PDF/base64 input, so PDF text is always
+ * extracted via PDFBox and embedded as plain text in the prompt.
+ * The extractPdfText() method no longer short-circuits for any provider.
  *
  * INPUT:  resources/input/exam/*.pdf
  * OUTPUT: Map<String, Integer> e.g. { "Q1a" → 5, "Q1b" → 3, "Q3" → 10 }
@@ -27,7 +28,6 @@ public class ExamPaperParser {
 
     public static final Path EXAM_DIR = Paths.get("resources/input/exam");
 
-    private final String       apiKey;
     private final HttpClient   http;
     private final ObjectMapper mapper;
 
@@ -37,16 +37,23 @@ public class ExamPaperParser {
     // Constructors
     // -------------------------------------------------------------------------
 
-    public ExamPaperParser(String apiKey) {
-        this.apiKey = apiKey;
+    public ExamPaperParser() {
         this.http   = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(LLMConfig.TIMEOUT_S))
                 .build();
         this.mapper = new ObjectMapper();
     }
 
+    /**
+     * Legacy constructor — apiKey parameter kept for compile compatibility
+     * but ignored (Ollama requires no key).
+     */
+    public ExamPaperParser(String apiKey) {
+        this();
+    }
+
     public static ExamPaperParser fromEnvironment() {
-        return new ExamPaperParser(LLMConfig.resolveApiKey());
+        return new ExamPaperParser();
     }
 
     // -------------------------------------------------------------------------
@@ -66,11 +73,6 @@ public class ExamPaperParser {
         }
 
         System.out.println("  📄 Parsing exam paper: " + pdfPath.getFileName());
-
-        if (apiKey == null || apiKey.isBlank()) {
-            System.err.println("  ⚠️  No API key — cannot parse exam PDF.");
-            return Map.of();
-        }
 
         try {
             Map<String, Integer> weights = callLLM(pdfPath);
@@ -104,16 +106,21 @@ Use IDs like "Q1a", "Q1b", "Q2", "Q3b" etc.
 Example: {"Q1a": 5, "Q1b": 3, "Q2a": 8, "Q2b": 4, "Q3": 10}
 """;
 
-        byte[] pdfBytes  = Files.readAllBytes(pdfPath);
-        String base64Pdf = Base64.getEncoder().encodeToString(pdfBytes);
-        String pdfText   = extractPdfText(pdfPath);
-        String payload   = LLMConfig.buildPdfPayload(prompt, base64Pdf, pdfText, mapper);
+        // Ollama requires plain text — always extract PDF text via PDFBox
+        String pdfText = extractPdfText(pdfPath);
+        if (pdfText == null || pdfText.isBlank()) {
+            System.err.println("  ⚠️  Could not extract text from PDF. "
+                    + "Ensure PDFBox is on the classpath and the PDF is text-based (not scanned).");
+            return Map.of();
+        }
+
+        String payload = LLMConfig.buildPdfPayload(prompt, "", pdfText, mapper);
 
         HttpRequest request = LLMConfig.addAuthHeaders(
                 HttpRequest.newBuilder()
-                        .uri(URI.create(LLMConfig.buildUrl(apiKey)))
+                        .uri(URI.create(LLMConfig.buildUrl("")))
                         .timeout(Duration.ofSeconds(LLMConfig.TIMEOUT_S)),
-                apiKey)
+                "")
                 .POST(HttpRequest.BodyPublishers.ofString(payload))
                 .build();
 
@@ -130,12 +137,10 @@ Example: {"Q1a": 5, "Q1b": 3, "Q2a": 8, "Q2b": 4, "Q3": 10}
     }
 
     // -------------------------------------------------------------------------
-    // PDF text extraction via PDFBox
+    // PDF text extraction via PDFBox (always used for Ollama)
     // -------------------------------------------------------------------------
 
     private String extractPdfText(Path pdfPath) {
-        if ("anthropic".equals(LLMConfig.PROVIDER)) return ""; // not needed for Anthropic
-        if ("gemini".equals(LLMConfig.PROVIDER)) return "";    // not needed for Gemini
         try {
             Class<?> loaderClass   = Class.forName("org.apache.pdfbox.Loader");
             Class<?> docClass      = Class.forName("org.apache.pdfbox.pdmodel.PDDocument");
@@ -156,16 +161,17 @@ Example: {"Q1a": 5, "Q1b": 3, "Q2a": 8, "Q2b": 4, "Q3": 10}
             }
 
             System.out.println("  📄 PDF text extracted: " + text.length() + " chars");
-            System.out.println("  📄 First 200 chars: " + text.substring(0, Math.min(200, text.length())).replace("\n", " "));
+            System.out.println("  📄 First 200 chars: "
+                    + text.substring(0, Math.min(200, text.length())).replace("\n", " "));
             return text;
 
         } catch (ClassNotFoundException e) {
-            System.err.println("  ⚠️  PDFBox not found on classpath.");
+            System.err.println("  ⚠️  PDFBox not found on classpath. "
+                    + "Add pdfbox-app to pom.xml dependencies.");
             return "";
         } catch (Exception e) {
-            System.err.println("  ⚠️  PDF text extraction failed: " + e.getClass().getSimpleName()
-                    + ": " + e.getMessage());
-            e.printStackTrace();
+            System.err.println("  ⚠️  PDF text extraction failed: "
+                    + e.getClass().getSimpleName() + ": " + e.getMessage());
             return "";
         }
     }

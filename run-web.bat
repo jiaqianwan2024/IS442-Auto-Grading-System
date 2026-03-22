@@ -1,52 +1,36 @@
 @echo off
-:: ============================================================================
-:: run-web.bat — IS442 Auto-Grading System (Web UI mode)
-::
-:: WHAT THIS DOES:
-::   1. Loads COHERE_API_KEY from .env (if present)
-::   2. Builds the project if the jar is missing
-::   3. Starts the Spring Boot web server on http://localhost:8080
-::
-:: USAGE:
-::   run-web.bat
-::   Open http://localhost:8080 in your browser
-::   Press Ctrl+C to stop
-:: ============================================================================
-
 setlocal enabledelayedexpansion
 
-:: ── Load .env if present ─────────────────────────────────────────────────────
-if exist .env (
-    echo Loading .env...
-    for /f "usebackq eol=# tokens=1,* delims==" %%A in (".env") do (
-        set "%%A=%%B"
+:: -- Check Ollama is running (via PowerShell) --------------------------------
+echo Checking Ollama...
+powershell -NoProfile -Command "try { Invoke-RestMethod http://localhost:11434/api/tags | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
+if errorlevel 1 (
+    echo Ollama not responding. Attempting to start...
+    powershell -NoProfile -Command "Start-Process ollama -ArgumentList 'serve' -WindowStyle Hidden"
+    powershell -NoProfile -Command "Start-Sleep -Seconds 5"
+    powershell -NoProfile -Command "try { Invoke-RestMethod http://localhost:11434/api/tags | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
+    if errorlevel 1 (
+        echo.
+        echo ERROR: Ollama is not responding on http://localhost:11434
+        echo    Install from: https://ollama.com/download
+        echo    Then run:     ollama pull qwen2.5-coder:7b
+        echo.
+        pause
+        exit /b 1
     )
-) else (
-    echo No .env file found. Checking environment for COHERE_API_KEY...
 )
+echo Ollama is running.
+echo.
 
-if "%COHERE_API_KEY%"=="" (
-    echo WARNING: COHERE_API_KEY is not set.
-    echo    Create a .env file with: COHERE_API_KEY=your-key-here
-    echo    Get a free key at: https://dashboard.cohere.com/api-keys
-    echo    Continuing without API key...
-    echo.
-) else (
-    echo API key found.
-    echo.
-)
-
-:: ── Find or build jar ─────────────────────────────────────────────────────────
+:: -- Find or build jar -------------------------------------------------------
 set "JAR="
 for /f "delims=" %%f in ('dir /b target\*.jar 2^>nul ^| findstr /v sources ^| findstr /v javadoc') do set "JAR=target\%%f"
 
 if "!JAR!"=="" (
-    echo Building project ^(this may take a minute^)...
+    echo Building project (this may take a minute)...
     call mvn clean package -DskipTests -q
     if errorlevel 1 (
-        echo.
-        echo ERROR: Maven build failed.
-        echo Run manually: mvn clean package -DskipTests
+        echo ERROR: Maven build failed. Run: mvn clean package -DskipTests
         pause
         exit /b 1
     )
@@ -56,13 +40,12 @@ if "!JAR!"=="" (
 )
 
 if "!JAR!"=="" (
-    echo ERROR: No jar found in target\ after build.
-    echo Run manually: mvn clean package -DskipTests
+    echo ERROR: No jar found in target\. Run: mvn clean package -DskipTests
     pause
     exit /b 1
 )
 
-:: ── Start server ──────────────────────────────────────────────────────────────
+:: -- Start server ------------------------------------------------------------
 echo ============================================
 echo  IS442 AUTO-GRADING SYSTEM - WEB UI MODE
 echo ============================================
