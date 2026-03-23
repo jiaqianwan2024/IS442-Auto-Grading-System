@@ -35,6 +35,8 @@
                 <span class="badge-dot"></span>
                 <span class="badge-text">READY</span>
             </div>
+            <!-- Theme Toggle Button -->
+            <button class="btn-theme-toggle" id="themeToggle" title="Toggle Dark Mode"></button>
         </div>
     </header>
 
@@ -45,7 +47,7 @@
     <div class="hero-section">
         <h2 class="hero-title">
             Grade your code<br>
-            <span class="highlight">automatically!</span>
+            automatically!
         </h2>
         <p class="hero-subtitle">Upload, grade, and download results in seconds</p>
     </div>
@@ -189,6 +191,26 @@
                 <span class="btn-icon">▶</span>
                 Start Grading!
             </button>
+
+            <!-- Progress Container (Hidden initially) -->
+            <div class="progress-container" id="progressContainer" style="display: none;">
+                <div class="progress-info">
+                    <div class="progress-label" id="progressLabel">Initializing...</div>
+                    <div class="time-estimate" id="timeEstimate">Elapsed: 0s | Remaining: ~30s</div>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="progress-controls">
+                    <button class="btn btn-stop" 
+                            id="stopBtn"
+                            onclick="stopGrading()"
+                            style="display: none;">
+                        <span class="btn-icon">⏹</span>
+                        Stop Grading
+                    </button>
+                </div>
+            </div>
         </div>
     </section>
 
@@ -494,8 +516,21 @@
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                showAlert('success', 'Files uploaded successfully! ✓');
+                // Show estimated grading time
+                if (data.estimatedTime) {
+                    const timeDisplay = data.estimatedTime > 60 ? 
+                        `${Math.floor(data.estimatedTime/60)}m ${data.estimatedTime%60}s` : 
+                        `${data.estimatedTime}s`;
+                    showAlert('info', `Files uploaded! Estimated grading time: ~${timeDisplay} based on file sizes.`);
+                } else {
+                    showAlert('success', 'Files uploaded successfully! ✓');
+                }
                 sessionStorage.setItem('filesUploaded', JSON.stringify(data.uploaded));
+                
+                // Store estimated grading time based on file sizes
+                if (data.estimatedTime) {
+                    sessionStorage.setItem('estimatedGradingTime', data.estimatedTime);
+                }
             } else {
                 showAlert('error', 'Upload failed: ' + data.message);
             }
@@ -546,6 +581,16 @@
         gradingController = new AbortController();
         gradingStartTime = Date.now();
         
+        // Set initial time estimate based on file size
+        const estimatedTime = parseInt(sessionStorage.getItem('estimatedGradingTime')) || 30;
+        const timeEstimateEl = document.getElementById('timeEstimate');
+        const formatTime = (seconds) => {
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+        };
+        timeEstimateEl.textContent = `Elapsed: 0s | Remaining: ~${formatTime(estimatedTime)}`;
+        
         simulateProgress();
 
         fetch('/grade', {
@@ -579,6 +624,13 @@
         if (gradingController) {
             gradingController.abort();
         }
+        
+        // Also send stop signal to backend
+        fetch('/stop', {
+            method: 'POST'
+        }).catch(error => {
+            // Ignore errors, the abort should handle it
+        });
     }
 
     // Cleanup after grading
@@ -611,6 +663,9 @@
         const stages = ['Extracting files...', 'Validating submissions...', 'Compiling code...', 'Running tests...', 'Analyzing results...'];
         let stageIndex = 0;
         const startTime = Date.now();
+        
+        // Get estimated time from session storage
+        const estimatedTotalTime = parseInt(sessionStorage.getItem('estimatedGradingTime')) || 30;
 
         const interval = setInterval(() => {
             if (gradingController && gradingController.signal.aborted) {
@@ -618,27 +673,31 @@
                 return;
             }
 
-            progress += Math.random() * 12;
-            if (progress > 95) progress = 95;
+            // Progress based on file size estimate - fill proportionally with smooth progression
+            const elapsed = (Date.now() - startTime) / 1000;
+            // Fill to 90% over the estimated time, leave 10% for final completion
+            const targetProgress = Math.min(90, (elapsed / estimatedTotalTime) * 100);
+            // Smooth progression: move towards target but not instantly
+            progress = Math.min(targetProgress, progress + 2 + Math.random() * 3);
             
             progressFill.style.width = progress + '%';
             progressLabel.textContent = stages[Math.min(stageIndex, stages.length - 1)];
             
-            // Update time estimate
-            const elapsed = Math.floor((Date.now() - startTime) / 1000);
-            const estimatedTotal = Math.max(120, elapsed * (100 / Math.max(progress, 1))); // At least 2 minutes
-            const remaining = Math.max(0, estimatedTotal - elapsed);
+            // Update time estimate based on file size estimate
+            const remaining = Math.max(15, estimatedTotalTime - elapsed); // Minimum 15 seconds remaining
             
-            if (remaining > 60) {
-                timeEstimate.textContent = `Elapsed: ${Math.floor(elapsed/60)}m ${elapsed%60}s | Remaining: ~${Math.floor(remaining/60)}m ${remaining%60}s`;
-            } else {
-                timeEstimate.textContent = `Elapsed: ${elapsed}s | Remaining: ~${remaining}s`;
-            }
+            const formatTime = (seconds) => {
+                const mins = Math.floor(seconds / 60);
+                const secs = Math.floor(seconds % 60);
+                return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+            };
+            
+            timeEstimate.textContent = `Elapsed: ${formatTime(elapsed)} | Remaining: ~${formatTime(remaining)}`;
             
             if (progress > (stageIndex + 1) * 20) {
                 stageIndex++;
             }
-        }, 800);
+        }, 1000); // Update every second
 
         // Store interval to clear later
         window.gradingInterval = interval;
@@ -647,6 +706,21 @@
     // Display results
     function displayResults(data) {
         if (window.gradingInterval) clearInterval(window.gradingInterval);
+        
+        // Calculate total time
+        const totalTime = Math.floor((Date.now() - gradingStartTime) / 1000);
+        const timeDisplay = totalTime > 60 ? 
+            `${Math.floor(totalTime/60)}m ${totalTime%60}s` : 
+            `${totalTime}s`;
+        
+        // Update progress to 100% and show completion
+        const progressFill = document.getElementById('progressFill');
+        const progressLabel = document.getElementById('progressLabel');
+        const timeEstimate = document.getElementById('timeEstimate');
+        
+        progressFill.style.width = '100%';
+        progressLabel.textContent = 'Grading completed!';
+        timeEstimate.textContent = `Total time: ${timeDisplay}`;
         
         // Only show results if grading completed successfully
         if (data && data.success) {
@@ -676,7 +750,7 @@
     }
 
     // Show alert
-    function showAlert(type, message) {
+    function showAlert(type, message, duration = 0) {
         const alertContainer = document.getElementById('alertContainer');
         const alert = document.createElement('div');
         alert.className = `alert alert-${type}`;
@@ -694,7 +768,10 @@
         `;
         alertContainer.appendChild(alert);
         
-        setTimeout(() => alert.remove(), 5000);
+        // If duration is provided (in ms), auto-dismiss. Otherwise remain until user closes.
+        if (duration > 0) {
+            setTimeout(() => alert.remove(), duration);
+        }
     }
 
     // Format file size
@@ -703,6 +780,47 @@
         if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
         return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
     }
+
+    // Theme management
+    function initializeTheme() {
+        const savedTheme = localStorage.getItem('theme') || 'light';
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const defaultTheme = prefersDark ? 'dark' : 'light';
+        const theme = savedTheme !== 'auto' ? savedTheme : defaultTheme;
+        
+        setTheme(theme);
+        
+        // Add theme toggle button event listener
+        const themeBtn = document.getElementById('themeToggle');
+        if (themeBtn) {
+            themeBtn.addEventListener('click', toggleTheme);
+        }
+    }
+
+    function setTheme(theme) {
+        document.documentElement.setAttribute('data-theme', theme);
+        localStorage.setItem('theme', theme);
+        
+        // Update button label
+        const themeBtn = document.getElementById('themeToggle');
+        if (themeBtn) {
+            const label = theme === 'dark' ? 'Light' : 'Dark';
+            const icon = theme === 'dark' ? '☀️' : '🌙';
+            themeBtn.innerHTML = `${icon} ${label}`;
+        }
+    }
+
+    function toggleTheme() {
+        const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        setTheme(newTheme);
+        showAlert('success', `Switched to ${newTheme} mode`, 4000);
+    }
+
+    // Initialize theme on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        initializeTheme();
+    });
 </script>
 
 </body>

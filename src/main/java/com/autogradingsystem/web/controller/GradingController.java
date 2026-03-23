@@ -144,6 +144,11 @@ public class GradingController {
                 return ResponseEntity.badRequest().body(response);
             }
 
+            // Calculate total file size for time estimation
+            long totalSize = calculateTotalFileSize(submissionZip, templateZip, scoreSheetCsv, testersZip);
+            response.put("totalSize", totalSize);
+            response.put("estimatedTime", estimateGradingTime(totalSize));
+
             response.put("success", true);
             response.put("message", messages.toString());
             response.put("uploaded", uploaded);
@@ -240,21 +245,19 @@ public class GradingController {
     }
 
     /**
-     * Download the statistics Excel report
+     * Stop the current grading process
      */
-    @GetMapping("/download/excel")
-    public ResponseEntity<Resource> downloadExcel() {
-        Path file = Paths.get("resources/output/reports/IS442-Statistics.xlsx");
+    @PostMapping("/stop")
+    @ResponseBody
+    public ResponseEntity<Map<String, Object>> stopGrading() {
+        Map<String, Object> response = new HashMap<>();
         
-        if (!Files.exists(file)) {
-            return ResponseEntity.notFound().build();
-        }
-
-        Resource resource = new FileSystemResource(file.toFile());
-        return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=IS442-Statistics.xlsx")
-                .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
-                .body(resource);
+        // For now, just return success. The actual stopping is handled by the AbortController
+        // on the frontend. In a future enhancement, we could implement server-side interruption.
+        response.put("success", true);
+        response.put("message", "Stop signal sent");
+        
+        return ResponseEntity.ok(response);
     }
 
     // ================================================================
@@ -331,4 +334,32 @@ public class GradingController {
                     try { Files.delete(p); } catch (IOException e) {}
                 });
     }
-}
+
+    /**
+     * Calculate total size of uploaded files
+     */
+    private long calculateTotalFileSize(MultipartFile... files) {
+        long totalSize = 0;
+        for (MultipartFile file : files) {
+            if (file != null && !file.isEmpty()) {
+                totalSize += file.getSize();
+            }
+        }
+        return totalSize;
+    }
+
+    /**
+     * Estimate grading time based on file size
+     * Base time: 60 seconds
+     * Additional time: 3 seconds per 100KB
+     */
+    private int estimateGradingTime(long totalSizeBytes) {
+        // Convert bytes to KB
+        long sizeKB = totalSizeBytes / 1024;
+
+        // Base time of 60 seconds + 3 seconds per 100KB
+        int estimatedSeconds = 60 + (int)(sizeKB / 33); // ~3 seconds per 100KB
+
+        // Cap at 8 minutes (480 seconds)
+        return Math.min(estimatedSeconds, 480);
+    }
