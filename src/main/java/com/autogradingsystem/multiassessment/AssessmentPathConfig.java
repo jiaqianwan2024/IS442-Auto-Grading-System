@@ -50,6 +50,7 @@ public class AssessmentPathConfig {
     public final Path INPUT_TEMPLATE;
     public final Path INPUT_TESTERS;
     public final Path CSV_SCORESHEET;
+    public final Path INPUT_EXAM; 
 
     // ── Output paths ─────────────────────────────────────────────────
 
@@ -77,6 +78,7 @@ public class AssessmentPathConfig {
         this.INPUT_SUBMISSIONS = INPUT_BASE.resolve("submissions");
         this.INPUT_TEMPLATE    = INPUT_BASE.resolve("template");
         this.INPUT_TESTERS     = INPUT_BASE.resolve("testers");
+        this.INPUT_EXAM        = INPUT_BASE.resolve("exam");
         this.CSV_SCORESHEET    = assessmentRoot.resolve("config").resolve("scoresheet.csv");
 
         this.OUTPUT_BASE      = assessmentRoot.resolve("output");
@@ -128,6 +130,7 @@ public class AssessmentPathConfig {
         INPUT_SUBMISSIONS.toFile().mkdirs();
         INPUT_TEMPLATE.toFile().mkdirs();
         INPUT_TESTERS.toFile().mkdirs();
+        INPUT_EXAM.toFile().mkdirs();  
         CSV_SCORESHEET.getParent().toFile().mkdirs();
         OUTPUT_EXTRACTED.toFile().mkdirs();
         OUTPUT_REPORTS.toFile().mkdirs();

@@ -13,9 +13,7 @@ import com.autogradingsystem.plagiarism.model.PlagiarismResult;
 import com.autogradingsystem.testcasegenerator.controller.TestCaseGeneratorController;
 import com.autogradingsystem.testcasegenerator.model.QuestionSpec;
 import com.autogradingsystem.testcasegenerator.service.TemplateTestSpecBuilder;
-import com.autogradingsystem.penalty.controller.PenaltyController;
-import com.autogradingsystem.penalty.model.PenaltyGradingResult;
-import com.autogradingsystem.penalty.model.ProcessedScore;
+import com.autogradingsystem.multiassessment.AssessmentPathConfig;
 
 import org.springframework.stereotype.Service;
 
@@ -50,6 +48,35 @@ import java.util.stream.Stream;
 @Service
 public class GradingService {
 
+    // ── Path-aware fields (null = fall back to global PathConfig) ──
+    private Path csvScoresheet;
+    private Path inputSubmissions;
+    private Path inputTemplate;
+    private Path inputTesters;
+    private Path inputExam;
+    private Path outputExtracted;
+    private Path outputReports;
+
+    /** No-arg: used by Spring for the existing single-assessment flow */
+    public GradingService() {}
+
+    /** Path-aware: used by unified per-assessment flow */
+    public GradingService(com.autogradingsystem.multiassessment.AssessmentPathConfig paths) {
+        this.csvScoresheet    = paths.CSV_SCORESHEET;
+        this.inputSubmissions = paths.INPUT_SUBMISSIONS;
+        this.inputTemplate    = paths.INPUT_TEMPLATE;
+        this.inputTesters     = paths.INPUT_TESTERS;
+        this.inputExam        = paths.INPUT_EXAM;
+        this.outputExtracted  = paths.OUTPUT_EXTRACTED;
+        this.outputReports    = paths.OUTPUT_REPORTS;
+    }
+
+    // ── Resolve helpers ──
+    private Path resolveInputTesters()  { return inputTesters  != null ? inputTesters  : PathConfig.INPUT_TESTERS; }
+    private Path resolveInputTemplate() { return inputTemplate != null ? inputTemplate : Paths.get("resources/input/template"); }
+
+    private boolean isPathAware() { return csvScoresheet != null; }
+
     public GradingReport runFullPipeline() {
         List<String> logs = new ArrayList<>();
 
@@ -58,17 +85,28 @@ public class GradingService {
 
             // ── 1. Validate inputs ───────────────────────────────────────────
             System.out.println("🚀 Phase 1: Validating inputs...");
-            if (!PathConfig.validateInputPaths()) {
-                return new GradingReport(false, 0, Collections.emptyList(),
-                        List.of("❌ Missing required input files. Check resources/input/."));
+            if (isPathAware()) {
+                // Per-assessment: directories already created by upload, just check they exist
+                if (!Files.exists(csvScoresheet) || !Files.isDirectory(inputSubmissions)) {
+                    return new GradingReport(false, 0, Collections.emptyList(),
+                            List.of("❌ Missing required input files for this assessment."));
+                }
+                outputExtracted.toFile().mkdirs();
+                outputReports.toFile().mkdirs();
+            } else {
+                if (!PathConfig.validateInputPaths()) {
+                    return new GradingReport(false, 0, Collections.emptyList(),
+                            List.of("❌ Missing required input files. Check resources/input/."));
+                }
+                PathConfig.ensureOutputDirectories();
             }
-            PathConfig.ensureOutputDirectories();
             System.out.println("✅ Phase 1 done.");
 
             // ── 2. Extraction ────────────────────────────────────────────────
             System.out.println("🚀 Phase 2: Extracting submissions...");
-            ExtractionController extractionController = new ExtractionController();
-            int studentCount = extractionController.extractAndValidate();
+            ExtractionController extractionController = isPathAware()
+                 ? new ExtractionController(csvScoresheet, inputSubmissions, outputExtracted)
+                 : new ExtractionController();            int studentCount = extractionController.extractAndValidate();
             logs.add("✅ Extracted " + studentCount + " submissions");
             System.out.println("✅ Phase 2 done — " + studentCount + " submissions.");
 
@@ -104,29 +142,24 @@ public class GradingService {
             }
 
             // ── 4. Discovery ─────────────────────────────────────────────────
-            DiscoveryController discoveryController = new DiscoveryController();
-            GradingPlan gradingPlan = discoveryController.buildGradingPlan();
+            DiscoveryController discoveryController = isPathAware()
+                ? new DiscoveryController(inputTemplate, inputTesters)
+                : new DiscoveryController();            GradingPlan gradingPlan = discoveryController.buildGradingPlan();
             logs.add("✅ Grading plan: " + gradingPlan.getTaskCount() + " tasks");
 
             // ── 5. Execution ─────────────────────────────────────────────────
-            ExecutionController executionController = new ExecutionController();
-            List<GradingResult> results     = executionController.gradeAllStudents(gradingPlan);
+            ExecutionController executionController = isPathAware()
+                ? new ExecutionController(outputExtracted, csvScoresheet, inputTesters, inputTemplate)
+                : new ExecutionController();            List<GradingResult> results     = executionController.gradeAllStudents(gradingPlan);
             Map<String, String> remarks     = executionController.getRemarksByStudent();
             Map<String, String> anomalyRmks = executionController.getAnomalyRemarksByStudent();
             List<Student>       allStudents = executionController.getLastGradedStudents();
             logs.add("✅ Graded " + results.size() + " results");
 
-            // ── 5.5. Penalty Calculation ─────────────────────────────────────
-            System.out.println("🚀 Phase 5.5: Applying penalties...");
-            PenaltyController penaltyController = new PenaltyController();
-            Map<String, ProcessedScore> penaltyResults = applyPenalties(results, penaltyController);
-            List<GradingResult> penalizedResults = updateResultsWithPenalties(results, penaltyResults);
-            logs.add("✅ Penalties applied to " + penaltyResults.size() + " students");
-            System.out.println("✅ Phase 5.5 done.");
-
             // ── 6. Plagiarism detection ───────────────────────────────────────
-            PlagiarismController plagController = new PlagiarismController();
-            PlagiarismController.PlagiarismSummary plagSummary =
+            PlagiarismController plagController = isPathAware()
+                ? new PlagiarismController(outputExtracted)
+                : new PlagiarismController();            PlagiarismController.PlagiarismSummary plagSummary =
                     plagController.runPlagiarismCheck(gradingPlan);
             Map<String, String> plagiarismNotes = buildPlagiarismNotes(plagSummary);
 
@@ -138,8 +171,9 @@ public class GradingService {
             }
 
             // ── 7. Analysis & export ──────────────────────────────────────────
-            AnalysisController analysisController = new AnalysisController();
-            analysisController.analyzeAndDisplay(penalizedResults, remarks, anomalyRmks, allStudents,
+            AnalysisController analysisController = isPathAware()
+                ? new AnalysisController(csvScoresheet, outputReports, inputTesters)
+                : new AnalysisController();            analysisController.analyzeAndDisplay(results, remarks, anomalyRmks, allStudents,
                                                  plagiarismNotes);
             logs.add("✅ Reports exported");
 
@@ -155,7 +189,7 @@ public class GradingService {
     // ── Private: skip Phase 3 when testers are already on disk ────────────
 
     private boolean savedTestersExist() {
-        Path testersDir = PathConfig.INPUT_TESTERS;
+        Path testersDir = resolveInputTesters();
         if (!Files.isDirectory(testersDir)) return false;
         try (Stream<Path> files = Files.list(testersDir)) {
             boolean found = files.anyMatch(p ->
@@ -172,116 +206,13 @@ public class GradingService {
     // ── Private: find template ZIP ─────────────────────────────────────────
 
     private Path findTemplateZip() {
-        Path templateDir = Paths.get("resources/input/template");
+        Path templateDir = resolveInputTemplate();
         try (var stream = Files.list(templateDir)) {
             return stream.filter(p -> p.toString().endsWith(".zip"))
                          .findFirst().orElse(null);
         } catch (Exception e) {
             return null;
         }
-    }
-
-    // ── Private: apply penalties to grading results ──────────────────────
-
-    private Map<String, ProcessedScore> applyPenalties(List<GradingResult> results, PenaltyController penaltyController) {
-        // Group results by student
-        Map<String, List<GradingResult>> resultsByStudent = new HashMap<>();
-        for (GradingResult result : results) {
-            String studentId = result.getStudent().getId();
-            resultsByStudent.computeIfAbsent(studentId, k -> new ArrayList<>()).add(result);
-        }
-
-        Map<String, ProcessedScore> penaltyResults = new HashMap<>();
-
-        for (Map.Entry<String, List<GradingResult>> entry : resultsByStudent.entrySet()) {
-            String studentId = entry.getKey();
-            List<GradingResult> studentResults = entry.getValue();
-
-            // Convert GradingResult to PenaltyGradingResult
-            List<PenaltyGradingResult> penaltyInputs = new ArrayList<>();
-            for (GradingResult result : studentResults) {
-                PenaltyGradingResult penaltyResult = convertToPenaltyGradingResult(result);
-                penaltyInputs.add(penaltyResult);
-            }
-
-            // Apply penalties
-            ProcessedScore processedScore = penaltyController.processStudentResults(studentId, penaltyInputs);
-            penaltyResults.put(studentId, processedScore);
-
-            // Update the GradingResult scores with penalized scores
-            // For now, we'll distribute the penalty proportionally across questions
-            // This is a simplification - in a real system, penalties might be per-question
-            double totalRawScore = studentResults.stream().mapToDouble(GradingResult::getScore).sum();
-            if (totalRawScore > 0) {
-                double penaltyRatio = processedScore.getFinalScore() / processedScore.getRawScore();
-                for (GradingResult result : studentResults) {
-                    // Update the score to be the penalized score
-                    // Note: This modifies the original GradingResult objects
-                    double penalizedScore = result.getScore() * penaltyRatio;
-                    // Since GradingResult is immutable for score, we need to create a new one
-                    // But for simplicity, we'll assume we can modify it or handle this differently
-                }
-            }
-        }
-
-        return penaltyResults;
-    }
-
-    // ── Private: convert GradingResult to PenaltyGradingResult ────────────
-
-    private PenaltyGradingResult convertToPenaltyGradingResult(GradingResult result) {
-        boolean hasCompilationError = "COMPILATION_FAILED".equals(result.getStatus());
-        // For now, assume naming is correct and hierarchy is proper
-        // These could be enhanced with additional checks
-        boolean namingCorrect = true;
-        boolean properHierarchy = true;
-        boolean hasHeaders = true; // Assume headers are present unless proven otherwise
-
-        return new PenaltyGradingResult(
-            result.getScore(),
-            result.getMaxScore(),
-            hasCompilationError,
-            namingCorrect,
-            properHierarchy,
-            hasHeaders
-        );
-    }
-
-    // ── Private: update GradingResult objects with penalized scores ──────
-
-    private List<GradingResult> updateResultsWithPenalties(List<GradingResult> originalResults,
-                                                          Map<String, ProcessedScore> penaltyResults) {
-        List<GradingResult> updatedResults = new ArrayList<>();
-
-        for (GradingResult result : originalResults) {
-            String studentId = result.getStudent().getId();
-            ProcessedScore penaltyScore = penaltyResults.get(studentId);
-
-            if (penaltyScore != null) {
-                // Calculate the penalty ratio for this student
-                double penaltyRatio = penaltyScore.getRawScore() > 0 ?
-                    penaltyScore.getFinalScore() / penaltyScore.getRawScore() : 1.0;
-
-                // Apply the ratio to this question's score
-                double adjustedScore = result.getScore() * penaltyRatio;
-
-                // Create a new GradingResult with the adjusted score
-                GradingResult adjustedResult = new GradingResult(
-                    result.getStudent(),
-                    result.getTask(),
-                    adjustedScore,
-                    result.getMaxScore(),
-                    result.getOutput(),
-                    result.getStatus()
-                );
-                updatedResults.add(adjustedResult);
-            } else {
-                // No penalty data, keep original
-                updatedResults.add(result);
-            }
-        }
-
-        return updatedResults;
     }
 
     // ── Private: build per-student plagiarism notes ────────────────────────
