@@ -7,6 +7,7 @@ import com.autogradingsystem.extraction.model.ValidationResult;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 
 /**
@@ -27,18 +28,67 @@ import java.util.List;
  * @version 4.0
  */
 public class ExtractionController {
-    
+
     private final ScoreSheetReader scoreReader;
     private final UnzipService unzipService;
-    
+
+    // ================================================================
+    // PATH FIELDS — null means "use global PathConfig" (single-assessment)
+    // Set by the path-aware constructor for multi-assessment runs
+    // ================================================================
+
+    private final Path csvScoresheet;
+    private final Path inputSubmissions;
+    private final Path outputExtracted;
+
+    // ================================================================
+    // CONSTRUCTORS
+    // ================================================================
+
     /**
-     * Constructor - initializes extraction services
+     * Default constructor — uses global PathConfig static paths.
+     * Called by GradingService for the standard single-assessment flow.
+     * Behaviour is identical to the original constructor.
      */
     public ExtractionController() {
-        this.scoreReader = new ScoreSheetReader();
-        this.unzipService = new UnzipService();
+        this.scoreReader      = new ScoreSheetReader();
+        this.unzipService     = new UnzipService();
+        this.csvScoresheet    = null;
+        this.inputSubmissions = null;
+        this.outputExtracted  = null;
     }
-    
+
+    /**
+     * Path-aware constructor for multi-assessment support.
+     * Called by AssessmentOrchestrator with per-assessment isolated paths
+     * so that concurrent grading runs never touch each other's files.
+     *
+     * @param csvScoresheet    Path to the scoresheet CSV for this assessment
+     * @param inputSubmissions Path to the submissions directory for this assessment
+     * @param outputExtracted  Path to the extraction output directory for this assessment
+     */
+    public ExtractionController(Path csvScoresheet,
+                                 Path inputSubmissions,
+                                 Path outputExtracted) {
+        this.scoreReader      = new ScoreSheetReader();
+        this.unzipService     = new UnzipService();
+        this.csvScoresheet    = csvScoresheet;
+        this.inputSubmissions = inputSubmissions;
+        this.outputExtracted  = outputExtracted;
+    }
+
+    // ================================================================
+    // PATH RESOLUTION — picks instance path if set, falls back to PathConfig
+    // ================================================================
+
+    private Path resolveCsvScoresheet()    { return csvScoresheet    != null ? csvScoresheet    : PathConfig.CSV_SCORESHEET;    }
+    private Path resolveInputSubmissions() { return inputSubmissions != null ? inputSubmissions : PathConfig.INPUT_SUBMISSIONS; }
+    private Path resolveOutputExtracted()  { return outputExtracted  != null ? outputExtracted  : PathConfig.OUTPUT_EXTRACTED;  }
+
+    // ================================================================
+    // PUBLIC API
+    // ================================================================
+
     /**
      * Extracts and validates all student submissions
      * 
@@ -53,47 +103,52 @@ public class ExtractionController {
      * @throws IOException if extraction fails
      */
     public int extractAndValidate() throws IOException {
-        
+
         // Clean old extracted data
         cleanOldData();
-        
+
         // Load valid students from CSV
-        scoreReader.loadValidStudents(PathConfig.CSV_SCORESHEET);
-        
+        scoreReader.loadValidStudents(resolveCsvScoresheet());
+
         // Extract and validate
         List<ValidationResult> results = unzipService.extractAndValidateStudents(
-            PathConfig.INPUT_SUBMISSIONS,
-            PathConfig.OUTPUT_EXTRACTED,
-            scoreReader
-        );
-        
+                resolveInputSubmissions(),
+                resolveOutputExtracted(),
+                scoreReader);
+
         // Count successful extractions
         long successCount = results.stream()
-            .filter(ValidationResult::isIdentified)
-            .count();
-        
+                .filter(r -> r.getResolvedId() != null) // counts both identified + unrecognized (now has rawName)
+                .count();
+
         return (int) successCount;
     }
-    
+
+    // ================================================================
+    // PRIVATE HELPERS
+    // ================================================================
+
     /**
-     * Cleans old extracted data if it exists
-     * Ensures fresh start for each grading run
+     * Cleans old extracted data if it exists.
+     * Ensures fresh start for each grading run.
      */
     private void cleanOldData() throws IOException {
-        if (Files.exists(PathConfig.OUTPUT_EXTRACTED)) {
+        Path extracted = resolveOutputExtracted();
+
+        if (Files.exists(extracted)) {
             // Delete directory recursively
-            Files.walk(PathConfig.OUTPUT_EXTRACTED)
-                .sorted(java.util.Comparator.reverseOrder())
-                .forEach(path -> {
-                    try {
-                        Files.delete(path);
-                    } catch (IOException e) {
-                        // Ignore
-                    }
-                });
+            Files.walk(extracted)
+                    .sorted(java.util.Comparator.reverseOrder())
+                    .forEach(path -> {
+                        try {
+                            Files.delete(path);
+                        } catch (IOException e) {
+                            // Ignore
+                        }
+                    });
         }
-        
+
         // Recreate empty directory
-        Files.createDirectories(PathConfig.OUTPUT_EXTRACTED);
+        Files.createDirectories(extracted);
     }
 }

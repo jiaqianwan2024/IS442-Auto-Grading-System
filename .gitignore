@@ -31,4 +31,5 @@ logs/
 # --- Local Configuration (CRITICAL FOR INFRA SETUP) ---
 # Ignore local config because paths (C:/Users/...) are different for everyone
 config.properties
+.env
 

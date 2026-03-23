@@ -19,7 +19,8 @@ import java.util.regex.Pattern;
  * 
  * THE PROBLEM:
  * Students often make mistakes when submitting:
- * - Wrong ZIP filename: "my-submission.zip" instead of "2023-2024-ping.lee.2023.zip"
+ * - Wrong ZIP filename: "my-submission.zip" instead of
+ * "2023-2024-ping.lee.2023.zip"
  * - Forgot to rename folder: Still named "RenameToYourUsername"
  * - Typos in filenames
  * 
@@ -37,7 +38,7 @@ import java.util.regex.Pattern;
  * @version 4.0 (Spring Boot Microservices Structure)
  */
 public class StudentValidator {
-    
+
     /**
      * Validates student using 3-layer detection and extracts if valid
      * 
@@ -48,122 +49,125 @@ public class StudentValidator {
      * 4. If all layers fail → Mark as UNRECOGNIZED
      * 5. If identified → Extract to destination/{username}/
      * 
-     * @param studentZip Path to student's submission ZIP
+     * @param studentZip  Path to student's submission ZIP
      * @param destination Base directory to extract students to
      * @param scoreReader ScoreSheetReader with valid students loaded
      * @return ValidationResult indicating how student was identified
      * @throws IOException if validation or extraction fails
      */
     public ValidationResult validate3Layer(
-            Path studentZip, 
-            Path destination, 
+            Path studentZip,
+            Path destination,
             ScoreSheetReader scoreReader) throws IOException {
-        
+
         String zipFilename = studentZip.getFileName().toString();
-        
+
         // ================================================================
         // LAYER 1: FILENAME MATCHING (Most Reliable)
         // ================================================================
         // Expected format: 2023-2024-ping.lee.2023.zip
         // Pattern: YYYY-YYYY-{username}.zip
         // Extract: {username}
-        
+
         String usernameFromFilename = extractUsernameFromFilename(zipFilename);
-        
+
         if (usernameFromFilename != null && scoreReader.isValid(usernameFromFilename)) {
             // Layer 1 success - extract and return
             Path extractPath = destination.resolve(usernameFromFilename);
             ZipFileProcessor.unzip(studentZip, extractPath);
-            
+
             return new ValidationResult(
-                zipFilename,
-                Status.MATCHED,
-                usernameFromFilename
-            );
+                    zipFilename,
+                    Status.MATCHED,
+                    usernameFromFilename);
         }
-        
+
         // ================================================================
         // LAYER 2: FOLDER NAME MATCHING (Second Most Reliable)
         // ================================================================
         // Look inside the ZIP for folder name
         // Expected: ping.lee.2023/ containing Q1/, Q2/, Q3/
-        
+
         String usernameFromFolder = extractUsernameFromFolder(studentZip, scoreReader);
-        
+
         if (usernameFromFolder != null) {
             // Layer 2 success - extract and return
             Path extractPath = destination.resolve(usernameFromFolder);
             ZipFileProcessor.unzip(studentZip, extractPath);
-            
+
             return new ValidationResult(
-                zipFilename,
-                Status.RECOVERED_FOLDER,
-                usernameFromFolder
-            );
+                    zipFilename,
+                    Status.RECOVERED_FOLDER,
+                    usernameFromFolder);
         }
-        
+
         // ================================================================
         // LAYER 3: JAVA COMMENT SCANNING (Last Resort)
         // ================================================================
         // Scan .java files for @author comments
         // Expected: @author ping.lee.2023
-        
+
         String usernameFromComment = extractUsernameFromComments(studentZip, scoreReader);
-        
+
         if (usernameFromComment != null) {
             // Layer 3 success - extract and return
             Path extractPath = destination.resolve(usernameFromComment);
             ZipFileProcessor.unzip(studentZip, extractPath);
-            
+
             return new ValidationResult(
-                zipFilename,
-                Status.RECOVERED_COMMENT,
-                usernameFromComment
-            );
+                    zipFilename,
+                    Status.RECOVERED_COMMENT,
+                    usernameFromComment);
         }
-        
+
         // ================================================================
-        // ALL LAYERS FAILED - UNRECOGNIZED
+        // LAYER 4: EXTRACT ANYWAY (identity resolution deferred to HeaderScanner)
         // ================================================================
-        
+        // We don't know who this is yet. Extract under the raw ZIP name
+        // so HeaderScanner can scan the files and resolve identity later.
+
+        String rawName = zipFilename.replace(".zip", "")
+                .replaceFirst("^(\\d{4}-)+", "");
+        Path extractPath = destination.resolve(rawName);
+        ZipFileProcessor.unzip(studentZip, extractPath);
+
         return new ValidationResult(
-            zipFilename,
-            Status.UNRECOGNIZED,
-            null
-        );
+                zipFilename,
+                Status.UNRECOGNIZED,
+                rawName);
     }
-    
+
     /**
      * Layer 1: Extracts username from ZIP filename
      * 
      * PATTERN MATCHING:
      * Expected format: YYYY-YYYY-{username}.zip
      * Examples:
-     *   2023-2024-ping.lee.2023.zip → ping.lee.2023 ✅
-     *   2024-2025-chee.teo.2022.zip → chee.teo.2022 ✅
-     *   my-submission.zip → null ❌
+     * 2023-2024-ping.lee.2023.zip → ping.lee.2023 ✅
+     * 2024-2025-chee.teo.2022.zip → chee.teo.2022 ✅
+     * my-submission.zip → null ❌
      * 
      * REGEX EXPLANATION:
-     * \\d{4}-\\d{4}-  = "YYYY-YYYY-" (year range)
-     * (.+?)            = capture group: any characters (username)
-     * \\.zip$          = ends with ".zip"
+     * \\d{4}-\\d{4}- = "YYYY-YYYY-" (year range)
+     * (.+?) = capture group: any characters (username)
+     * \\.zip$ = ends with ".zip"
      * 
      * @param filename ZIP filename
      * @return Username if pattern matches, null otherwise
      */
     private String extractUsernameFromFilename(String filename) {
-        
+
         // Pattern: YYYY-YYYY-{username}.zip
         Pattern pattern = Pattern.compile("\\d{4}-\\d{4}-(.+?)\\.zip$");
         Matcher matcher = pattern.matcher(filename);
-        
+
         if (matcher.find()) {
-            return matcher.group(1);  // Extract captured group (username)
+            return matcher.group(1); // Extract captured group (username)
         }
-        
+
         return null;
     }
-    
+
     /**
      * Layer 2: Looks for username in folder name inside ZIP
      * 
@@ -178,26 +182,26 @@ public class StudentValidator {
      * - Even if they rename the ZIP file to something else
      * - Example: my-submission.zip contains ping.lee.2023/ folder
      * 
-     * @param studentZip ZIP file to inspect
+     * @param studentZip  ZIP file to inspect
      * @param scoreReader ScoreSheetReader for validation
      * @return Username if found, null otherwise
      */
-    private String extractUsernameFromFolder(Path studentZip, ScoreSheetReader scoreReader) 
+    private String extractUsernameFromFolder(Path studentZip, ScoreSheetReader scoreReader)
             throws IOException {
-        
+
         // Create temporary directory
         Path tempDir = Files.createTempDirectory("student-check");
-        
+
         try {
             // Extract ZIP to temp location
             ZipFileProcessor.unzip(studentZip, tempDir);
-            
+
             // Check top-level folders
             try (DirectoryStream<Path> stream = Files.newDirectoryStream(tempDir)) {
                 for (Path item : stream) {
                     if (Files.isDirectory(item)) {
                         String folderName = item.getFileName().toString();
-                        
+
                         // Check if folder name is a valid username
                         if (scoreReader.isValid(folderName)) {
                             return folderName;
@@ -205,15 +209,15 @@ public class StudentValidator {
                     }
                 }
             }
-            
+
             return null;
-            
+
         } finally {
             // Cleanup temporary directory
             deleteDirectory(tempDir);
         }
     }
-    
+
     /**
      * Layer 3: Scans Java files for @author comments
      * 
@@ -233,36 +237,39 @@ public class StudentValidator {
      * - // @author ping.lee.2023
      * 
      * REGEX EXPLANATION:
-     * @author\\s*:?\\s*  = "@author" + optional whitespace + optional ":" + whitespace
-     * (\\S+)             = capture group: non-whitespace characters (username)
      * 
-     * @param studentZip ZIP file to scan
+     * @author\\s*:?\\s* = "@author" + optional whitespace + optional ":" +
+     *                   whitespace
+     *                   (\\S+) = capture group: non-whitespace characters
+     *                   (username)
+     * 
+     * @param studentZip  ZIP file to scan
      * @param scoreReader ScoreSheetReader for validation
      * @return Username if found in comments, null otherwise
      */
-    private String extractUsernameFromComments(Path studentZip, ScoreSheetReader scoreReader) 
+    private String extractUsernameFromComments(Path studentZip, ScoreSheetReader scoreReader)
             throws IOException {
-        
+
         // Create temporary directory
         Path tempDir = Files.createTempDirectory("comment-scan");
-        
+
         try {
             // Extract ZIP to temp location
             ZipFileProcessor.unzip(studentZip, tempDir);
-            
+
             // Find all .java files
             Pattern authorPattern = Pattern.compile("@author\\s*:?\\s*(\\S+)");
-            
+
             // Walk directory tree to find .java files
             try (var stream = Files.walk(tempDir)) {
                 var javaFiles = stream
-                    .filter(Files::isRegularFile)
-                    .filter(p -> p.toString().endsWith(".java"))
-                    .toArray(Path[]::new);
-                
+                        .filter(Files::isRegularFile)
+                        .filter(p -> p.toString().endsWith(".java"))
+                        .toArray(Path[]::new);
+
                 // Scan each Java file
                 for (Path javaFile : javaFiles) {
-                    
+
                     // Read file line by line.
                     // Files.readAllLines() defaults to UTF-8 and throws
                     // MalformedInputException if the file contains non-UTF-8 bytes
@@ -278,12 +285,12 @@ public class StudentValidator {
                                 java.nio.charset.StandardCharsets.ISO_8859_1);
                     }
                     for (String line : lines) {
-                        
+
                         Matcher matcher = authorPattern.matcher(line);
-                        
+
                         if (matcher.find()) {
                             String potentialUsername = matcher.group(1);
-                            
+
                             // Validate against official list
                             if (scoreReader.isValid(potentialUsername)) {
                                 return potentialUsername;
@@ -292,15 +299,15 @@ public class StudentValidator {
                     }
                 }
             }
-            
+
             return null;
-            
+
         } finally {
             // Cleanup temporary directory
             deleteDirectory(tempDir);
         }
     }
-    
+
     /**
      * Recursively deletes a directory and all its contents
      * Used for cleaning up temporary extraction directories
@@ -309,19 +316,19 @@ public class StudentValidator {
      * @throws IOException if deletion fails
      */
     private void deleteDirectory(Path directory) throws IOException {
-        
+
         if (!Files.exists(directory)) {
             return;
         }
-        
+
         Files.walk(directory)
-            .sorted(java.util.Comparator.reverseOrder())
-            .forEach(path -> {
-                try {
-                    Files.delete(path);
-                } catch (IOException e) {
-                    // Ignore - best effort cleanup
-                }
-            });
+                .sorted(java.util.Comparator.reverseOrder())
+                .forEach(path -> {
+                    try {
+                        Files.delete(path);
+                    } catch (IOException e) {
+                        // Ignore - best effort cleanup
+                    }
+                });
     }
 }
