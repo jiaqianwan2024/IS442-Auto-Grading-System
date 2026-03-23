@@ -30,8 +30,6 @@ import java.nio.file.Paths;
  *   - The existing single-assessment flow is unchanged; GradingService still
  *     uses PathConfig. Only the multi-assessment path goes through here.
  *
- * @author IS442 Team
- * @version 1.0 (Multi-Assessment Bonus Feature)
  */
 public class AssessmentPathConfig {
 

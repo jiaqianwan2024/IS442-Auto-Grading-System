@@ -24,13 +24,6 @@ import java.util.*;
  * - Service-specific model (lives in discovery.model)
  * - Created by TesterDiscovery, consumed by GradingPlanBuilder
  * 
- * CHANGES FROM v3.0:
- * - Moved from global model/ to discovery.model/
- * - Added comprehensive JavaDoc
- * - Added helper methods for convenience
- * 
- * @author IS442 Team
- * @version 4.0 (Spring Boot Microservices Structure)
  */
 public class TesterMap {
     

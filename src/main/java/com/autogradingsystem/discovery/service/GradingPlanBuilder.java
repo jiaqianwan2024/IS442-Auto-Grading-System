@@ -24,22 +24,6 @@ import java.util.Set;
  * - Question file : Q1a.java  -> Question ID: Q1a
  * - Tester file   : Q1aTester.java -> Question ID: Q1a
  * - Match: Q1a == Q1a (case-insensitive) -> Create GradingTask
- *
- * CHANGES IN v2.7:
- * - resolveTemplateId() private helper introduced (DRY fix):
- *     strips leading path segments ("src/Q1a.java" -> "Q1a") then extension.
- *     Used by BOTH buildPlan() and isCompatible() so they can never disagree.
- * - O(1) tester lookup via HashMap.get(id.toLowerCase()) instead of O(n) loop.
- *     TesterMap keys are already normalised to lowercase by TesterDiscovery.
- * - assignedTaskIds Set prevents both Q1a.java AND Q1a.class from creating
- *     two GradingTask objects (double-score bug). .java wins; .class is [DUPLICATE].
- * - Per-folder [WARNING] when a Q folder has gradable files but produced 0 tasks.
- * - Empty-plan guard: if tasks.isEmpty() after all folders, logs a clear message
- *     and throws IOException — execution phase never runs with nothing to grade.
- * - isCompatible() uses resolveTemplateId() + lowercase get(), identical to buildPlan().
- *
- * @author IS442 Team
- * @version 2.7
  */
 public class GradingPlanBuilder {
 

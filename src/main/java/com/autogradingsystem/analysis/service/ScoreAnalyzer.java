@@ -24,13 +24,7 @@ import java.util.regex.Pattern;
  * - We don't hardcode max scores anywhere
  * - System must figure out max scores automatically
  * - Enables flexible exam structures (any number of tests per question)
- * * CHANGES FROM v3.0:
- * - Moved from util/ to analysis.service/
- * - Updated to use PathConfig for tester paths
- * - All methods stay static (utility class pattern)
- * - No logging changes
- * * @author IS442 Team
- * @version 4.0 (Spring Boot Microservices Structure)
+ * 
  */
 public class ScoreAnalyzer {
     

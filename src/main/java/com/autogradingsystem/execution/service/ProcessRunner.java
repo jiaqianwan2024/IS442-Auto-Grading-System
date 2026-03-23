@@ -26,9 +26,7 @@ import java.util.concurrent.TimeoutException;
  * * TIMEOUT PROTECTION & PARTIAL CREDIT RESCUE:
  * - 10-second timeout prevents infinite loops
  * - Uses thread-safe StringBuffer to rescue flushed output before process death
- * - Bypasses Windows "cmd /c" to ensure JVM is strictly killed on timeout
- * * @author IS442 Team
- * @version 4.1 (Resilience Update)
+ * - Bypasses Windows "cmd /c" to ensure JVM is strictly
  */
 public class ProcessRunner {
 

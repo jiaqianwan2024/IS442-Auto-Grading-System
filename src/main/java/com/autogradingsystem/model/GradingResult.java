@@ -26,8 +26,6 @@ package com.autogradingsystem.model;
  * - Package stays in global model/ (shared across services)
  * - Added comprehensive JavaDoc
  * 
- * @author IS442 Team
- * @version 4.0 (Spring Boot Microservices Structure)
  */
 public class GradingResult {
     

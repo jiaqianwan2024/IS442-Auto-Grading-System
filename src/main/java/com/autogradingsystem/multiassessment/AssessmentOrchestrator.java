@@ -47,8 +47,6 @@ import java.util.stream.Collectors;
  *   Each assessment's result carries a success flag and error message so
  *   the caller can report partial success.
  *
- * @author IS442 Team
- * @version 1.0 (Multi-Assessment Bonus Feature)
  */
 @Service
 public class AssessmentOrchestrator {
