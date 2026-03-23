@@ -24,12 +24,6 @@ import java.util.*;
  * - Add new tester? Just place Q4aTester.java in testers/ folder
  * - No code changes needed
  * - System discovers automatically
- * * CHANGES FROM v3.0:
- * - Removed verbose logging (handled by DiscoveryController/Main.java)
- * - Accepts tester directory path as parameter
- * - Cleaner method signatures
- * * @author IS442 Team
- * @version 4.0 (Spring Boot Microservices Structure)
  */
 public class TesterDiscovery {
     

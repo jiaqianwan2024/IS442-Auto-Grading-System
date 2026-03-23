@@ -13,13 +13,6 @@ package com.autogradingsystem.extraction.model;
  * - Clear status enum for different identification methods
  * - Used by StudentValidator and consumed by ExtractionController
  * 
- * CHANGES FROM v3.0:
- * - Extracted from StudentValidator as standalone model class
- * - Follows Spring Boot model package convention
- * - Added comprehensive JavaDoc
- * 
- * @author IS442 Team
- * @version 4.0 (Spring Boot Microservices Structure)
  */
 public class ValidationResult {
     

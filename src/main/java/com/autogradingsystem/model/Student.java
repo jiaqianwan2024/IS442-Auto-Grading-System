@@ -20,8 +20,6 @@ import java.util.List;
  * - Added folderRenamed, missingHeaderFiles, anomaly, rawFolderName for header scanning
  * - Added headerMismatch, headerClaimedUsername for ZIP vs header identity conflict detection
  *
- * @author IS442 Team
- * @version 3.2
  */
 public class Student {
 

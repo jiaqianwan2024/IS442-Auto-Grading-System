@@ -24,8 +24,6 @@ import java.util.List;
  * - Extract and validate student submissions
  * - Flatten wrapper folders
  * 
- * @author IS442 Team
- * @version 4.0
  */
 public class ExtractionController {
 
