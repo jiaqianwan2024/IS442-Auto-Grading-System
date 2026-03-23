@@ -22,36 +22,64 @@ import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * GradingController - Handles all web UI requests
+ * 
+ * PACKAGE: com.autogradingsystem.web.controller
+ * PURPOSE: Web layer controller (Spring MVC)
+ * 
+ * ROUTES:
+ *   GET  /                → Home page (single-page app)
+ *   POST /upload          → Handle 4 file uploads (session-persisted)
+ *   POST /grade           → Run grading pipeline (returns JSON)
+ *   GET  /download/csv    → Download score sheet CSV
+ *   GET  /download/excel  → Download statistics Excel
+ *   GET  /check-uploads   → Check which files are already uploaded
+ * 
+ * FILE UPLOADS (4 required):
+ *   1. submission   → resources/input/submissions/student-submission.zip
+ *   2. template     → resources/input/template/RenameToYourUsername.zip
+ *   3. scoresheet   → config/IS442-ScoreSheet.csv
+ *   4. testers      → resources/input/testers.zip (extracted to testers/)
+ * 
+ * @author IS442 Team
+ * @version 2.0 (Reorganized to web package)
+ */
 @Controller
 public class GradingController {
 
     @Autowired
     private GradingService gradingService;
 
+    /**
+     * Home page - single-page application
+     */
     @GetMapping("/")
     public String home() {
-        return "index";
+        return "index"; 
     }
 
-    @GetMapping("/multi-test")
-    public String multiTest() {
-        return "multi-assessment-test";
-    }
-
+    /**
+     * Handle multiple file uploads
+     * Supports uploading all 4 files at once or individually
+     * Files persist until manually replaced
+     * 
+     * @return JSON response with upload status
+     */
     @PostMapping("/upload")
     @ResponseBody
     public ResponseEntity<Map<String, Object>> handleUpload(
             @RequestParam(value = "submission", required = false) MultipartFile submissionZip,
             @RequestParam(value = "template", required = false) MultipartFile templateZip,
             @RequestParam(value = "scoresheet", required = false) MultipartFile scoreSheetCsv,
-            @RequestParam(value = "testers", required = false) MultipartFile testersZip,
-            @RequestParam(value = "examPdf", required = false) MultipartFile examPdfFile) {
-
+            @RequestParam(value = "testers", required = false) MultipartFile testersZip) {
+        
         Map<String, Object> response = new HashMap<>();
         Map<String, String> uploaded = new HashMap<>();
         StringBuilder messages = new StringBuilder();
 
         try {
+            // Upload 1: Student Submissions ZIP
             if (submissionZip != null && !submissionZip.isEmpty()) {
                 Path destination = Paths.get("resources/input/submissions/student-submission.zip");
                 Files.createDirectories(destination.getParent());
@@ -60,6 +88,7 @@ public class GradingController {
                 messages.append("✓ Student submissions uploaded. ");
             }
 
+            // Upload 2: Template ZIP
             if (templateZip != null && !templateZip.isEmpty()) {
                 Path destination = Paths.get("resources/input/template/RenameToYourUsername.zip");
                 Files.createDirectories(destination.getParent());
@@ -68,6 +97,7 @@ public class GradingController {
                 messages.append("✓ Template uploaded. ");
             }
 
+            // Upload 3: Score Sheet CSV
             if (scoreSheetCsv != null && !scoreSheetCsv.isEmpty()) {
                 Path destination = Paths.get("config/IS442-ScoreSheet.csv");
                 Files.createDirectories(destination.getParent());
@@ -76,38 +106,36 @@ public class GradingController {
                 messages.append("✓ Score sheet uploaded. ");
             }
 
+            // Upload 4: Testers ZIP (extract to testers/ folder)
             if (testersZip != null && !testersZip.isEmpty()) {
+                // Save ZIP temporarily
                 Path tempZip = Paths.get("resources/input/testers-temp.zip");
                 Files.createDirectories(tempZip.getParent());
                 Files.copy(testersZip.getInputStream(), tempZip, StandardCopyOption.REPLACE_EXISTING);
+                
+                // Extract ZIP to testers/ folder
                 Path testersDir = Paths.get("resources/input/testers");
                 if (Files.exists(testersDir)) {
-                    Files.walk(testersDir).sorted((a, b) -> -a.compareTo(b))
-                         .forEach(path -> { try { Files.delete(path); } catch (IOException e) {} });
+                    // Clear existing testers
+                    Files.walk(testersDir)
+                         .sorted((a, b) -> -a.compareTo(b))
+                         .forEach(path -> {
+                             try { Files.delete(path); } catch (IOException e) {}
+                         });
                 }
                 Files.createDirectories(testersDir);
+                
+                // Extract ZIP
                 extractZip(tempZip, testersDir);
+                
+                // NEW: Flatten the directory to remove wrapper folders
                 flattenDirectory(testersDir);
+                
+                // Delete temp ZIP
                 Files.deleteIfExists(tempZip);
+                
                 uploaded.put("testers", testersZip.getOriginalFilename());
                 messages.append("✓ Test cases uploaded and extracted. ");
-            }
-
-            // Exam paper PDF — save to resources/input/exam/
-            if (examPdfFile != null && !examPdfFile.isEmpty()) {
-                Path examDir = Paths.get("resources/input/exam");
-                Files.createDirectories(examDir);
-                // Remove any previous PDF so there is always exactly one
-                try (var stream = Files.list(examDir)) {
-                    stream.filter(p -> p.toString().toLowerCase().endsWith(".pdf"))
-                          .forEach(p -> { try { Files.deleteIfExists(p); } catch (IOException ignored) {} });
-                }
-                String pdfName = Paths.get(examPdfFile.getOriginalFilename()).getFileName().toString();
-                Path destination = examDir.resolve(pdfName);
-                Files.copy(examPdfFile.getInputStream(), destination, StandardCopyOption.REPLACE_EXISTING);
-                uploaded.put("examPdf", pdfName);
-                messages.append("✓ Exam paper PDF uploaded. ");
-                System.out.println("📑 Exam PDF saved: " + destination.toAbsolutePath());
             }
 
             if (uploaded.isEmpty()) {
@@ -115,6 +143,11 @@ public class GradingController {
                 response.put("message", "No files were uploaded");
                 return ResponseEntity.badRequest().body(response);
             }
+
+            // Calculate total file size for time estimation
+            long totalSize = calculateTotalFileSize(submissionZip, templateZip, scoreSheetCsv, testersZip);
+            response.put("totalSize", totalSize);
+            response.put("estimatedTime", estimateGradingTime(totalSize));
 
             response.put("success", true);
             response.put("message", messages.toString());
@@ -128,111 +161,120 @@ public class GradingController {
         }
     }
 
+    /**
+     * Check which files are already uploaded (for session persistence)
+     * 
+     * @return JSON with file existence status
+     */
     @GetMapping("/check-uploads")
     @ResponseBody
     public ResponseEntity<Map<String, Object>> checkUploads() {
         Map<String, Object> response = new HashMap<>();
         Map<String, Boolean> exists = new HashMap<>();
 
-        boolean hasSubmission = Files.exists(Paths.get("resources/input/submissions/student-submission.zip"));
-        boolean hasTemplate   = Files.exists(Paths.get("resources/input/template/RenameToYourUsername.zip"));
-        boolean hasScoresheet = Files.exists(Paths.get("config/IS442-ScoreSheet.csv"));
-        boolean hasTesters    = Files.exists(Paths.get("resources/input/testers")) &&
-                                hasJavaFiles(Paths.get("resources/input/testers"));
-        boolean hasExamPdf    = hasExamPdf(Paths.get("resources/input/exam"));
+        exists.put("submission", Files.exists(Paths.get("resources/input/submissions/student-submission.zip")));
+        exists.put("template", Files.exists(Paths.get("resources/input/template/RenameToYourUsername.zip")));
+        exists.put("scoresheet", Files.exists(Paths.get("config/IS442-ScoreSheet.csv")));
+        exists.put("testers", Files.exists(Paths.get("resources/input/testers")) && 
+                             hasJavaFiles(Paths.get("resources/input/testers")));
 
-        exists.put("submission", hasSubmission);
-        exists.put("template",   hasTemplate);
-        exists.put("scoresheet", hasScoresheet);
-        exists.put("testers",    hasTesters);
-        exists.put("examPdf",    hasExamPdf);
+        int uploadedCount = (int) exists.values().stream().filter(v -> v).count();
 
-        int uploadedCount = (hasSubmission ? 1 : 0) + (hasTemplate ? 1 : 0) +
-                            (hasScoresheet ? 1 : 0) + (hasTesters ? 1 : 0) +
-                            (hasExamPdf ? 1 : 0);
-
-        response.put("exists",        exists);
+        response.put("exists", exists);
         response.put("uploadedCount", uploadedCount);
-        // ready = all 4 required files present (testers are auto-generated; examPdf required)
-        response.put("ready", hasSubmission && hasTemplate && hasScoresheet && hasExamPdf);
+        response.put("ready", uploadedCount == 4);
 
         return ResponseEntity.ok(response);
     }
 
+    /**
+     * Run the grading pipeline
+     * Returns JSON for AJAX consumption
+     */
     @PostMapping("/grade")
     @ResponseBody
     public ResponseEntity<Map<String, Object>> runGrading() {
         GradingReport report = gradingService.runFullPipeline();
 
         Map<String, Object> response = new HashMap<>();
-        response.put("success",      report.isSuccess());
+        response.put("success", report.isSuccess());
         response.put("studentCount", report.getStudentCount());
-        response.put("logs",         report.getLogs());
+        response.put("logs", report.getLogs());
 
         if (report.getResults() != null && !report.getResults().isEmpty()) {
             response.put("taskCount", report.getResults().size());
-            double totalScore = 0, totalMax = 0;
+            
+            // Calculate statistics
+            double totalScore = 0;
+            double totalMax = 0;
             int perfectCount = 0;
+            
             for (var result : report.getResults()) {
                 totalScore += result.getScore();
-                totalMax   += result.getMaxScore();
+                totalMax += result.getMaxScore();
                 if (result.isPerfect()) perfectCount++;
             }
+            
             double averageScore = totalMax > 0 ? (totalScore / totalMax) * 100 : 0;
-            double successRate  = (perfectCount * 100.0 / report.getResults().size());
+            double successRate = report.getResults().size() > 0 ? 
+                (perfectCount * 100.0 / report.getResults().size()) : 0;
+            
             response.put("averageScore", averageScore);
-            response.put("successRate",  successRate);
+            response.put("successRate", successRate);
         }
 
         return ResponseEntity.ok(response);
     }
 
+    /**
+     * Download the updated score sheet CSV
+     */
     @GetMapping("/download/csv")
     public ResponseEntity<Resource> downloadCsv() {
         Path file = Paths.get("resources/output/reports/IS442-ScoreSheet-Updated.csv");
-        if (!Files.exists(file)) return ResponseEntity.notFound().build();
+        
+        if (!Files.exists(file)) {
+            return ResponseEntity.notFound().build();
+        }
+
         Resource resource = new FileSystemResource(file.toFile());
         return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION,
-                        "attachment; filename=IS442-ScoreSheet-Updated.csv")
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=IS442-ScoreSheet-Updated.csv")
                 .contentType(MediaType.parseMediaType("text/csv"))
                 .body(resource);
     }
 
-    @GetMapping("/download/scoresheet")
-    public ResponseEntity<Resource> downloadScoresheet() {
-        Path file = Paths.get("resources/output/reports/IS442-ScoreSheet-Updated.xlsx");
-        if (!Files.exists(file)) return ResponseEntity.notFound().build();
-        Resource resource = new FileSystemResource(file.toFile());
-        return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION,
-                        "attachment; filename=IS442-ScoreSheet-Updated.xlsx")
-                .contentType(MediaType.parseMediaType(
-                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
-                .body(resource);
+    /**
+     * Stop the current grading process
+     */
+    @PostMapping("/stop")
+    @ResponseBody
+    public ResponseEntity<Map<String, Object>> stopGrading() {
+        Map<String, Object> response = new HashMap<>();
+        
+        // For now, just return success. The actual stopping is handled by the AbortController
+        // on the frontend. In a future enhancement, we could implement server-side interruption.
+        response.put("success", true);
+        response.put("message", "Stop signal sent");
+        
+        return ResponseEntity.ok(response);
     }
 
-    @GetMapping("/download/excel")
-    public ResponseEntity<Resource> downloadExcel() {
-        Path file = Paths.get("resources/output/reports/IS442-Statistics.xlsx");
-        if (!Files.exists(file)) return ResponseEntity.notFound().build();
-        Resource resource = new FileSystemResource(file.toFile());
-        return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION,
-                        "attachment; filename=IS442-Statistics.xlsx")
-                .contentType(MediaType.parseMediaType(
-                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
-                .body(resource);
-    }
+    // ================================================================
+    // Helper Methods
+    // ================================================================
 
-    // ── Helpers ──────────────────────────────────────────────────────────────
-
+    /**
+     * Extract ZIP file
+     */
     private void extractZip(Path zipFile, Path destDir) throws IOException {
-        try (java.util.zip.ZipInputStream zis =
-                new java.util.zip.ZipInputStream(Files.newInputStream(zipFile))) {
+        try (java.util.zip.ZipInputStream zis = new java.util.zip.ZipInputStream(
+                Files.newInputStream(zipFile))) {
+            
             java.util.zip.ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
                 Path targetPath = destDir.resolve(entry.getName());
+                
                 if (entry.isDirectory()) {
                     Files.createDirectories(targetPath);
                 } else {
@@ -244,35 +286,81 @@ public class GradingController {
         }
     }
 
+    /**
+     * Check if directory contains .java files
+     */
     private boolean hasJavaFiles(Path dir) {
         try {
-            return Files.walk(dir).anyMatch(path -> path.toString().endsWith(".java"));
-        } catch (IOException e) { return false; }
+            return Files.walk(dir)
+                    .anyMatch(path -> path.toString().endsWith(".java"));
+        } catch (IOException e) {
+            return false;
+        }
     }
 
-    private boolean hasExamPdf(Path dir) {
-        if (!Files.exists(dir)) return false;
-        try (var stream = Files.list(dir)) {
-            return stream.anyMatch(p -> p.toString().toLowerCase().endsWith(".pdf"));
-        } catch (IOException e) { return false; }
-    }
-
+    /**
+     * Flattens a directory by moving all nested files to the root,
+     * deleting macOS hidden files, and removing leftover empty directories.
+     */
     private void flattenDirectory(Path rootDir) throws IOException {
+        // 1. Find all regular files no matter how deep they are nested
         java.util.List<Path> allFiles = Files.walk(rootDir)
                 .filter(Files::isRegularFile)
                 .collect(java.util.stream.Collectors.toList());
+
+        // 2. Process every file
         for (Path file : allFiles) {
             String fileName = file.getFileName().toString();
-            if (fileName.startsWith(".")) { Files.delete(file); continue; }
+            
+            // NEW: Delete macOS metadata files and hidden files
+            if (fileName.startsWith(".")) {
+                Files.delete(file);
+                continue;
+            }
+
             Path target = rootDir.resolve(fileName);
+            // Only move it if it isn't already in the root
             if (!file.getParent().equals(rootDir)) {
                 Files.move(file, target, StandardCopyOption.REPLACE_EXISTING);
             }
         }
+
+        // 3. Clean up and delete all the empty subdirectories
         Files.walk(rootDir)
-             .filter(Files::isDirectory)
-             .filter(p -> !p.equals(rootDir))
-             .sorted((a, b) -> b.compareTo(a))
-             .forEach(p -> { try { Files.delete(p); } catch (IOException e) {} });
+                .filter(Files::isDirectory)
+                .filter(p -> !p.equals(rootDir))
+                .sorted((a, b) -> b.compareTo(a)) // Sort reverse to delete deepest folders first
+                .forEach(p -> {
+                    try { Files.delete(p); } catch (IOException e) {}
+                });
+    }
+
+    /**
+     * Calculate total size of uploaded files
+     */
+    private long calculateTotalFileSize(MultipartFile... files) {
+        long totalSize = 0;
+        for (MultipartFile file : files) {
+            if (file != null && !file.isEmpty()) {
+                totalSize += file.getSize();
+            }
+        }
+        return totalSize;
+    }
+
+    /**
+     * Estimate grading time based on file size
+     * Base time: 60 seconds
+     * Additional time: 3 seconds per 100KB
+     */
+    private int estimateGradingTime(long totalSizeBytes) {
+        // Convert bytes to KB
+        long sizeKB = totalSizeBytes / 1024;
+
+        // Base time of 60 seconds + 3 seconds per 100KB
+        int estimatedSeconds = 60 + (int)(sizeKB / 33); // ~3 seconds per 100KB
+
+        // Cap at 8 minutes (480 seconds)
+        return Math.min(estimatedSeconds, 480);
     }
 }
