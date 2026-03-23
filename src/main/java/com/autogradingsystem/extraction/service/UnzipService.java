@@ -18,8 +18,7 @@ import java.util.*;
  * - Uses recursive digging to find any valid question folder or file.
  * - Normalizes deep nesting to ensure Phase 3 can find source files.
  * - Protects against "NullPointerException" when students submit non-standard structures.
- * * @author IS442 Team
- * @version 4.1 (Resilient Extraction)
+ * 
  */
 public class UnzipService {
     

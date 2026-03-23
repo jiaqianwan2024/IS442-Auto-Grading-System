@@ -11,11 +11,6 @@ import java.nio.file.StandardCopyOption;
 
 /**
  * TesterInjector - Copies Tester Files (and their dependencies) to Student Folders
- *
- * CHANGES IN v4.1 (multi-assessment):
- * - Added path-aware constructor accepting inputTesters + inputTemplate paths.
- * - resolve*() helpers fall back to PathConfig when paths are null (single-assessment).
- * - All existing single-assessment behaviour is unchanged.
  */
 public class TesterInjector {
 

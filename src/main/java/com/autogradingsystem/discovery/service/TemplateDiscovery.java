@@ -17,22 +17,6 @@ import java.util.zip.ZipException;
  * - Automatically discovers exam structure (questions and files)
  * - No hardcoded question lists needed
  * - Scans template ZIP and extracts structure information
- *
- * CHANGES IN v2.7:
- * - findRootDirectory() is now fully recursive up to MAX_NESTING_DEPTH levels;
- *   skips __MACOSX and hidden folders to avoid false "multiple subdirs" errors
- * - scanForQuestions() regex tightened to ^Q[1-9]\d*$ (rejects Q01, Q0, q1, Q1a)
- * - collectFilesRecursively() replaces flat DirectoryStream — finds files in
- *   subdirectories inside Q folders (e.g. Q1/src/Q1a.java)
- * - Q-named subfolders inside a Q folder are skipped with [SKIP-Q-FOLDER] warning
- * - ZIP size guard: template ZIPs > 50 MB are rejected before extraction
- * - File count cap: > 50 files per Q folder logs [TOO-MANY-FILES] warning
- * - ZipException caught and rethrown with a friendly 3-cause message
- * - deleteDirectory() now logs [WARN] to stderr instead of silently swallowing errors
- * - QuestionComparator uses substring(1) not replaceAll to avoid mis-sorting
- *
- * @author IS442 Team
- * @version 2.7
  */
 public class TemplateDiscovery {
 

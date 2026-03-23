@@ -29,13 +29,6 @@ import java.util.regex.Pattern;
  * Layer 2: Check folder name inside ZIP (second most reliable)
  * Layer 3: Scan Java comments for @author tag (last resort)
  * 
- * CHANGES FROM v3.0:
- * - ValidationResult moved to separate model class
- * - No logging (handled by ExtractionController)
- * - Cleaner method signatures
- * 
- * @author IS442 Team
- * @version 4.0 (Spring Boot Microservices Structure)
  */
 public class StudentValidator {
 

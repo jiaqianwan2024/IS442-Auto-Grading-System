@@ -23,8 +23,6 @@ import java.nio.file.Path;
  *   All fields are final after construction. The bundle is a pure value
  *   object — nothing modifies it after creation.
  *
- * @author IS442 Team
- * @version 1.0 (Multi-Assessment Bonus Feature)
  */
 public class AssessmentBundle {
 

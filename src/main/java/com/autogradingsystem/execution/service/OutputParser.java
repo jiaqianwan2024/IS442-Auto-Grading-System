@@ -28,13 +28,6 @@ import java.util.regex.Pattern;
  * 4. Parse as double
  * 5. Return score
  * 
- * NO CHANGES FROM v3.0:
- * - Already well-designed
- * - Package declaration updated
- * - No logic changes needed
- * 
- * @author IS442 Team
- * @version 4.0 (Spring Boot Microservices Structure)
  */
  
 public class OutputParser {

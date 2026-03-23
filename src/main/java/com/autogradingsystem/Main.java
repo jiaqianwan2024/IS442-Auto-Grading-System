@@ -17,7 +17,6 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * Web mode: GradingController (HTTP) calls GradingService
  * CLI mode: CliRunner (@Profile("cli")) calls GradingService — Tomcat never starts
  *
- * @version 3.0
  */
 @SpringBootApplication
 public class Main {

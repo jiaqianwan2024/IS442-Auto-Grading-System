@@ -23,12 +23,6 @@ import java.util.Set;
  * - Uses HashSet for O(1) lookup time
  * - For 100 students: HashSet = 1 operation, ArrayList = up to 100 operations
  * 
- * CHANGES FROM v3.0:
- * - Removed verbose logging (handled by ExtractionController)
- * - Paths passed as parameters (no hardcoded paths)
- * 
- * @author IS442 Team
- * @version 4.0 (Spring Boot Microservices Structure)
  */
 public class ScoreSheetReader {
     

@@ -23,13 +23,6 @@ import java.util.zip.ZipInputStream;
  * - Handles nested directories automatically
  * - Cross-platform: Works on Windows, Mac, Linux
  * - Preserves directory structure from ZIP
- * 
- * NO CHANGES FROM v3.0:
- * - This class was already well-designed
- * - Only package declaration updated
- * 
- * @author IS442 Team
- * @version 4.0 (Spring Boot Microservices Structure)
  */
 public class ZipFileProcessor {
     
