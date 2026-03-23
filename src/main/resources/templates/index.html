@@ -9,269 +9,250 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
     <style>
-        .mode-nav {
-            display: flex;
-            gap: 0;
-            margin-bottom: 40px;
+        /* ══════════════════════════════════════════════════════════════════
+           UNIFIED ASSESSMENT PAGE — STYLES
+           ══════════════════════════════════════════════════════════════════ */
+
+        /* ── Assessment upload slots ───────────────────────────────────── */
+        .slot-grid { display: flex; flex-direction: column; gap: 16px; margin-bottom: 8px; }
+        .assessment-slot {
+            background: var(--white);
             border: 4px solid var(--black);
             box-shadow: var(--shadow-medium);
-            width: fit-content;
         }
-        .mode-nav a {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 12px 28px;
-            font-size: 0.95rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            text-decoration: none;
-            color: var(--black);
-            background: var(--white);
-            border-right: 4px solid var(--black);
+        .slot-header {
+            display: flex; align-items: center; gap: 12px;
+            padding: 14px 20px;
+            background: var(--yellow); border-bottom: 4px solid var(--black);
+        }
+        .slot-num {
+            display: flex; align-items: center; justify-content: center;
+            width: 32px; height: 32px;
+            background: var(--black); color: var(--yellow);
+            font-family: 'Space Mono', monospace; font-weight: 700; font-size: 1rem;
+            flex-shrink: 0;
+        }
+        .slot-name-input {
+            flex: 1; padding: 8px 14px; font-size: 1rem; font-weight: 600;
             font-family: 'Space Grotesk', sans-serif;
-            transition: background 0.1s;
+            border: 3px solid var(--black); background: var(--white); outline: none;
         }
-        .mode-nav a:last-child { border-right: none; }
-        .mode-nav a.active { background: var(--yellow); }
-        .mode-nav a:hover:not(.active) { background: var(--gray-light); }
+        .slot-name-input:focus { background: var(--yellow-light); }
+        .slot-name-input::placeholder { color: #999; font-weight: 400; }
+        .slot-remove {
+            display: flex; align-items: center; justify-content: center;
+            width: 36px; height: 36px;
+            background: var(--black); color: var(--yellow);
+            border: none; font-size: 1.2rem; font-weight: 700;
+            cursor: pointer; flex-shrink: 0; transition: all 0.1s;
+        }
+        .slot-remove:hover { background: var(--red); color: var(--white); }
+        .slot-files {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        }
+        .file-drop {
+            position: relative; padding: 20px 16px; text-align: center;
+            cursor: pointer; border-right: 3px solid var(--gray); transition: background 0.15s;
+        }
+        .file-drop:last-child { border-right: none; }
+        .file-drop:hover { background: var(--yellow-light); }
+        .file-drop.has-file { background: rgba(76,175,80,0.08); }
+        .file-drop input[type=file] {
+            position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+        }
+        .file-drop-label { font-size: 0.82rem; font-weight: 700; text-transform: uppercase; margin-bottom: 6px; }
+        .file-drop-hint {
+            font-size: 0.75rem; color: #666;
+            font-family: 'Space Mono', monospace; word-break: break-all;
+        }
+        .file-drop.has-file .file-drop-hint { color: var(--green); font-weight: 700; }
 
-        /* ── Step indicator ─────────────────────────────────────────────── */
+        .empty-state {
+            text-align: center; padding: 40px 20px;
+            border: 4px dashed var(--gray-dark); margin-bottom: 16px;
+            color: #999; font-family: 'Space Mono', monospace; font-size: 0.85rem; line-height: 2;
+        }
+        .empty-state strong { color: var(--black); }
+
+        .action-row {
+            display: flex; flex-wrap: wrap; gap: 12px;
+            margin-bottom: 40px; align-items: center;
+        }
+        .btn-add { background: var(--black); color: var(--yellow); border-color: var(--black); }
+        .btn-add:hover { background: #333; color: var(--yellow); }
+        .slot-limit-hint {
+            font-size: 0.8rem; font-family: 'Space Mono', monospace; color: #888;
+        }
+
+        /* ── Assessment tabs (post-upload) ─────────────────────────────── */
+        .assess-tabs {
+            display: flex; flex-wrap: wrap; gap: 4px;
+            margin-bottom: 0; border-bottom: 4px solid var(--black);
+        }
+        .assess-tab {
+            padding: 10px 22px;
+            font-family: 'Space Grotesk', sans-serif; font-size: 0.88rem; font-weight: 700;
+            cursor: pointer; border: 3px solid var(--black); border-bottom: none;
+            background: var(--white); transition: background 0.1s;
+            position: relative; top: 4px; text-transform: uppercase;
+        }
+        .assess-tab:hover { background: var(--yellow-light); }
+        .assess-tab.active { background: var(--yellow); }
+        .assess-tab .tab-status {
+            display: inline-block; margin-left: 8px; font-size: 0.7rem;
+        }
+        .assess-tab .tab-status.step-1 { color: var(--black); }
+        .assess-tab .tab-status.step-2 { color: #e67e22; }
+        .assess-tab .tab-status.step-3 { color: #3498db; }
+        .assess-tab .tab-status.done   { color: var(--green); }
+        .assess-tab .tab-status.error  { color: var(--red); }
+
+        .assess-panel { display: none; }
+        .assess-panel.active { display: block; }
+
+        /* ── Steps indicator (per assessment) ──────────────────────────── */
         .steps {
-            display: flex;
-            align-items: center;
-            margin: 0 0 48px 0;
-            gap: 0;
+            display: flex; align-items: center; margin: 24px 0 36px 0; gap: 0;
         }
         .step {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 8px;
-            opacity: 0.4;
-            transition: opacity 0.2s;
+            display: flex; flex-direction: column; align-items: center; gap: 8px;
+            opacity: 0.4; transition: opacity 0.2s;
         }
         .step.active, .step.done { opacity: 1; }
         .step-circle {
-            width: 44px;
-            height: 44px;
-            border: 4px solid var(--black);
-            background: var(--white);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 700;
-            font-size: 1.1rem;
-            box-shadow: var(--shadow-small);
+            width: 44px; height: 44px; border: 4px solid var(--black);
+            background: var(--white); display: flex; align-items: center; justify-content: center;
+            font-weight: 700; font-size: 1.1rem; box-shadow: var(--shadow-small);
         }
         .step.active .step-circle { background: var(--yellow); }
-        .step.done   .step-circle { background: var(--black); color: var(--yellow); }
+        .step.done .step-circle { background: var(--black); color: var(--yellow); }
         .step-label {
-            font-size: 0.75rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            white-space: nowrap;
+            font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.5px; white-space: nowrap;
         }
         .step-line {
-            flex: 1;
-            height: 4px;
-            background: var(--gray);
-            border-top: 4px solid var(--black);
-            min-width: 24px;
-            margin-bottom: 28px;
+            flex: 1; height: 4px; background: var(--gray);
+            border-top: 4px solid var(--black); min-width: 24px; margin-bottom: 28px;
         }
         .step-line.done { background: var(--black); }
 
-        /* ── PDF hint ───────────────────────────────────────────────────── */
+        /* ── PDF hint ──────────────────────────────────────────────────── */
         .pdf-hint {
-            padding: 14px 20px;
-            background: var(--gray-light);
-            border: 3px solid var(--black);
-            font-family: 'Space Mono', monospace;
-            font-size: 0.85rem;
-            margin-bottom: 20px;
-            box-shadow: var(--shadow-small);
+            padding: 14px 20px; background: var(--gray-light);
+            border: 3px solid var(--black); font-family: 'Space Mono', monospace;
+            font-size: 0.85rem; margin-bottom: 20px; box-shadow: var(--shadow-small);
         }
         .pdf-hint.pdf-detected {
-            background: rgba(76,175,80,0.08);
-            border-color: var(--green);
-            color: var(--green);
+            background: rgba(76,175,80,0.08); border-color: var(--green); color: var(--green);
         }
 
-        /* ── Add question row ───────────────────────────────────────────── */
+        /* ── Add question row ──────────────────────────────────────────── */
         .add-question-row {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin: 12px 0 24px 0;
+            display: flex; align-items: center; gap: 10px; margin: 12px 0 24px 0;
         }
         .add-question-row input {
-            padding: 8px 12px;
-            border: 3px solid var(--black);
-            font-family: 'Space Mono', monospace;
-            font-size: 0.9rem;
-            background: var(--white);
-            outline: none;
+            padding: 8px 12px; border: 3px solid var(--black);
+            font-family: 'Space Mono', monospace; font-size: 0.9rem;
+            background: var(--white); outline: none;
         }
         .add-question-row input:focus { background: var(--yellow-light); }
+
+        /* ── Buttons ───────────────────────────────────────────────────── */
         .btn-secondary {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 10px 20px;
-            font-size: 0.9rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            border: 3px solid var(--black);
-            background: var(--white);
-            cursor: pointer;
-            box-shadow: var(--shadow-small);
-            transition: all 0.1s;
-            font-family: 'Space Grotesk', sans-serif;
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 10px 20px; font-size: 0.9rem; font-weight: 700;
+            text-transform: uppercase; border: 3px solid var(--black);
+            background: var(--white); cursor: pointer; box-shadow: var(--shadow-small);
+            transition: all 0.1s; font-family: 'Space Grotesk', sans-serif;
         }
         .btn-secondary:hover { transform: translate(-2px,-2px); box-shadow: var(--shadow-medium); }
         .btn-primary {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 14px 32px;
-            font-size: 1rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            border: 4px solid var(--black);
-            background: var(--green);
-            color: var(--white);
-            cursor: pointer;
-            box-shadow: var(--shadow-medium);
-            transition: all 0.1s;
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 14px 32px; font-size: 1rem; font-weight: 700;
+            text-transform: uppercase; border: 4px solid var(--black);
+            background: var(--green); color: var(--white); cursor: pointer;
+            box-shadow: var(--shadow-medium); transition: all 0.1s;
             font-family: 'Space Grotesk', sans-serif;
         }
-        .btn-primary:hover  { transform: translate(-2px,-2px); box-shadow: var(--shadow-thick); }
+        .btn-primary:hover { transform: translate(-2px,-2px); box-shadow: var(--shadow-thick); }
         .btn-primary:active { transform: translate(2px,2px); box-shadow: var(--shadow-small); }
         .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+        .section-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 24px; }
 
-        /* ── Section actions row ────────────────────────────────────────── */
-        .section-actions {
-            display: flex;
-            gap: 12px;
-            flex-wrap: wrap;
-            margin-top: 24px;
-        }
-
-        /* ── Code editor ────────────────────────────────────────────────── */
-        .editor-section { }
+        /* ── Code editor ───────────────────────────────────────────────── */
         .question-tabs {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 4px;
-            margin-bottom: 0;
-            border-bottom: 4px solid var(--black);
+            display: flex; flex-wrap: wrap; gap: 4px;
+            margin-bottom: 0; border-bottom: 4px solid var(--black);
         }
         .q-tab {
-            padding: 8px 18px;
-            font-family: 'Space Mono', monospace;
-            font-size: 0.8rem;
-            font-weight: 700;
-            cursor: pointer;
-            border: 3px solid var(--black);
-            border-bottom: none;
-            background: var(--white);
-            transition: background 0.1s;
-            position: relative;
-            top: 4px;
+            padding: 8px 18px; font-family: 'Space Mono', monospace;
+            font-size: 0.8rem; font-weight: 700; cursor: pointer;
+            border: 3px solid var(--black); border-bottom: none;
+            background: var(--white); transition: background 0.1s;
+            position: relative; top: 4px;
         }
-        .q-tab:hover  { background: var(--yellow-light); }
+        .q-tab:hover { background: var(--yellow-light); }
         .q-tab.active { background: var(--yellow); }
-        .q-tab.saved::after   { content: ' ✓'; color: var(--green); font-size: 0.7rem; }
-        .q-tab.unsaved::after { content: ' ●'; color: var(--red);   font-size: 0.7rem; }
-
-        .editor-container {
-            border: 4px solid var(--black);
-            box-shadow: var(--shadow-thick);
-        }
+        .q-tab.saved::after { content: ' ✓'; color: var(--green); font-size: 0.7rem; }
+        .q-tab.unsaved::after { content: ' ●'; color: var(--red); font-size: 0.7rem; }
+        .editor-container { border: 4px solid var(--black); box-shadow: var(--shadow-thick); }
         .editor-toolbar {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 10px 16px;
-            background: var(--black);
-            color: var(--yellow);
-            gap: 12px;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 10px 16px; background: var(--black); color: var(--yellow); gap: 12px;
         }
-        .editor-filename {
-            font-family: 'Space Mono', monospace;
-            font-size: 0.9rem;
-            font-weight: 700;
-        }
-        .editor-actions {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
+        .editor-filename { font-family: 'Space Mono', monospace; font-size: 0.9rem; font-weight: 700; }
+        .editor-actions { display: flex; align-items: center; gap: 12px; }
         .save-indicator {
-            font-family: 'Space Mono', monospace;
-            font-size: 0.78rem;
-            padding: 3px 10px;
-            border: 2px solid;
+            font-family: 'Space Mono', monospace; font-size: 0.78rem;
+            padding: 3px 10px; border: 2px solid;
         }
         .save-indicator.saved   { color: var(--green); border-color: var(--green); }
         .save-indicator.unsaved { color: var(--red);   border-color: var(--red); }
         .save-indicator.saving  { color: var(--yellow); border-color: var(--yellow); }
-
         .btn-save-file {
-            padding: 6px 16px;
-            font-size: 0.85rem;
-            font-weight: 700;
-            border: 3px solid var(--yellow);
-            background: transparent;
-            color: var(--yellow);
-            cursor: pointer;
-            font-family: 'Space Grotesk', sans-serif;
-            transition: all 0.1s;
+            padding: 6px 16px; font-size: 0.85rem; font-weight: 700;
+            border: 3px solid var(--yellow); background: transparent; color: var(--yellow);
+            cursor: pointer; font-family: 'Space Grotesk', sans-serif; transition: all 0.1s;
         }
         .btn-save-file:hover { background: var(--yellow); color: var(--black); }
-
         .code-editor {
-            display: block;
-            width: 100%;
-            min-height: 420px;
-            padding: 20px;
-            background: var(--black);
-            color: #e0e0ff;
+            display: block; width: 100%; min-height: 400px; padding: 20px;
+            background: var(--black); color: #e0e0ff;
             font-family: 'Space Mono', 'Courier New', monospace;
-            font-size: 0.85rem;
-            line-height: 1.7;
-            border: none;
-            outline: none;
-            resize: vertical;
-            box-sizing: border-box;
-            tab-size: 4;
+            font-size: 0.85rem; line-height: 1.7;
+            border: none; outline: none; resize: vertical; box-sizing: border-box; tab-size: 4;
         }
 
-        /* ── Generating overlay ─────────────────────────────────────────── */
+        /* ── Generating overlay ────────────────────────────────────────── */
         .generating-overlay {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 16px;
-            padding: 48px 20px;
-            background: var(--white);
-            border: 4px solid var(--black);
-            box-shadow: var(--shadow-thick);
-            font-weight: 600;
-            font-size: 1rem;
-            text-align: center;
+            display: flex; flex-direction: column; align-items: center; gap: 16px;
+            padding: 48px 20px; background: var(--white); border: 4px solid var(--black);
+            box-shadow: var(--shadow-thick); font-weight: 600; font-size: 1rem; text-align: center;
         }
-        .spinner {
-            font-size: 2.5rem;
-            animation: spin 1.2s linear infinite;
-            display: inline-block;
-        }
+        .spinner { font-size: 2.5rem; animation: spin 1.2s linear infinite; display: inline-block; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
-        /* ── Responsive ─────────────────────────────────────────────────── */
+        /* ── Download area ─────────────────────────────────────────────── */
+        .download-area-card {
+            margin-top: 16px; background: var(--yellow); border: 4px solid var(--black);
+            padding: 16px 20px; box-shadow: var(--shadow-small);
+        }
+        .download-area-card h4 { font-size: 1rem; font-weight: 700; text-transform: uppercase; margin-bottom: 12px; }
+        .download-buttons-row { display: flex; flex-wrap: wrap; gap: 10px; }
+        .btn-dl {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 10px 20px; font-size: 0.9rem; font-weight: 700;
+            text-transform: uppercase; text-decoration: none;
+            background: var(--black); color: var(--yellow);
+            border: 3px solid var(--black); box-shadow: var(--shadow-small);
+            transition: all 0.1s; font-family: 'Space Grotesk', sans-serif;
+        }
+        .btn-dl:hover { transform: translate(-2px,-2px); box-shadow: var(--shadow-medium); }
+
+        /* ── Responsive ────────────────────────────────────────────────── */
         @media (max-width: 768px) {
+            .slot-files { grid-template-columns: repeat(2, 1fr); }
             .steps { gap: 0; }
             .step-label { font-size: 0.65rem; }
             .step-circle { width: 36px; height: 36px; font-size: 0.95rem; }
@@ -279,6 +260,12 @@
             .section-actions .btn-primary,
             .section-actions .btn-secondary { width: 100%; justify-content: center; }
             .code-editor { min-height: 300px; font-size: 0.78rem; }
+            .assess-tab { padding: 8px 14px; font-size: 0.78rem; }
+        }
+        @media (max-width: 480px) {
+            .slot-files { grid-template-columns: 1fr; }
+            .action-row { flex-direction: column; }
+            .action-row .btn { width: 100%; justify-content: center; }
         }
     </style>
 </head>
@@ -307,212 +294,59 @@
         </div>
     </header>
 
-    <!-- Mode navigation -->
-    <nav class="mode-nav">
-        <a href="/" class="active">⚡ Single Assessment</a>
-        <a href="/multi-test">🗂 Multi-Assessment</a>
-    </nav>
-
     <!-- Alert Container -->
     <div id="alertContainer"></div>
 
     <div class="hero-section">
         <h2 class="hero-title">Grade your code<br><span class="highlight">automatically!</span></h2>
-        <p class="hero-subtitle">Upload → confirm marks → review testers → grade</p>
-    </div>
-
-    <!-- Step Indicator -->
-    <div class="steps">
-        <div class="step active" id="step1"><div class="step-circle">1</div><div class="step-label">Upload</div></div>
-        <div class="step-line" id="line12"></div>
-        <div class="step" id="step2"><div class="step-circle">2</div><div class="step-label">Confirm Marks</div></div>
-        <div class="step-line" id="line23"></div>
-        <div class="step" id="step3"><div class="step-circle">3</div><div class="step-label">Review Testers</div></div>
-        <div class="step-line" id="line34"></div>
-        <div class="step" id="step4"><div class="step-circle">4</div><div class="step-label">Grade</div></div>
+        <p class="hero-subtitle">Upload 1–5 assessments → confirm marks → review testers → grade each one</p>
     </div>
 
     <!-- ══════════════════════════════════════════════════════════════════ -->
-    <!-- STEP 1 — Upload                                                    -->
+    <!-- PHASE 1 — Upload Assessments (Landing Page)                       -->
     <!-- ══════════════════════════════════════════════════════════════════ -->
-    <section id="uploadSection">
+    <section id="uploadPhase">
         <div class="section-header">
-            <h3>📂 Upload Files</h3>
-            <p>All 4 files are required. The exam paper PDF is used by the AI to detect question marks automatically.</p>
+            <h3>📂 Upload Assessments</h3>
+            <p>Add 1–5 assessments. Each needs: student submissions, template, score sheet CSV, and exam paper PDF. Testers ZIP is optional — AI can generate them.</p>
         </div>
 
-        <div class="upload-grid">
-            <div class="upload-box" data-file-type="submission"
-                 ondrop="handleDrop(event,'submission')" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)"
-                 onclick="document.getElementById('submissionZip').click()">
-                <input type="file" id="submissionZip" accept=".zip" onchange="handleFileSelect(this,'submission')" hidden>
-                <div class="upload-icon">📦</div>
-                <div class="upload-title">Student Submissions</div>
-                <div class="upload-desc">Master ZIP file</div>
-                <div class="upload-status" id="submissionStatus"><span class="status-text">Click or drag here</span></div>
-            </div>
-            <div class="upload-box" data-file-type="template"
-                 ondrop="handleDrop(event,'template')" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)"
-                 onclick="document.getElementById('templateZip').click()">
-                <input type="file" id="templateZip" accept=".zip" onchange="handleFileSelect(this,'template')" hidden>
-                <div class="upload-icon">📄</div>
-                <div class="upload-title">Template / Answer Key</div>
-                <div class="upload-desc">Reference solution ZIP</div>
-                <div class="upload-status" id="templateStatus"><span class="status-text">Click or drag here</span></div>
-            </div>
-            <div class="upload-box" data-file-type="scoresheet"
-                 ondrop="handleDrop(event,'scoresheet')" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)"
-                 onclick="document.getElementById('scoreSheetCsv').click()">
-                <input type="file" id="scoreSheetCsv" accept=".csv" onchange="handleFileSelect(this,'scoresheet')" hidden>
-                <div class="upload-icon">📊</div>
-                <div class="upload-title">Score Sheet CSV</div>
-                <div class="upload-desc">Official student list</div>
-                <div class="upload-status" id="scoresheetStatus"><span class="status-text">Click or drag here</span></div>
-            </div>
-            <div class="upload-box" data-file-type="exampdf"
-                 ondrop="handleDrop(event,'exampdf')" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)"
-                 onclick="document.getElementById('examPdfFile').click()">
-                <input type="file" id="examPdfFile" accept=".pdf" onchange="handleFileSelect(this,'exampdf')" hidden>
-                <div class="upload-icon">📑</div>
-                <div class="upload-title">Exam Paper PDF</div>
-                <div class="upload-desc">AI reads marks from this</div>
-                <div class="upload-status" id="exampdfStatus"><span class="status-text">Click or drag here</span></div>
+        <div class="slot-grid" id="assessmentSlots">
+            <div class="empty-state" id="emptyState">
+                No assessments added yet.<br>
+                Click <strong>＋ Add Assessment</strong> for each exam or test you want to grade.<br>
+                e.g. Midterm 25/26, Final Exam, Lab Test 1 …
             </div>
         </div>
 
-        <div class="action-center">
-            <button class="btn btn-upload" id="uploadBtn" onclick="doUpload()" disabled>
-                <span class="btn-icon">⬆</span> Upload Files
+        <div class="action-row">
+            <button class="btn btn-add" id="addBtn" onclick="addSlot()">
+                <span class="btn-icon">＋</span> Add Assessment
             </button>
-            <div class="upload-counter" id="uploadCounter">
-                <span class="counter-value">0/4</span> files selected
-            </div>
-        </div>
-    </section>
-
-    <!-- ══════════════════════════════════════════════════════════════════ -->
-    <!-- STEP 2 — Confirm Marks                                             -->
-    <!-- ══════════════════════════════════════════════════════════════════ -->
-    <section id="marksSection" style="display:none;">
-        <div class="section-header">
-            <h3>📋 Confirm Question Marks</h3>
-            <p>The AI has scanned your exam paper and extracted the questions and marks. Verify each row — edit if anything is wrong — then click Generate.</p>
-        </div>
-
-        <div id="marksHint" class="pdf-hint">⏳ Scanning exam paper PDF with AI...</div>
-
-        <table id="marksTable" style="width:100%;border-collapse:collapse;margin:1rem 0;font-family:'Space Mono',monospace;font-size:.85rem;">
-            <thead>
-                <tr>
-                    <th style="background:#16213e;color:#f0c040;padding:.5rem .8rem;text-align:left;border-bottom:1px solid #2a2a4a;width:90px;">Question</th>
-                    <th style="background:#16213e;color:#f0c040;padding:.5rem .8rem;text-align:left;border-bottom:1px solid #2a2a4a;">Method</th>
-                    <th style="background:#16213e;color:#f0c040;padding:.5rem .8rem;text-align:left;border-bottom:1px solid #2a2a4a;width:180px;">Marks (= test cases)</th>
-                </tr>
-            </thead>
-            <tbody id="marksTableBody"></tbody>
-            <tfoot>
-                <tr>
-                    <td colspan="2" style="padding:.45rem .8rem;text-align:right;color:#8888aa;font-size:.8rem;border-top:1px solid #2a2a4a;">Total</td>
-                    <td style="padding:.45rem .8rem;border-top:1px solid #2a2a4a;"><span style="color:#f0c040;font-weight:700;" id="marksTotal">0</span></td>
-                </tr>
-            </tfoot>
-        </table>
-
-        <!-- Add question row -->
-        <div class="add-question-row">
-            <input type="text" id="newQId" placeholder="Q1c" maxlength="6">
-            <input type="number" id="newQMarks" placeholder="Marks" min="1" max="30" style="width:70px;">
-            <button class="btn-secondary" onclick="addMarkRow()" style="padding:4px 12px;font-size:.8rem;">+ Add question</button>
-        </div>
-
-        <div class="section-actions">
-            <button class="btn-secondary" onclick="goBack(1)">← Back</button>
-            <button class="btn-primary" id="generateBtn" onclick="doGenerate()">
-                ⚙ Generate Test Cases
+            <button class="btn btn-upload" id="uploadBtn" onclick="uploadAll()">
+                <span class="btn-icon">⬆</span> Upload All
             </button>
+            <span class="slot-limit-hint" id="slotLimitHint">0 / 5 assessments</span>
         </div>
     </section>
 
     <!-- ══════════════════════════════════════════════════════════════════ -->
-    <!-- STEP 3 — Review Tester Files                                       -->
+    <!-- PHASE 2 — Per-Assessment Wizard Tabs                              -->
     <!-- ══════════════════════════════════════════════════════════════════ -->
-    <section id="editorSection" style="display:none;" class="editor-section">
+    <section id="wizardPhase" style="display:none;">
         <div class="section-header">
-            <h3>🧪 Review Tester Files</h3>
-            <p>Edit the generated tester source code directly. Save each file before grading.</p>
+            <h3>🧪 Assessment Wizard</h3>
+            <p>Each assessment runs independently. Click a tab to work on that assessment's grading pipeline.</p>
         </div>
 
-        <!-- Generating spinner (shown while LLM is running) -->
-        <div id="generatingOverlay" class="generating-overlay" style="display:none;">
-            <span class="spinner">⚙</span>
-            <div>Generating test cases via AI — this may take 1–2 minutes...</div>
-        </div>
+        <!-- Assessment tab bar -->
+        <div class="assess-tabs" id="assessTabs"></div>
 
-        <!-- Tab bar -->
-        <div class="question-tabs" id="questionTabs"></div>
+        <!-- Assessment panels (one per assessment, inserted by JS) -->
+        <div id="assessPanels"></div>
 
-        <!-- Code editor -->
-        <div class="editor-container" id="editorContainer" style="display:none;">
-            <div class="editor-toolbar">
-                <span class="editor-filename" id="editorFilename">—</span>
-                <div class="editor-actions">
-                    <span class="save-indicator" id="saveIndicator">saved</span>
-                    <button class="btn-save-file" id="saveFileBtn" onclick="saveCurrentFile()">💾 Save File</button>
-                </div>
-            </div>
-            <textarea class="code-editor" id="codeEditor"
-                      spellcheck="false"
-                      oninput="markUnsaved()"
-                      onkeydown="handleTabKey(event)"></textarea>
-        </div>
-
-        <div class="section-actions">
-            <button class="btn-secondary" onclick="goBack(2)">← Back to Marks</button>
-            <button class="btn-secondary" onclick="saveAllFiles()">💾 Save All Files</button>
-            <button class="btn-primary" id="gradeBtn" onclick="doGrade()">▶ Confirm &amp; Grade</button>
-        </div>
-    </section>
-
-    <!-- ══════════════════════════════════════════════════════════════════ -->
-    <!-- STEP 4 — Grading + Results                                         -->
-    <!-- ══════════════════════════════════════════════════════════════════ -->
-    <section id="gradingSection" style="display:none;">
-        <div class="section-header"><h3>⚡ Grading</h3></div>
-        <div class="grading-card">
-            <div class="progress-container">
-                <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-                <div class="progress-label" id="progressLabel">Starting...</div>
-            </div>
-        </div>
-    </section>
-
-    <section class="results-section" id="resultsSection" style="display:none;">
-        <div class="section-header">
-            <h3>📊 Results</h3>
-            <p>Grading complete!</p>
-        </div>
-        <div class="stats-container">
-            <div class="stat-card"><div class="stat-icon">👥</div><div class="stat-value" id="statStudents">-</div><div class="stat-label">Students</div></div>
-            <div class="stat-card"><div class="stat-icon">📝</div><div class="stat-value" id="statTasks">-</div><div class="stat-label">Tasks</div></div>
-            <div class="stat-card"><div class="stat-icon">📈</div><div class="stat-value" id="statAverage">-</div><div class="stat-label">Average</div></div>
-            <div class="stat-card"><div class="stat-icon">✓</div><div class="stat-value" id="statSuccess">-</div><div class="stat-label">Success Rate</div></div>
-        </div>
-        <div class="download-area">
-            <h4>Download Reports</h4>
-            <div class="download-buttons">
-                <a href="/download/csv"         class="btn btn-download"><span class="btn-icon">📄</span> Score Sheet (CSV)</a>
-                <a href="/download/scoresheet"  class="btn btn-download"><span class="btn-icon">📊</span> Score Sheet (Excel)</a>
-                <a href="/download/excel"       class="btn btn-download"><span class="btn-icon">📈</span> Statistics (Excel)</a>
-            </div>
-        </div>
-        <div class="log-container">
-            <h4>Execution Log</h4>
-            <div class="log-terminal" id="logTerminal">
-                <div class="log-line">$ Waiting for grading...</div>
-            </div>
-        </div>
-        <div class="section-actions" style="margin-top:1.5rem;">
-            <button class="btn-secondary" onclick="location.reload()">↺ Start New Session</button>
+        <div class="section-actions" style="margin-top:32px;">
+            <button class="btn-secondary" onclick="backToUpload()">← Back to Upload</button>
         </div>
     </section>
 
@@ -522,509 +356,791 @@
     <div class="footer-content"><p>IS442 Auto-Grading System • Built by G1T4</p></div>
 </footer>
 
-<script th:inline="javascript">
-// ── State ──────────────────────────────────────────────────────────────────────
-const sessionFiles = { submission: null, template: null, scoresheet: null, exampdf: null };
+<script>
+// ══════════════════════════════════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════════════════════════════════
+const MAX_SLOTS = 5;
+let slotCount = 0;
+const uploadSlots = {}; // { id: { name, submission, template, scoresheet, examPdf, testers } }
 
-// testerSources: { Q1a: "...java source...", Q1b: "..." }
-// Always reflects the latest content — flushed from editor on every switch/save/grade.
-let testerSources  = {};
-// savedState: { Q1a: true/false } — false means not yet written to disk
-let savedState     = {};
-// templateSpecs: question metadata returned from backend
-let templateSpecs  = {};
-// activeTab: currently visible question id
-let activeTab      = null;
+// After upload — one state object per assessment (keyed by sanitised name)
+const assessments = {};
+// { sanitisedName: { displayName, sanitisedName, currentStep, testerSources, savedState, activeTab } }
 
-// ── Init ───────────────────────────────────────────────────────────────────────
-window.addEventListener('DOMContentLoaded', updateUploadUI);
+let activeAssessment = null; // currently visible assessment sanitised name
 
-// ── Drag & Drop / File Select ──────────────────────────────────────────────────
-function handleDragOver(e) { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }
-function handleDragLeave(e) { e.preventDefault(); e.currentTarget.classList.remove('drag-over'); }
-function handleDrop(e, type) {
-    e.preventDefault(); e.currentTarget.classList.remove('drag-over');
-    const f = e.dataTransfer.files[0];
-    if (f && validateFileType(f, type)) { sessionFiles[type] = f; updateFileStatus(type, f); updateUploadUI(); }
-    else showAlert('error', 'Invalid file type for ' + type);
-}
-function handleFileSelect(input, type) {
-    const f = input.files[0];
-    if (f && validateFileType(f, type)) { sessionFiles[type] = f; updateFileStatus(type, f); updateUploadUI(); }
-}
-function validateFileType(f, type) {
-    if (type === 'scoresheet') return f.name.endsWith('.csv');
-    if (type === 'exampdf')    return f.name.endsWith('.pdf');
-    return f.name.endsWith('.zip');
-}
-function updateFileStatus(type, file) {
-    document.getElementById(type + 'Status').innerHTML =
-        `<span class="status-uploaded">✓ ${file.name} <span class="file-size">(${fmt(file.size)})</span></span>`;
-    document.querySelector(`[data-file-type="${type}"]`).classList.add('uploaded');
-}
-function updateUploadUI() {
-    const count = Object.values(sessionFiles).filter(Boolean).length;
-    document.getElementById('uploadCounter').innerHTML =
-        `<span class="counter-value">${count}/4</span> files selected`;
-    document.getElementById('uploadBtn').disabled = count < 4;
+// ══════════════════════════════════════════════════════════════════════════════
+// PHASE 1 — UPLOAD SLOTS
+// ══════════════════════════════════════════════════════════════════════════════
+
+function addSlot() {
+    if (Object.keys(uploadSlots).length >= MAX_SLOTS) {
+        showAlert('error', 'Maximum ' + MAX_SLOTS + ' assessments allowed.');
+        return;
+    }
+    slotCount++;
+    const id = slotCount;
+    uploadSlots[id] = { name:'', submission:null, template:null, scoresheet:null, examPdf:null, testers:null };
+    const empty = document.getElementById('emptyState');
+    if (empty) empty.style.display = 'none';
+
+    const el = document.createElement('div');
+    el.className = 'assessment-slot';
+    el.id = 'slot-' + id;
+    el.innerHTML = `
+        <div class="slot-header">
+            <span class="slot-num">${id}</span>
+            <input class="slot-name-input" type="text"
+                   placeholder="Assessment name, e.g. Midterm 25/26"
+                   oninput="uploadSlots[${id}].name = this.value">
+            <button class="slot-remove" onclick="removeSlot(${id})" title="Remove">✕</button>
+        </div>
+        <div class="slot-files">
+            ${fileDrop(id,'submission','📦 Submissions','student-submission.zip','.zip')}
+            ${fileDrop(id,'template','📄 Template','RenameToYourUsername.zip','.zip')}
+            ${fileDrop(id,'scoresheet','📊 Score Sheet','scoresheet.csv','.csv')}
+            ${fileDrop(id,'examPdf','📑 Exam PDF','exam-paper.pdf','.pdf')}
+            ${fileDrop(id,'testers','🧪 Testers (opt)','testers.zip','.zip')}
+        </div>`;
+    document.getElementById('assessmentSlots').appendChild(el);
+    updateSlotHint();
 }
 
-// ── STEP 1 → 2: Upload ─────────────────────────────────────────────────────────
-async function doUpload() {
+function fileDrop(slotId, field, label, hint, accept) {
+    return `<div class="file-drop" id="drop-${slotId}-${field}">
+        <input type="file" accept="${accept}" onchange="handleSlotFile(${slotId},'${field}',this)">
+        <div class="file-drop-label">${label}</div>
+        <div class="file-drop-hint" id="hint-${slotId}-${field}">${hint}</div>
+    </div>`;
+}
+
+function handleSlotFile(slotId, field, input) {
+    const file = input.files[0]; if (!file) return;
+    uploadSlots[slotId][field] = file;
+    document.getElementById('hint-' + slotId + '-' + field).textContent = '✓ ' + file.name;
+    document.getElementById('drop-' + slotId + '-' + field).classList.add('has-file');
+}
+
+function removeSlot(id) {
+    const el = document.getElementById('slot-' + id); if (el) el.remove();
+    delete uploadSlots[id];
+    if (Object.keys(uploadSlots).length === 0) {
+        const empty = document.getElementById('emptyState');
+        if (empty) empty.style.display = 'block';
+    }
+    updateSlotHint();
+}
+
+function updateSlotHint() {
+    const n = Object.keys(uploadSlots).length;
+    document.getElementById('slotLimitHint').textContent = n + ' / ' + MAX_SLOTS + ' assessments';
+    const addBtn = document.getElementById('addBtn');
+    if (n >= MAX_SLOTS) { addBtn.disabled = true; addBtn.style.opacity = '0.4'; }
+    else { addBtn.disabled = false; addBtn.style.opacity = '1'; }
+}
+
+// ── Upload All ────────────────────────────────────────────────────────────────
+
+async function uploadAll() {
+    const ids = Object.keys(uploadSlots).filter(id => document.getElementById('slot-' + id));
+    if (!ids.length) { showAlert('error', 'Add at least one assessment.'); return; }
+
     const btn = document.getElementById('uploadBtn');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="btn-icon">⏳</span> Uploading...';
+    btn.disabled = true; btn.innerHTML = '<span class="btn-icon">⏳</span> Uploading...';
+    setStatus('UPLOADING');
 
     const fd = new FormData();
-    if (sessionFiles.submission) fd.append('submission',  sessionFiles.submission);
-    if (sessionFiles.template)   fd.append('template',    sessionFiles.template);
-    if (sessionFiles.scoresheet) fd.append('scoresheet',  sessionFiles.scoresheet);
-    if (sessionFiles.exampdf)    fd.append('examPdf',     sessionFiles.exampdf);
-
-    try {
-        const res  = await fetch('/upload', { method:'POST', body:fd });
-        const data = await res.json();
-        if (!data.success) { showAlert('error', 'Upload failed: ' + data.message); return; }
-        showAlert('success', 'Files uploaded ✓');
-    } catch (e) {
-        showAlert('error', 'Upload error: ' + e.message); return;
-    } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<span class="btn-icon">⬆</span> Upload Files';
+    for (const id of ids) {
+        const s = uploadSlots[id];
+        const nameEl = document.querySelector('#slot-' + id + ' .slot-name-input');
+        fd.append('name', (nameEl && nameEl.value.trim()) || ('Assessment ' + id));
+        if (s.submission)  fd.append('submission',  s.submission);
+        if (s.template)    fd.append('template',    s.template);
+        if (s.scoresheet)  fd.append('scoresheet',  s.scoresheet);
+        if (s.examPdf)     fd.append('examPdf',     s.examPdf);
+        if (s.testers)     fd.append('testers',     s.testers);
     }
 
-    gotoStep(2);
-    document.getElementById('uploadSection').style.display   = 'none';
-    document.getElementById('marksSection').style.display    = 'block';
-    document.getElementById('marksSection').scrollIntoView({ behavior:'smooth' });
+    try {
+        const res  = await fetch('/assessments/upload', { method:'POST', body: fd });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert('error', 'Upload failed: ' + data.message);
+            return;
+        }
 
-    await loadMarks();
+        // Build assessment state from response
+        for (const a of data.assessments) {
+            assessments[a.sanitisedName] = {
+                displayName:    a.name,
+                sanitisedName:  a.sanitisedName,
+                currentStep:    1, // start at "Confirm Marks"
+                hasTesters:     a.saved.includes('testers'),
+                testerSources:  {},
+                savedState:     {},
+                activeTab:      null,
+                graded:         false,
+                gradeResult:    null,
+            };
+        }
+
+        showAlert('success', data.assessments.length + ' assessment(s) uploaded ✓');
+        setStatus('READY');
+        showWizardPhase();
+
+    } catch (e) {
+        showAlert('error', 'Upload error: ' + e.message);
+        setStatus('READY');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="btn-icon">⬆</span> Upload All';
+    }
 }
 
-// ── STEP 2: Load marks from PDF ────────────────────────────────────────────────
-async function loadMarks() {
-    const hint    = document.getElementById('marksHint');
-    const genBtn  = document.getElementById('generateBtn');
-    hint.textContent     = '⏳ Scanning exam paper PDF with AI — this may take a moment...';
-    hint.className       = 'pdf-hint';
-    hint.style.borderColor = '';
-    hint.style.color       = '';
-    hint.style.background  = '';
-    genBtn.disabled = true;
+// ══════════════════════════════════════════════════════════════════════════════
+// PHASE 2 — WIZARD
+// ══════════════════════════════════════════════════════════════════════════════
+
+function showWizardPhase() {
+    document.getElementById('uploadPhase').style.display = 'none';
+    document.getElementById('wizardPhase').style.display = 'block';
+    buildAssessmentTabs();
+    // Activate first assessment
+    const first = Object.keys(assessments)[0];
+    if (first) switchAssessment(first);
+}
+
+function backToUpload() {
+    document.getElementById('wizardPhase').style.display = 'none';
+    document.getElementById('uploadPhase').style.display = 'block';
+}
+
+function buildAssessmentTabs() {
+    const tabBar = document.getElementById('assessTabs');
+    const panels = document.getElementById('assessPanels');
+    tabBar.innerHTML = '';
+    panels.innerHTML = '';
+
+    for (const key of Object.keys(assessments)) {
+        const a = assessments[key];
+
+        // Tab
+        const tab = document.createElement('div');
+        tab.className = 'assess-tab';
+        tab.id = 'atab-' + key;
+        tab.innerHTML = escHtml(a.displayName) + ' <span class="tab-status step-1">● Upload</span>';
+        tab.onclick = () => switchAssessment(key);
+        tabBar.appendChild(tab);
+
+        // Panel — contains the full 4-step wizard for this assessment
+        const panel = document.createElement('div');
+        panel.className = 'assess-panel';
+        panel.id = 'apanel-' + key;
+        panel.innerHTML = buildWizardHTML(key, a);
+        panels.appendChild(panel);
+    }
+}
+
+function buildWizardHTML(key, a) {
+    const hasTesters = a.hasTesters;
+    return `
+    <!-- Steps indicator -->
+    <div class="steps">
+        <div class="step active" id="${key}-step1"><div class="step-circle">1</div><div class="step-label">Confirm Marks</div></div>
+        <div class="step-line" id="${key}-line12"></div>
+        <div class="step" id="${key}-step2"><div class="step-circle">2</div><div class="step-label">Review Testers</div></div>
+        <div class="step-line" id="${key}-line23"></div>
+        <div class="step" id="${key}-step3"><div class="step-circle">3</div><div class="step-label">Grade</div></div>
+        <div class="step-line" id="${key}-line34"></div>
+        <div class="step" id="${key}-step4"><div class="step-circle">4</div><div class="step-label">Results</div></div>
+    </div>
+
+    ${hasTesters ? `
+    <div class="pdf-hint pdf-detected" style="margin-bottom:20px;">
+        ✓ Pre-uploaded testers detected. You can skip to grading, or generate new testers from the exam PDF.
+    </div>` : ''}
+
+    <!-- STEP 1: Confirm Marks -->
+    <div id="${key}-marksSection">
+        <div class="section-header">
+            <h3>📋 Confirm Question Marks</h3>
+            <p>AI scans the exam PDF and extracts question marks. Verify, edit, then generate testers.</p>
+        </div>
+        <div id="${key}-marksHint" class="pdf-hint">Click "Scan Exam PDF" to begin.</div>
+
+        <table style="width:100%;border-collapse:collapse;margin:1rem 0;font-family:'Space Mono',monospace;font-size:.85rem;">
+            <thead><tr>
+                <th style="background:#16213e;color:#f0c040;padding:.5rem .8rem;text-align:left;width:90px;">Question</th>
+                <th style="background:#16213e;color:#f0c040;padding:.5rem .8rem;text-align:left;width:180px;">Marks (= test cases)</th>
+            </tr></thead>
+            <tbody id="${key}-marksBody"></tbody>
+            <tfoot><tr>
+                <td style="padding:.45rem .8rem;text-align:right;color:#8888aa;font-size:.8rem;border-top:1px solid #2a2a4a;">Total</td>
+                <td style="padding:.45rem .8rem;border-top:1px solid #2a2a4a;"><span style="color:#f0c040;font-weight:700;" id="${key}-marksTotal">0</span></td>
+            </tr></tfoot>
+        </table>
+
+        <div class="add-question-row">
+            <input type="text" id="${key}-newQId" placeholder="Q1c" maxlength="6">
+            <input type="number" id="${key}-newQMarks" placeholder="Marks" min="1" max="30" style="width:70px;">
+            <button class="btn-secondary" onclick="addMarkRow('${key}')" style="padding:4px 12px;font-size:.8rem;">+ Add</button>
+        </div>
+
+        <div class="section-actions">
+            <button class="btn-secondary" id="${key}-scanBtn" onclick="scanMarks('${key}')">📄 Scan Exam PDF</button>
+            ${hasTesters ? `<button class="btn-primary" onclick="skipToGrade('${key}')">⏩ Skip to Grade (use uploaded testers)</button>` : ''}
+            <button class="btn-primary" id="${key}-genBtn" onclick="doGenerate('${key}')">⚙ Generate Test Cases</button>
+        </div>
+    </div>
+
+    <!-- STEP 2: Review Testers -->
+    <div id="${key}-editorSection" style="display:none;">
+        <div class="section-header">
+            <h3>🧪 Review Tester Files</h3>
+            <p>Edit the AI-generated tester source code. Save each file before grading.</p>
+        </div>
+        <div id="${key}-generatingOverlay" class="generating-overlay" style="display:none;">
+            <span class="spinner">⚙</span>
+            <div>Generating test cases via AI — this may take 1–2 minutes...</div>
+        </div>
+        <div class="question-tabs" id="${key}-qTabs"></div>
+        <div class="editor-container" id="${key}-editorContainer" style="display:none;">
+            <div class="editor-toolbar">
+                <span class="editor-filename" id="${key}-editorFilename">—</span>
+                <div class="editor-actions">
+                    <span class="save-indicator" id="${key}-saveIndicator">saved</span>
+                    <button class="btn-save-file" onclick="saveCurrentFile('${key}')">💾 Save File</button>
+                </div>
+            </div>
+            <textarea class="code-editor" id="${key}-codeEditor"
+                      spellcheck="false"
+                      oninput="markUnsaved('${key}')"
+                      onkeydown="handleTabKey(event)"></textarea>
+        </div>
+        <div class="section-actions">
+            <button class="btn-secondary" onclick="wizardGoBack('${key}', 1)">← Back to Marks</button>
+            <button class="btn-secondary" onclick="saveAllFiles('${key}')">💾 Save All Files</button>
+            <button class="btn-primary" onclick="doGrade('${key}')">▶ Confirm &amp; Grade</button>
+        </div>
+    </div>
+
+    <!-- STEP 3: Grading -->
+    <div id="${key}-gradingSection" style="display:none;">
+        <div class="section-header"><h3>⚡ Grading</h3></div>
+        <div class="grading-card">
+            <div class="progress-container">
+                <div class="progress-bar"><div class="progress-fill" id="${key}-progressFill"></div></div>
+                <div class="progress-label" id="${key}-progressLabel">Starting...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- STEP 4: Results -->
+    <div id="${key}-resultsSection" style="display:none;">
+        <div class="section-header">
+            <h3>📊 Results — ${escHtml(a.displayName)}</h3>
+            <p>Grading complete!</p>
+        </div>
+        <div class="stats-container">
+            <div class="stat-card"><div class="stat-icon">👥</div><div class="stat-value" id="${key}-statStudents">-</div><div class="stat-label">Students</div></div>
+            <div class="stat-card"><div class="stat-icon">📝</div><div class="stat-value" id="${key}-statTasks">-</div><div class="stat-label">Tasks</div></div>
+            <div class="stat-card"><div class="stat-icon">📈</div><div class="stat-value" id="${key}-statAvg">-</div><div class="stat-label">Average</div></div>
+        </div>
+        <div class="download-area-card">
+            <h4>Download Reports</h4>
+            <div class="download-buttons-row">
+                <a class="btn-dl" href="/assessments/${key}/download?file=csv"><span>📄</span> Score Sheet (CSV)</a>
+                <a class="btn-dl" href="/assessments/${key}/download?file=scoresheet"><span>📊</span> Score Sheet (Excel)</a>
+                <a class="btn-dl" href="/assessments/${key}/download?file=excel"><span>📈</span> Statistics (Excel)</a>
+                <a class="btn-dl" href="/assessments/${key}/download?file=plagiarism"><span>🔬</span> Plagiarism Report</a>
+            </div>
+        </div>
+        <div class="log-container" style="margin-top:16px;">
+            <h4>Execution Log</h4>
+            <div class="log-terminal" id="${key}-logTerminal"><div class="log-line">$ Waiting...</div></div>
+        </div>
+    </div>`;
+}
+
+// ── Switch assessment tab ─────────────────────────────────────────────────────
+
+function switchAssessment(key) {
+    activeAssessment = key;
+    document.querySelectorAll('.assess-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.assess-panel').forEach(p => p.classList.remove('active'));
+
+    const tab = document.getElementById('atab-' + key);
+    const panel = document.getElementById('apanel-' + key);
+    if (tab) tab.classList.add('active');
+    if (panel) panel.classList.add('active');
+}
+
+function updateTabStatus(key, stepNum, label, cssClass) {
+    const tab = document.getElementById('atab-' + key);
+    if (!tab) return;
+    const status = tab.querySelector('.tab-status');
+    if (status) {
+        status.className = 'tab-status ' + cssClass;
+        status.textContent = '● ' + label;
+    }
+}
+
+// ── Step navigation within an assessment ──────────────────────────────────────
+
+function wizardGotoStep(key, n) {
+    assessments[key].currentStep = n;
+    [1,2,3,4].forEach(i => {
+        const el = document.getElementById(key + '-step' + i);
+        if (!el) return;
+        el.classList.remove('active','done');
+        if (i < n) el.classList.add('done');
+        if (i === n) el.classList.add('active');
+    });
+    ['12','23','34'].forEach((pair, idx) => {
+        const el = document.getElementById(key + '-line' + pair);
+        if (el) el.classList.toggle('done', n > idx + 1);
+    });
+}
+
+function wizardGoBack(key, toStep) {
+    const sections = { 1: 'marksSection', 2: 'editorSection', 3: 'gradingSection', 4: 'resultsSection' };
+    Object.values(sections).forEach(s => {
+        const el = document.getElementById(key + '-' + s);
+        if (el) el.style.display = 'none';
+    });
+    wizardGotoStep(key, toStep);
+    const target = document.getElementById(key + '-' + sections[toStep]);
+    if (target) { target.style.display = 'block'; target.scrollIntoView({ behavior:'smooth' }); }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// STEP 1 — SCAN MARKS
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function scanMarks(key) {
+    const hint = document.getElementById(key + '-marksHint');
+    const btn = document.getElementById(key + '-scanBtn');
+    hint.textContent = '⏳ Scanning exam paper PDF with AI — this may take a moment...';
+    hint.className = 'pdf-hint';
+    btn.disabled = true;
 
     try {
-        const res  = await fetch('/parse-exam-marks', { method:'POST' });
-        let data;
-        try { data = await res.json(); }
-        catch { data = { success: false, message: 'Server returned an unreadable response (HTTP ' + res.status + ').' }; }
+        const res  = await fetch('/assessments/' + key + '/parse-exam-marks', { method:'POST' });
+        const data = await res.json();
 
         if (!data.success) {
-            hint.style.borderColor = '#dc6f6f';
-            hint.style.color       = '#dc6f6f';
-            hint.style.background  = '#1a0a0a';
             hint.textContent = '❌ ' + (data.message || 'Failed to parse exam PDF.');
-            genBtn.disabled = true;
+            hint.style.borderColor = '#dc6f6f'; hint.style.color = '#dc6f6f';
             return;
         }
 
         hint.className = 'pdf-hint pdf-detected';
-        hint.textContent = `✓ ${data.pdfName || 'Exam PDF'} scanned — ${data.message || 'Please verify marks below.'}`;
-        genBtn.disabled = false;
+        hint.textContent = '✓ ' + (data.pdfName || 'PDF') + ' scanned — verify marks below.';
 
-        buildMarksTable(data.marks && Object.keys(data.marks).length > 0 ? data.marks : {});
+        const marks = data.marks || {};
+        const tbody = document.getElementById(key + '-marksBody');
+        tbody.innerHTML = '';
+        const sorted = Object.keys(marks).sort();
+        if (sorted.length === 0) {
+            addMarkRowToTable(key, 'Q1a', 1);
+        } else {
+            sorted.forEach(qId => addMarkRowToTable(key, qId, marks[qId]));
+        }
+        updateMarksTotal(key);
 
     } catch (e) {
-        hint.style.borderColor = '#dc6f6f';
-        hint.style.color       = '#dc6f6f';
-        hint.style.background  = '#1a0a0a';
         hint.textContent = '⚠️ Network error: ' + e.message;
-        genBtn.disabled = true;
+        hint.style.borderColor = '#dc6f6f'; hint.style.color = '#dc6f6f';
+    } finally {
+        btn.disabled = false;
     }
 }
 
-function buildMarksTable(marks) {
-    const tbody = document.getElementById('marksTableBody');
-    tbody.innerHTML = '';
-    const sortedIds = Object.keys(marks).sort();
-    if (sortedIds.length === 0) {
-        addMarkRow('Q1a', 1);
-    } else {
-        sortedIds.forEach(qId => addMarkRowToTable(qId, marks[qId], '—'));
-    }
-    updateMarksTotal();
-}
-
-function addMarkRowToTable(qId, marks, method) {
-    const tbody = document.getElementById('marksTableBody');
+function addMarkRowToTable(key, qId, marks) {
+    const tbody = document.getElementById(key + '-marksBody');
     const tr = document.createElement('tr');
-    tr.id = 'markrow-' + qId;
-    const tdStyle = 'padding:.45rem .8rem;border-bottom:1px solid #1a1a2e;';
+    tr.id = key + '-markrow-' + qId;
     tr.innerHTML = `
-        <td style="${tdStyle}"><code style="color:#f0c040;font-family:Space Mono,monospace;">${qId}</code></td>
-        <td style="${tdStyle}color:#8888aa;font-size:.8rem;" id="method-${qId}">${method || '—'}</td>
-        <td style="${tdStyle}">
+        <td style="padding:.45rem .8rem;border-bottom:1px solid #1a1a2e;">
+            <code style="color:#f0c040;font-family:Space Mono,monospace;">${qId}</code>
+        </td>
+        <td style="padding:.45rem .8rem;border-bottom:1px solid #1a1a2e;">
             <input style="background:#0a0a18;border:1px solid #2a2a4a;border-radius:5px;color:#e0e0ff;font-family:Space Mono,monospace;font-size:.85rem;padding:3px 8px;width:60px;text-align:center;"
-                   type="number" min="1" max="30"
-                   id="marks-${qId}" value="${marks}"
-                   oninput="updateMarksTotal()">
-            <button onclick="removeMarkRow('${qId}')"
+                   type="number" min="1" max="30" id="${key}-marks-${qId}" value="${marks}"
+                   oninput="updateMarksTotal('${key}')">
+            <button onclick="removeMarkRow('${key}','${qId}')"
                     style="background:none;border:none;color:#dc6f6f;cursor:pointer;font-size:.9rem;margin-left:.3rem;">✕</button>
         </td>`;
     tbody.appendChild(tr);
 }
 
-function addMarkRow(qId, marksVal) {
-    qId = qId || document.getElementById('newQId').value.trim().toUpperCase();
-    marksVal = marksVal || parseInt(document.getElementById('newQMarks').value) || 1;
+function addMarkRow(key) {
+    const qId = document.getElementById(key + '-newQId').value.trim().toUpperCase();
+    const marksVal = parseInt(document.getElementById(key + '-newQMarks').value) || 1;
     if (!qId) { showAlert('error', 'Enter a question ID'); return; }
-    if (document.getElementById('markrow-' + qId)) { showAlert('error', qId + ' already in table'); return; }
-    addMarkRowToTable(qId, marksVal, '—');
-    document.getElementById('newQId').value = '';
-    document.getElementById('newQMarks').value = '';
-    updateMarksTotal();
+    if (document.getElementById(key + '-markrow-' + qId)) { showAlert('error', qId + ' already in table'); return; }
+    addMarkRowToTable(key, qId, marksVal);
+    document.getElementById(key + '-newQId').value = '';
+    document.getElementById(key + '-newQMarks').value = '';
+    updateMarksTotal(key);
 }
 
-function removeMarkRow(qId) {
-    const row = document.getElementById('markrow-' + qId);
+function removeMarkRow(key, qId) {
+    const row = document.getElementById(key + '-markrow-' + qId);
     if (row) row.remove();
-    updateMarksTotal();
+    updateMarksTotal(key);
 }
 
-function updateMarksTotal() {
-    const inputs = document.querySelectorAll('.marks-input');
+function updateMarksTotal(key) {
     let total = 0;
-    inputs.forEach(inp => { total += parseInt(inp.value) || 0; });
-    document.getElementById('marksTotal').textContent = total;
+    document.querySelectorAll('#' + key + '-marksBody input[type=number]').forEach(inp => {
+        total += parseInt(inp.value) || 0;
+    });
+    document.getElementById(key + '-marksTotal').textContent = total;
 }
 
-function getConfirmedMarks() {
+function getConfirmedMarks(key) {
     const marks = {};
-    document.querySelectorAll('#marksTableBody tr').forEach(tr => {
-        const qId  = tr.id.replace('markrow-', '');
-        const inp  = document.getElementById('marks-' + qId);
+    document.querySelectorAll('#' + key + '-marksBody tr').forEach(tr => {
+        const qId = tr.id.replace(key + '-markrow-', '');
+        const inp = document.getElementById(key + '-marks-' + qId);
         if (inp) marks[qId] = parseInt(inp.value) || 1;
     });
     return marks;
 }
 
-// ── STEP 2 → 3: Generate testers ──────────────────────────────────────────────
-async function doGenerate() {
-    const marks = getConfirmedMarks();
+// ══════════════════════════════════════════════════════════════════════════════
+// STEP 1 → 2 — GENERATE TESTERS
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function doGenerate(key) {
+    const marks = getConfirmedMarks(key);
     if (Object.keys(marks).length === 0) {
-        showAlert('error', 'Add at least one question and mark allocation');
+        showAlert('error', 'Add at least one question.');
         return;
     }
 
-    const btn = document.getElementById('generateBtn');
-    btn.disabled = true;
-    btn.textContent = '⏳ Generating...';
+    const btn = document.getElementById(key + '-genBtn');
+    btn.disabled = true; btn.textContent = '⏳ Generating...';
 
-    gotoStep(3);
-    document.getElementById('marksSection').style.display  = 'none';
-    document.getElementById('editorSection').style.display = 'block';
-    document.getElementById('editorSection').scrollIntoView({ behavior:'smooth' });
-
-    document.getElementById('generatingOverlay').style.display = 'block';
-    document.getElementById('editorContainer').style.display   = 'none';
-    document.getElementById('questionTabs').innerHTML = '';
-
-    setStatus('GENERATING');
+    wizardGotoStep(key, 2);
+    updateTabStatus(key, 2, 'Generating...', 'step-2');
+    document.getElementById(key + '-marksSection').style.display = 'none';
+    document.getElementById(key + '-editorSection').style.display = 'block';
+    document.getElementById(key + '-generatingOverlay').style.display = 'block';
+    document.getElementById(key + '-editorContainer').style.display = 'none';
+    document.getElementById(key + '-qTabs').innerHTML = '';
 
     try {
-        const res  = await fetch('/generate-testers', {
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
+        const res = await fetch('/assessments/' + key + '/generate-testers', {
+            method:'POST', headers:{'Content-Type':'application/json'},
             body: JSON.stringify({ marks })
         });
         const data = await res.json();
 
         if (!data.success) {
             showAlert('error', 'Generation failed: ' + data.message);
+            updateTabStatus(key, 2, 'Error', 'error');
             return;
         }
 
-        // FIX 1: Reset both state maps before loading fresh generated sources.
-        // Previously testerSources could carry stale entries from a prior session
-        // which would shadow the newly generated content.
-        testerSources = {};
-        savedState    = {};
-
+        const a = assessments[key];
+        a.testerSources = {};
+        a.savedState = {};
         for (const [qId, info] of Object.entries(data.testers)) {
-            testerSources[qId] = info.source;
-            savedState[qId]    = false; // not yet saved to disk
+            a.testerSources[qId] = info.source;
+            a.savedState[qId] = false;
         }
 
-        renderTabs();
-        showAlert('success', `Generated ${Object.keys(testerSources).length} tester file(s) ✓`);
+        renderQTabs(key);
+        updateTabStatus(key, 2, 'Review', 'step-3');
+        showAlert('success', Object.keys(a.testerSources).length + ' tester file(s) generated ✓');
 
     } catch (e) {
         showAlert('error', 'Generation error: ' + e.message);
+        updateTabStatus(key, 2, 'Error', 'error');
     } finally {
-        btn.disabled = false;
-        btn.textContent = '⚙ Generate Test Cases';
-        document.getElementById('generatingOverlay').style.display = 'none';
-        setStatus('READY');
+        btn.disabled = false; btn.textContent = '⚙ Generate Test Cases';
+        document.getElementById(key + '-generatingOverlay').style.display = 'none';
     }
 }
 
-// ── Editor: tabs + source editing ─────────────────────────────────────────────
-function renderTabs() {
-    const tabBar = document.getElementById('questionTabs');
+// ══════════════════════════════════════════════════════════════════════════════
+// EDITOR — per-assessment question tabs + source editing
+// ══════════════════════════════════════════════════════════════════════════════
+
+function renderQTabs(key) {
+    const a = assessments[key];
+    const tabBar = document.getElementById(key + '-qTabs');
     tabBar.innerHTML = '';
 
-    const sortedIds = Object.keys(testerSources).sort();
-    sortedIds.forEach(qId => {
+    const sorted = Object.keys(a.testerSources).sort();
+    sorted.forEach(qId => {
         const tab = document.createElement('div');
-        tab.className = 'q-tab' + (savedState[qId] ? ' saved' : ' unsaved');
-        tab.id = 'tab-' + qId;
+        tab.className = 'q-tab' + (a.savedState[qId] ? ' saved' : ' unsaved');
+        tab.id = key + '-qtab-' + qId;
         tab.textContent = qId + 'Tester.java';
-        tab.onclick = () => switchTab(qId);
+        tab.onclick = () => switchQTab(key, qId);
         tabBar.appendChild(tab);
     });
 
-    document.getElementById('editorContainer').style.display = 'block';
-
-    if (sortedIds.length > 0) switchTab(sortedIds[0]);
+    document.getElementById(key + '-editorContainer').style.display = 'block';
+    if (sorted.length > 0) switchQTab(key, sorted[0]);
 }
 
-// FIX 2: flushActiveEditor() — single, reliable place to commit the textarea
-// content back into testerSources for the currently visible tab.
-// Called before every tab switch, save, and grade operation so testerSources
-// always reflects what the examiner actually typed.
-function flushActiveEditor() {
-    if (activeTab) {
-        testerSources[activeTab] = document.getElementById('codeEditor').value;
+function flushActiveEditor(key) {
+    const a = assessments[key];
+    if (a.activeTab) {
+        const editor = document.getElementById(key + '-codeEditor');
+        if (editor) a.testerSources[a.activeTab] = editor.value;
     }
 }
 
-function switchTab(qId) {
-    // FIX 2 applied: flush the editor before switching away
-    flushActiveEditor();
+function switchQTab(key, qId) {
+    const a = assessments[key];
+    flushActiveEditor(key);
+    a.activeTab = qId;
 
-    activeTab = qId;
-
-    document.querySelectorAll('.q-tab').forEach(t => t.classList.remove('active'));
-    const tab = document.getElementById('tab-' + qId);
+    document.querySelectorAll('#' + key + '-qTabs .q-tab').forEach(t => t.classList.remove('active'));
+    const tab = document.getElementById(key + '-qtab-' + qId);
     if (tab) tab.classList.add('active');
 
-    document.getElementById('codeEditor').value = testerSources[qId] || '';
-    document.getElementById('editorFilename').textContent = qId + 'Tester.java';
-    updateSaveIndicator(qId);
+    document.getElementById(key + '-codeEditor').value = a.testerSources[qId] || '';
+    document.getElementById(key + '-editorFilename').textContent = qId + 'Tester.java';
+
+    const ind = document.getElementById(key + '-saveIndicator');
+    if (a.savedState[qId]) { ind.className = 'save-indicator saved'; ind.textContent = '✓ saved'; }
+    else { ind.className = 'save-indicator unsaved'; ind.textContent = '● unsaved'; }
 }
 
-function markUnsaved() {
-    if (!activeTab) return;
-    // FIX 3: Keep testerSources in sync on every keystroke so that
-    // saveAllFiles() and doGrade() always have the latest content
-    // even without an explicit flushActiveEditor() call.
-    testerSources[activeTab] = document.getElementById('codeEditor').value;
-
-    savedState[activeTab] = false;
-    updateSaveIndicator(activeTab);
-    const tab = document.getElementById('tab-' + activeTab);
+function markUnsaved(key) {
+    const a = assessments[key];
+    if (!a.activeTab) return;
+    a.testerSources[a.activeTab] = document.getElementById(key + '-codeEditor').value;
+    a.savedState[a.activeTab] = false;
+    const ind = document.getElementById(key + '-saveIndicator');
+    ind.className = 'save-indicator unsaved'; ind.textContent = '● unsaved';
+    const tab = document.getElementById(key + '-qtab-' + a.activeTab);
     if (tab) { tab.classList.remove('saved'); tab.classList.add('unsaved'); }
-}
-
-function updateSaveIndicator(qId) {
-    const ind = document.getElementById('saveIndicator');
-    if (savedState[qId]) {
-        ind.className = 'save-indicator saved'; ind.textContent = '✓ saved';
-    } else {
-        ind.className = 'save-indicator unsaved'; ind.textContent = '● unsaved changes';
-    }
 }
 
 function handleTabKey(e) {
     if (e.key !== 'Tab') return;
     e.preventDefault();
-    const ta  = e.target;
-    const s   = ta.selectionStart, end = ta.selectionEnd;
-    ta.value  = ta.value.substring(0, s) + '    ' + ta.value.substring(end);
+    const ta = e.target, s = ta.selectionStart, end = ta.selectionEnd;
+    ta.value = ta.value.substring(0, s) + '    ' + ta.value.substring(end);
     ta.selectionStart = ta.selectionEnd = s + 4;
-    markUnsaved();
+    // Find which assessment this editor belongs to
+    const key = activeAssessment;
+    if (key) markUnsaved(key);
 }
 
-// ── Save file(s) to disk ───────────────────────────────────────────────────────
-async function saveCurrentFile() {
-    if (!activeTab) return;
+// ── Save files ────────────────────────────────────────────────────────────────
 
-    // FIX 2 applied: use flushActiveEditor() instead of a one-off assignment
-    flushActiveEditor();
-
-    const btn = document.getElementById('saveFileBtn');
-    btn.disabled = true;
-    btn.textContent = '⏳ Saving...';
-    document.getElementById('saveIndicator').className = 'save-indicator saving';
-    document.getElementById('saveIndicator').textContent = 'saving...';
-
-    const testers = { [activeTab]: testerSources[activeTab] };
-    const ok = await callSaveTesters(testers);
-
-    btn.disabled = false;
-    btn.textContent = '💾 Save File';
-
-    if (ok) {
-        savedState[activeTab] = true;
-        updateSaveIndicator(activeTab);
-        const tab = document.getElementById('tab-' + activeTab);
-        if (tab) { tab.classList.remove('unsaved'); tab.classList.add('saved'); }
-        showAlert('success', activeTab + 'Tester.java saved ✓');
-    }
-}
-
-async function saveAllFiles() {
-    // FIX 2 applied: flush active editor before saving everything
-    flushActiveEditor();
-
-    const ok = await callSaveTesters(testerSources);
-    if (ok) {
-        Object.keys(testerSources).forEach(qId => {
-            savedState[qId] = true;
-            const tab = document.getElementById('tab-' + qId);
-            if (tab) { tab.classList.remove('unsaved'); tab.classList.add('saved'); }
-        });
-        if (activeTab) updateSaveIndicator(activeTab);
-        showAlert('success', 'All tester files saved ✓');
-    }
-}
-
-async function callSaveTesters(testers) {
+async function callSaveTesters(key, testers) {
     try {
-        const res  = await fetch('/save-testers', {
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
+        const res = await fetch('/assessments/' + key + '/save-testers', {
+            method:'POST', headers:{'Content-Type':'application/json'},
             body: JSON.stringify({ testers })
         });
         const data = await res.json();
         if (!data.success) { showAlert('error', 'Save failed: ' + data.message); return false; }
         return true;
-    } catch (e) {
-        showAlert('error', 'Save error: ' + e.message);
-        return false;
-    }
+    } catch (e) { showAlert('error', 'Save error: ' + e.message); return false; }
 }
 
-// ── STEP 3 → 4: Grade ─────────────────────────────────────────────────────────
-async function doGrade() {
-    // FIX 2 applied: flush the active editor so its content is in testerSources
-    // before we save everything to disk.
-    flushActiveEditor();
-
-    // FIX 4: Always save ALL tester sources to disk before grading,
-    // regardless of savedState flags. This is the only way to guarantee that
-    // every edit — including edits on non-active tabs and edits made without
-    // clicking "Save File" — is written before /grade is called.
-    // The backend's savedTestersExist() guard will then correctly skip AI
-    // regeneration and use these files.
-    const ok = await callSaveTesters(testerSources);
-    if (!ok) return; // save failed — do not proceed to grade
-
-    // Mark all as saved in UI
-    Object.keys(testerSources).forEach(q => {
-        savedState[q] = true;
-        const tab = document.getElementById('tab-' + q);
+async function saveCurrentFile(key) {
+    const a = assessments[key];
+    if (!a.activeTab) return;
+    flushActiveEditor(key);
+    const ok = await callSaveTesters(key, { [a.activeTab]: a.testerSources[a.activeTab] });
+    if (ok) {
+        a.savedState[a.activeTab] = true;
+        const ind = document.getElementById(key + '-saveIndicator');
+        ind.className = 'save-indicator saved'; ind.textContent = '✓ saved';
+        const tab = document.getElementById(key + '-qtab-' + a.activeTab);
         if (tab) { tab.classList.remove('unsaved'); tab.classList.add('saved'); }
-    });
-    if (activeTab) updateSaveIndicator(activeTab);
-
-    gotoStep(4);
-    document.getElementById('editorSection').style.display  = 'none';
-    document.getElementById('gradingSection').style.display = 'block';
-    document.getElementById('gradingSection').scrollIntoView({ behavior:'smooth' });
-
-    setStatus('GRADING');
-    simulateProgress();
-
-    try {
-        const res  = await fetch('/grade', { method:'POST' });
-        const data = await res.json();
-        if (window.gradingInterval) clearInterval(window.gradingInterval);
-        document.getElementById('progressFill').style.width = '100%';
-
-        document.getElementById('gradingSection').style.display = 'none';
-        document.getElementById('resultsSection').style.display = 'block';
-        displayResults(data);
-        setStatus('READY');
-        if (data.success) showAlert('success', 'Grading complete ✓');
-        else showAlert('error', 'Grading finished with errors — check log');
-    } catch (e) {
-        showAlert('error', 'Grading error: ' + e.message);
-        setStatus('READY');
+        showAlert('success', a.activeTab + 'Tester.java saved ✓');
     }
 }
 
-function simulateProgress() {
-    const fill   = document.getElementById('progressFill');
-    const label  = document.getElementById('progressLabel');
-    const stages = ['Extracting...','Validating...','Compiling...','Grading...','Analyzing...'];
+async function saveAllFiles(key) {
+    const a = assessments[key];
+    flushActiveEditor(key);
+    const ok = await callSaveTesters(key, a.testerSources);
+    if (ok) {
+        Object.keys(a.testerSources).forEach(qId => {
+            a.savedState[qId] = true;
+            const tab = document.getElementById(key + '-qtab-' + qId);
+            if (tab) { tab.classList.remove('unsaved'); tab.classList.add('saved'); }
+        });
+        if (a.activeTab) {
+            const ind = document.getElementById(key + '-saveIndicator');
+            ind.className = 'save-indicator saved'; ind.textContent = '✓ saved';
+        }
+        showAlert('success', 'All files saved ✓');
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// STEP 2 → 3 — GRADE
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function doGrade(key) {
+    const a = assessments[key];
+    flushActiveEditor(key);
+
+    // Save all testers to disk first
+    if (Object.keys(a.testerSources).length > 0) {
+        const ok = await callSaveTesters(key, a.testerSources);
+        if (!ok) return;
+        Object.keys(a.testerSources).forEach(q => a.savedState[q] = true);
+    }
+
+    wizardGotoStep(key, 3);
+    updateTabStatus(key, 3, 'Grading...', 'step-2');
+    document.getElementById(key + '-editorSection').style.display = 'none';
+    document.getElementById(key + '-gradingSection').style.display = 'block';
+    document.getElementById(key + '-gradingSection').scrollIntoView({ behavior:'smooth' });
+
+    // Simulate progress
+    const fill = document.getElementById(key + '-progressFill');
+    const label = document.getElementById(key + '-progressLabel');
+    const stages = ['Extracting...','Discovering...','Compiling...','Grading...','Analyzing...'];
     let p = 0, si = 0;
-    window.gradingInterval = setInterval(() => {
-        p += Math.random() * 12;
+    const interval = setInterval(() => {
+        p += Math.random() * 10;
         if (p > 95) p = 95;
         fill.style.width = p + '%';
         label.textContent = stages[Math.min(si, stages.length - 1)];
         if (p > (si + 1) * 19) si++;
     }, 600);
+
+    try {
+        const res  = await fetch('/assessments/' + key + '/grade', { method:'POST' });
+        const data = await res.json();
+
+        clearInterval(interval);
+        fill.style.width = '100%';
+
+        a.graded = true;
+        a.gradeResult = data;
+
+        wizardGotoStep(key, 4);
+        document.getElementById(key + '-gradingSection').style.display = 'none';
+        document.getElementById(key + '-resultsSection').style.display = 'block';
+
+        document.getElementById(key + '-statStudents').textContent = data.studentCount || '-';
+        document.getElementById(key + '-statTasks').textContent = (data.logs || []).length;
+        document.getElementById(key + '-statAvg').textContent = data.averageScore || '-';
+
+        const logEl = document.getElementById(key + '-logTerminal');
+        logEl.innerHTML = '';
+        (data.logs || []).forEach(l => {
+            const d = document.createElement('div');
+            d.className = 'log-line'; d.textContent = '$ ' + l;
+            logEl.appendChild(d);
+        });
+
+        if (data.success) {
+            updateTabStatus(key, 4, 'Done ✓', 'done');
+            showAlert('success', a.displayName + ' — grading complete ✓');
+        } else {
+            updateTabStatus(key, 4, 'Errors', 'error');
+            showAlert('error', a.displayName + ' — grading had errors');
+        }
+
+    } catch (e) {
+        clearInterval(interval);
+        showAlert('error', 'Grading error: ' + e.message);
+        updateTabStatus(key, 3, 'Error', 'error');
+    }
 }
 
-function displayResults(data) {
-    document.getElementById('statStudents').textContent = data.studentCount || '-';
-    document.getElementById('statTasks').textContent    = data.taskCount    || '-';
-    document.getElementById('statAverage').textContent  = data.averageScore ? data.averageScore.toFixed(1)+'%' : '-';
-    document.getElementById('statSuccess').textContent  = data.successRate  ? data.successRate.toFixed(1)+'%'  : '-';
-    const term = document.getElementById('logTerminal');
-    term.innerHTML = '';
-    (data.logs || []).forEach(log => {
-        const d = document.createElement('div');
-        d.className = 'log-line'; d.textContent = '$ ' + log; term.appendChild(d);
-    });
-    document.getElementById('resultsSection').scrollIntoView({ behavior:'smooth' });
+// ── Skip to grade (for assessments with pre-uploaded testers) ─────────────────
+
+async function skipToGrade(key) {
+    // No tester sources to save — they were uploaded as a ZIP
+    assessments[key].testerSources = {};
+    wizardGotoStep(key, 3);
+    document.getElementById(key + '-marksSection').style.display = 'none';
+    document.getElementById(key + '-gradingSection').style.display = 'block';
+    document.getElementById(key + '-gradingSection').scrollIntoView({ behavior:'smooth' });
+
+    // Run grading directly
+    updateTabStatus(key, 3, 'Grading...', 'step-2');
+
+    const fill = document.getElementById(key + '-progressFill');
+    const label = document.getElementById(key + '-progressLabel');
+    const stages = ['Extracting...','Discovering...','Compiling...','Grading...','Analyzing...'];
+    let p = 0, si = 0;
+    const interval = setInterval(() => {
+        p += Math.random() * 10; if (p > 95) p = 95;
+        fill.style.width = p + '%';
+        label.textContent = stages[Math.min(si, stages.length - 1)];
+        if (p > (si + 1) * 19) si++;
+    }, 600);
+
+    try {
+        const res = await fetch('/assessments/' + key + '/grade', { method:'POST' });
+        const data = await res.json();
+        clearInterval(interval); fill.style.width = '100%';
+
+        assessments[key].graded = true;
+        assessments[key].gradeResult = data;
+
+        wizardGotoStep(key, 4);
+        document.getElementById(key + '-gradingSection').style.display = 'none';
+        document.getElementById(key + '-resultsSection').style.display = 'block';
+
+        document.getElementById(key + '-statStudents').textContent = data.studentCount || '-';
+        document.getElementById(key + '-statTasks').textContent = (data.logs || []).length;
+        document.getElementById(key + '-statAvg').textContent = data.averageScore || '-';
+
+        const logEl = document.getElementById(key + '-logTerminal');
+        logEl.innerHTML = '';
+        (data.logs || []).forEach(l => {
+            const d = document.createElement('div');
+            d.className = 'log-line'; d.textContent = '$ ' + l;
+            logEl.appendChild(d);
+        });
+
+        if (data.success) {
+            updateTabStatus(key, 4, 'Done ✓', 'done');
+            showAlert('success', assessments[key].displayName + ' — grading complete ✓');
+        } else {
+            updateTabStatus(key, 4, 'Errors', 'error');
+            showAlert('error', assessments[key].displayName + ' — grading had errors');
+        }
+    } catch (e) {
+        clearInterval(interval);
+        showAlert('error', 'Grading error: ' + e.message);
+        updateTabStatus(key, 3, 'Error', 'error');
+    }
 }
 
-// ── Navigation ─────────────────────────────────────────────────────────────────
-function gotoStep(n) {
-    [1,2,3,4].forEach(i => {
-        const el = document.getElementById('step' + i);
-        el.classList.remove('active','done');
-        if (i < n)  el.classList.add('done');
-        if (i === n) el.classList.add('active');
-    });
-    ['12','23','34'].forEach((pair, idx) => {
-        const el = document.getElementById('line' + pair);
-        if (el) el.classList.toggle('done', n > idx + 1);
-    });
-}
+// ══════════════════════════════════════════════════════════════════════════════
+// UTILS
+// ══════════════════════════════════════════════════════════════════════════════
 
-function goBack(toStep) {
-    const sections = { 1:'uploadSection', 2:'marksSection', 3:'editorSection', 4:'gradingSection' };
-    Object.values(sections).forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.style.display = 'none';
-    });
-    gotoStep(toStep);
-    const target = document.getElementById(sections[toStep]);
-    if (target) { target.style.display = 'block'; target.scrollIntoView({ behavior:'smooth' }); }
-}
-
-// ── Utils ──────────────────────────────────────────────────────────────────────
 function setStatus(s) {
     const badge = document.getElementById('systemStatusBadge');
-    badge.innerHTML = `<span class="badge-dot ${s==='READY'?'':'running'}"></span><span class="badge-text">${s}</span>`;
+    badge.innerHTML = '<span class="badge-dot ' + (s==='READY'?'':'running') + '"></span><span class="badge-text">' + s + '</span>';
 }
 
 function showAlert(type, message) {
     const c = document.getElementById('alertContainer');
     const a = document.createElement('div');
-    a.className = `alert alert-${type}`;
-    a.innerHTML = `<div class="alert-content"><span class="alert-icon">${type==='success'?'✓':'✕'}</span><span class="alert-message">${message}</span></div><button class="alert-close" onclick="this.parentElement.remove()">×</button>`;
+    a.className = 'alert alert-' + type;
+    a.innerHTML = '<div class="alert-content"><span class="alert-icon">' + (type==='success'?'✓':'✕') + '</span><span class="alert-message">' + message + '</span></div><button class="alert-close" onclick="this.parentElement.remove()">×</button>';
     c.appendChild(a);
-    setTimeout(() => a.remove(), 6000);
+    setTimeout(() => { if (a.parentElement) a.remove(); }, 6000);
 }
 
-function fmt(bytes) {
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1048576) return (bytes/1024).toFixed(1) + ' KB';
-    return (bytes/1048576).toFixed(1) + ' MB';
+function escHtml(s) {
+    if (!s) return '';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 </script>
 </body>

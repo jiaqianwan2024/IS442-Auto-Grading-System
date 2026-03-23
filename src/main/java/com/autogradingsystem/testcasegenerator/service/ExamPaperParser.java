@@ -28,6 +28,7 @@ public class ExamPaperParser {
     public static final Path EXAM_DIR = Paths.get("resources/input/exam");
 
     private final String       apiKey;
+    private final Path         examDir; 
     private final HttpClient   http;
     private final ObjectMapper mapper;
 
@@ -38,15 +39,25 @@ public class ExamPaperParser {
     // -------------------------------------------------------------------------
 
     public ExamPaperParser(String apiKey) {
-        this.apiKey = apiKey;
-        this.http   = HttpClient.newBuilder()
+        this(apiKey, null);
+    }
+
+    public ExamPaperParser(String apiKey, Path examDir) {
+        this.apiKey  = apiKey;
+        this.examDir = examDir;
+        this.http    = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(LLMConfig.TIMEOUT_S))
                 .build();
-        this.mapper = new ObjectMapper();
+        this.mapper  = new ObjectMapper();
     }
 
     public static ExamPaperParser fromEnvironment() {
-        return new ExamPaperParser(LLMConfig.resolveApiKey());
+        return new ExamPaperParser(LLMConfig.resolveApiKey(), null);
+    }
+
+    /** Path-aware factory — used by per-assessment flow */
+    public static ExamPaperParser fromEnvironment(Path examDir) {
+        return new ExamPaperParser(LLMConfig.resolveApiKey(), examDir);
     }
 
     // -------------------------------------------------------------------------
@@ -61,7 +72,7 @@ public class ExamPaperParser {
 
         Path pdfPath = findExamPdf();
         if (pdfPath == null) {
-            System.out.println("  ℹ️  No exam PDF in " + EXAM_DIR + " — falling back to CSV.");
+            System.out.println("  ℹ️  No exam PDF in " + resolveExamDir() + " — falling back to CSV.");
             return Map.of();
         }
 
@@ -196,12 +207,17 @@ Example: {"Q1a": 5, "Q1b": 3, "Q2a": 8, "Q2b": 4, "Q3": 10}
     // Helpers
     // -------------------------------------------------------------------------
 
+    private Path resolveExamDir() {
+        return examDir != null ? examDir : EXAM_DIR;
+    }
+
     private Path findExamPdf() {
-        if (!Files.exists(EXAM_DIR)) {
-            try { Files.createDirectories(EXAM_DIR); } catch (Exception ignored) {}
+        Path dir = resolveExamDir();
+        if (!Files.exists(dir)) {
+            try { Files.createDirectories(dir); } catch (Exception ignored) {}
             return null;
         }
-        try (var stream = Files.list(EXAM_DIR)) {
+        try (var stream = Files.list(dir)) {
             return stream.filter(p -> p.toString().toLowerCase().endsWith(".pdf"))
                          .findFirst().orElse(null);
         } catch (Exception e) { return null; }

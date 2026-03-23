@@ -41,6 +41,26 @@ import java.util.*;
 @RestController
 public class TestCaseReviewController {
 
+    // ── Path-aware fields (null = fall back to global PathConfig) ──
+    private Path inputTesters;
+    private Path inputTemplate;
+    private Path inputExam;
+
+    /** No-arg: used by Spring for the existing single-assessment routes */
+    public TestCaseReviewController() {}
+
+    /** Path-aware: used by UnifiedAssessmentController for per-assessment routes */
+    public TestCaseReviewController(Path inputTesters, Path inputTemplate, Path inputExam) {
+        this.inputTesters  = inputTesters;
+        this.inputTemplate = inputTemplate;
+        this.inputExam     = inputExam;
+    }
+
+    // ── Resolve helpers ──
+    private Path resolveInputTesters()  { return inputTesters  != null ? inputTesters  : PathConfig.INPUT_TESTERS; }
+    private Path resolveInputTemplate() { return inputTemplate != null ? inputTemplate : PathConfig.INPUT_TEMPLATE; }
+    private Path resolveInputExam()     { return inputExam     != null ? inputExam     : ExamPaperParser.EXAM_DIR; }
+
     // =========================================================================
     // Step 2 — POST /parse-exam-marks
     // =========================================================================
@@ -73,7 +93,10 @@ public class TestCaseReviewController {
             }
 
             // Parse marks from PDF via LLM
-            ExamPaperParser parser = ExamPaperParser.fromEnvironment();
+            ExamPaperParser parser = (inputExam != null)
+                ? ExamPaperParser.fromEnvironment(inputExam)
+                : ExamPaperParser.fromEnvironment();
+                
             Map<String, Integer> marks = parser.extractMarkWeights();
 
             if (marks.isEmpty()) {
@@ -228,7 +251,7 @@ public class TestCaseReviewController {
                 return ResponseEntity.badRequest().body(response);
             }
 
-            Path testersDir = PathConfig.INPUT_TESTERS;
+            Path testersDir = resolveInputTesters();
             Files.createDirectories(testersDir);
 
             List<String> saved = new ArrayList<>();
@@ -262,14 +285,14 @@ public class TestCaseReviewController {
     // =========================================================================
 
     private Path findTemplateZip() {
-        try (var stream = Files.list(PathConfig.INPUT_TEMPLATE)) {
+        try (var stream = Files.list(resolveInputTemplate())) {
             return stream.filter(p -> p.toString().endsWith(".zip"))
                          .findFirst().orElse(null);
         } catch (Exception e) { return null; }
     }
 
     private Path findExamPdf() {
-        Path examDir = ExamPaperParser.EXAM_DIR;
+        Path examDir = resolveInputExam();
         if (!Files.exists(examDir)) {
             try { Files.createDirectories(examDir); } catch (Exception ignored) {}
             return null;

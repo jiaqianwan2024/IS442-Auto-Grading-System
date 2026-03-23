@@ -13,6 +13,7 @@ import com.autogradingsystem.plagiarism.model.PlagiarismResult;
 import com.autogradingsystem.testcasegenerator.controller.TestCaseGeneratorController;
 import com.autogradingsystem.testcasegenerator.model.QuestionSpec;
 import com.autogradingsystem.testcasegenerator.service.TemplateTestSpecBuilder;
+import com.autogradingsystem.multiassessment.AssessmentPathConfig;
 
 import org.springframework.stereotype.Service;
 
@@ -47,6 +48,35 @@ import java.util.stream.Stream;
 @Service
 public class GradingService {
 
+    // ── Path-aware fields (null = fall back to global PathConfig) ──
+    private Path csvScoresheet;
+    private Path inputSubmissions;
+    private Path inputTemplate;
+    private Path inputTesters;
+    private Path inputExam;
+    private Path outputExtracted;
+    private Path outputReports;
+
+    /** No-arg: used by Spring for the existing single-assessment flow */
+    public GradingService() {}
+
+    /** Path-aware: used by unified per-assessment flow */
+    public GradingService(com.autogradingsystem.multiassessment.AssessmentPathConfig paths) {
+        this.csvScoresheet    = paths.CSV_SCORESHEET;
+        this.inputSubmissions = paths.INPUT_SUBMISSIONS;
+        this.inputTemplate    = paths.INPUT_TEMPLATE;
+        this.inputTesters     = paths.INPUT_TESTERS;
+        this.inputExam        = paths.INPUT_EXAM;
+        this.outputExtracted  = paths.OUTPUT_EXTRACTED;
+        this.outputReports    = paths.OUTPUT_REPORTS;
+    }
+
+    // ── Resolve helpers ──
+    private Path resolveInputTesters()  { return inputTesters  != null ? inputTesters  : PathConfig.INPUT_TESTERS; }
+    private Path resolveInputTemplate() { return inputTemplate != null ? inputTemplate : Paths.get("resources/input/template"); }
+
+    private boolean isPathAware() { return csvScoresheet != null; }
+
     public GradingReport runFullPipeline() {
         List<String> logs = new ArrayList<>();
 
@@ -55,17 +85,28 @@ public class GradingService {
 
             // ── 1. Validate inputs ───────────────────────────────────────────
             System.out.println("🚀 Phase 1: Validating inputs...");
-            if (!PathConfig.validateInputPaths()) {
-                return new GradingReport(false, 0, Collections.emptyList(),
-                        List.of("❌ Missing required input files. Check resources/input/."));
+            if (isPathAware()) {
+                // Per-assessment: directories already created by upload, just check they exist
+                if (!Files.exists(csvScoresheet) || !Files.isDirectory(inputSubmissions)) {
+                    return new GradingReport(false, 0, Collections.emptyList(),
+                            List.of("❌ Missing required input files for this assessment."));
+                }
+                outputExtracted.toFile().mkdirs();
+                outputReports.toFile().mkdirs();
+            } else {
+                if (!PathConfig.validateInputPaths()) {
+                    return new GradingReport(false, 0, Collections.emptyList(),
+                            List.of("❌ Missing required input files. Check resources/input/."));
+                }
+                PathConfig.ensureOutputDirectories();
             }
-            PathConfig.ensureOutputDirectories();
             System.out.println("✅ Phase 1 done.");
 
             // ── 2. Extraction ────────────────────────────────────────────────
             System.out.println("🚀 Phase 2: Extracting submissions...");
-            ExtractionController extractionController = new ExtractionController();
-            int studentCount = extractionController.extractAndValidate();
+            ExtractionController extractionController = isPathAware()
+                 ? new ExtractionController(csvScoresheet, inputSubmissions, outputExtracted)
+                 : new ExtractionController();            int studentCount = extractionController.extractAndValidate();
             logs.add("✅ Extracted " + studentCount + " submissions");
             System.out.println("✅ Phase 2 done — " + studentCount + " submissions.");
 
@@ -101,21 +142,24 @@ public class GradingService {
             }
 
             // ── 4. Discovery ─────────────────────────────────────────────────
-            DiscoveryController discoveryController = new DiscoveryController();
-            GradingPlan gradingPlan = discoveryController.buildGradingPlan();
+            DiscoveryController discoveryController = isPathAware()
+                ? new DiscoveryController(inputTemplate, inputTesters)
+                : new DiscoveryController();            GradingPlan gradingPlan = discoveryController.buildGradingPlan();
             logs.add("✅ Grading plan: " + gradingPlan.getTaskCount() + " tasks");
 
             // ── 5. Execution ─────────────────────────────────────────────────
-            ExecutionController executionController = new ExecutionController();
-            List<GradingResult> results     = executionController.gradeAllStudents(gradingPlan);
+            ExecutionController executionController = isPathAware()
+                ? new ExecutionController(outputExtracted, csvScoresheet, inputTesters, inputTemplate)
+                : new ExecutionController();            List<GradingResult> results     = executionController.gradeAllStudents(gradingPlan);
             Map<String, String> remarks     = executionController.getRemarksByStudent();
             Map<String, String> anomalyRmks = executionController.getAnomalyRemarksByStudent();
             List<Student>       allStudents = executionController.getLastGradedStudents();
             logs.add("✅ Graded " + results.size() + " results");
 
             // ── 6. Plagiarism detection ───────────────────────────────────────
-            PlagiarismController plagController = new PlagiarismController();
-            PlagiarismController.PlagiarismSummary plagSummary =
+            PlagiarismController plagController = isPathAware()
+                ? new PlagiarismController(outputExtracted)
+                : new PlagiarismController();            PlagiarismController.PlagiarismSummary plagSummary =
                     plagController.runPlagiarismCheck(gradingPlan);
             Map<String, String> plagiarismNotes = buildPlagiarismNotes(plagSummary);
 
@@ -127,8 +171,9 @@ public class GradingService {
             }
 
             // ── 7. Analysis & export ──────────────────────────────────────────
-            AnalysisController analysisController = new AnalysisController();
-            analysisController.analyzeAndDisplay(results, remarks, anomalyRmks, allStudents,
+            AnalysisController analysisController = isPathAware()
+                ? new AnalysisController(csvScoresheet, outputReports, inputTesters)
+                : new AnalysisController();            analysisController.analyzeAndDisplay(results, remarks, anomalyRmks, allStudents,
                                                  plagiarismNotes);
             logs.add("✅ Reports exported");
 
@@ -144,7 +189,7 @@ public class GradingService {
     // ── Private: skip Phase 3 when testers are already on disk ────────────
 
     private boolean savedTestersExist() {
-        Path testersDir = PathConfig.INPUT_TESTERS;
+        Path testersDir = resolveInputTesters();
         if (!Files.isDirectory(testersDir)) return false;
         try (Stream<Path> files = Files.list(testersDir)) {
             boolean found = files.anyMatch(p ->
@@ -161,7 +206,7 @@ public class GradingService {
     // ── Private: find template ZIP ─────────────────────────────────────────
 
     private Path findTemplateZip() {
-        Path templateDir = Paths.get("resources/input/template");
+        Path templateDir = resolveInputTemplate();
         try (var stream = Files.list(templateDir)) {
             return stream.filter(p -> p.toString().endsWith(".zip"))
                          .findFirst().orElse(null);
