@@ -60,9 +60,14 @@ public class TesterGenerator {
         sb.append("    private static double score;\n");
         sb.append("    private static String qn = \"").append(questionId).append("\";\n\n");
 
+        // --- UPDATED MAIN METHOD WITH FINALLY BLOCK ---
         sb.append("    public static void main(String[] args) {\n");
-        sb.append("        grade();\n");
-        sb.append("        System.out.println(score);\n");
+        sb.append("        try {\n");
+        sb.append("            grade();\n");
+        sb.append("        } finally {\n");
+        sb.append("            System.out.printf(\"FINAL_SCORE:%.1f%n\", score);\n");
+        sb.append("            System.exit(0);\n");
+        sb.append("        }\n");
         sb.append("    }\n\n");
 
         sb.append("    public static void grade() {\n");
@@ -113,7 +118,6 @@ public class TesterGenerator {
         boolean isSmoke = tc.isSmokeTest();
         boolean expectsException = "exception".equals(tc.getEqualityStrategy());
 
-        // Build call — use inherited (no class prefix) when tester extends student class
         String callExpr;
         if (canExtend && !method.isStatic()) {
             callExpr = method.getName() + "(" + String.join(", ", argLiterals) + ")";
@@ -122,10 +126,16 @@ public class TesterGenerator {
                      + "(" + String.join(", ", argLiterals) + ")";
         }
 
+        String callStatement;
+        if (method.returnsVoid()) {
+            callStatement = "runWithTimeout(() -> { " + callExpr + "; return null; })";
+        } else {
+            callStatement = "runWithTimeout(() -> " + callExpr + ")";
+        }
+
         sb.append("        {\n");
         sb.append("            try {\n");
 
-        // Build input variables in IS442 readable format (ArrayList + .add() calls)
         String inputExpr = buildInputBlock(sb, argLiterals, method, testIndex);
 
         sb.append("                System.out.printf(\"Test %d: ")
@@ -136,7 +146,8 @@ public class TesterGenerator {
             String exClass = tc.getExpected() != null
                     ? tc.getExpected().replace("\"", "").trim() : "Exception";
             if (!exClass.matches("[A-Za-z][A-Za-z0-9_]*")) exClass = "Exception";
-            sb.append("                ").append(callExpr).append(";\n");
+            
+            sb.append("                Object __dummy = ").append(callStatement).append(";\n");
             sb.append("                System.out.println(\"Expected  :|").append(exClass).append(" thrown|\");\n");
             sb.append("                System.out.println(\"Actual    :|no exception — FAILED|\");\n");
             sb.append("                System.out.println(\"Failed\");\n");
@@ -144,6 +155,8 @@ public class TesterGenerator {
             sb.append("                System.out.println(\"Expected  :|").append(exClass).append(" thrown|\");\n");
             sb.append("                System.out.println(\"Actual    :|").append(exClass).append(" thrown|\");\n");
             sb.append("                score += 1;\n");
+            // --- ADDED CHECKPOINT ---
+            sb.append("                System.out.printf(\"PARTIAL_SCORE:%.1f%n\", score);\n");
             sb.append("                System.out.println(\"Passed\");\n");
             sb.append("            } catch (Exception e) {\n");
             sb.append("                System.out.println(\"Expected  :|").append(exClass).append(" thrown|\");\n");
@@ -152,10 +165,12 @@ public class TesterGenerator {
             sb.append("            }\n");
 
         } else if (isVoid || isSmoke) {
-            sb.append("                ").append(callExpr).append(";\n");
+            sb.append("                Object __dummy = ").append(callStatement).append(";\n");
             sb.append("                System.out.println(\"Expected  :|no exception|\");\n");
             sb.append("                System.out.println(\"Actual    :|no exception|\");\n");
             sb.append("                score += 1;\n");
+            // --- ADDED CHECKPOINT ---
+            sb.append("                System.out.printf(\"PARTIAL_SCORE:%.1f%n\", score);\n");
             sb.append("                System.out.println(\"Passed\");\n");
             sb.append("            } catch (Exception e) {\n");
             sb.append("                System.out.println(\"Expected  :|no exception|\");\n");
@@ -166,11 +181,13 @@ public class TesterGenerator {
         } else if ("toString_equals".equals(strategy)) {
             String expectedExpr = tc.getExpected() != null ? tc.getExpected() : "\"\"\"";
             sb.append("                String expected = ").append(expectedExpr).append(";\n");
-            sb.append("                ").append(javaRet).append(" result = ").append(callExpr).append(";\n");
+            sb.append("                ").append(javaRet).append(" result = ").append(callStatement).append(";\n");
             sb.append("                System.out.printf(\"Expected  :|%s|%n\", expected);\n");
             sb.append("                System.out.printf(\"Actual    :|%s|%n\", result);\n");
             sb.append("                if (result != null && result.toString().equals(expected)) {\n");
             sb.append("                    score += 1;\n");
+            // --- ADDED CHECKPOINT ---
+            sb.append("                    System.out.printf(\"PARTIAL_SCORE:%.1f%n\", score);\n");
             sb.append("                    System.out.println(\"Passed\");\n");
             sb.append("                } else {\n");
             sb.append("                    System.out.println(\"Failed\");\n");
@@ -181,48 +198,48 @@ public class TesterGenerator {
 
         } else if ("list_equals".equals(strategy)
                 || (isListType(retType) && !isCustomObjectList(retType))) {
-            // List equality — use .equals() directly, matching IS442 tester format
             String expectedExpr = tc.getExpected() != null ? tc.getExpected() : "new java.util.ArrayList<>()";
             String evName = "expected" + testIndex;
             String rvName = "result"   + testIndex;
             sb.append("                ").append(javaRet).append(" ").append(evName)
               .append(" = ").append(expectedExpr).append(";\n");
             sb.append("                ").append(javaRet).append(" ").append(rvName)
-              .append(" = ").append(callExpr).append(";\n");
+              .append(" = ").append(callStatement).append(";\n");
             sb.append("                System.out.printf(\"Expected  :|%s|%n\", ").append(evName).append(");\n");
             sb.append("                System.out.printf(\"Actual    :|%s|%n\", ").append(rvName).append(");\n");
             sb.append("                if (").append(evName).append(".equals(").append(rvName).append(")) {\n");
             sb.append("                    score += 1;\n");
+            // --- ADDED CHECKPOINT ---
+            sb.append("                    System.out.printf(\"PARTIAL_SCORE:%.1f%n\", score);\n");
             sb.append("                    System.out.println(\"Passed\");\n");
             sb.append("                } else {\n");
             sb.append("                    System.out.println(\"Failed\");\n");
             sb.append("                }\n");
             sb.append("            } catch (Exception e) {\n");
-            sb.append("                System.out.println(\"Failed -> Exception\");\n");
-            sb.append("                e.printStackTrace();\n");
+            sb.append("                System.out.println(\"Failed -> Exception: \" + e.getMessage());\n");
             sb.append("            }\n");
 
         } else {
-            // Primitive / String / boxed type equality
             String expectedExpr = tc.getExpected() != null ? tc.getExpected() : "null";
             String evName = "expected" + testIndex;
             String rvName = "result"   + testIndex;
             sb.append("                ").append(javaRet).append(" ").append(evName)
               .append(" = ").append(expectedExpr).append(";\n");
             sb.append("                ").append(javaRet).append(" ").append(rvName)
-              .append(" = ").append(callExpr).append(";\n");
+              .append(" = ").append(callStatement).append(";\n");
             sb.append("                System.out.printf(\"Expected  :|%s|%n\", ").append(evName).append(");\n");
             sb.append("                System.out.printf(\"Actual    :|%s|%n\", ").append(rvName).append(");\n");
             String cond = buildCondition(rvName, evName, strategy, javaRet);
             sb.append("                if (").append(cond).append(") {\n");
             sb.append("                    score += 1;\n");
+            // --- ADDED CHECKPOINT ---
+            sb.append("                    System.out.printf(\"PARTIAL_SCORE:%.1f%n\", score);\n");
             sb.append("                    System.out.println(\"Passed\");\n");
             sb.append("                } else {\n");
             sb.append("                    System.out.println(\"Failed\");\n");
             sb.append("                }\n");
             sb.append("            } catch (Exception e) {\n");
-            sb.append("                System.out.println(\"Failed -> Exception\");\n");
-            sb.append("                e.printStackTrace();\n");
+            sb.append("                System.out.println(\"Failed -> Exception: \" + e.getMessage());\n");
             sb.append("            }\n");
         }
 
@@ -230,11 +247,6 @@ public class TesterGenerator {
         sb.append("        }\n\n");
     }
 
-    /**
-     * Builds input variable declarations in readable IS442 format.
-     * Collections use ArrayList + .add() calls (matches Q1aTester.java style).
-     * Returns the expression to use in System.out.printf for the input display.
-     */
     private String buildInputBlock(StringBuilder sb, List<String> argLiterals,
                                    MethodSpec method, int testIndex) {
         if (argLiterals.isEmpty()) return "\"\"\"";
@@ -250,7 +262,6 @@ public class TesterGenerator {
             return varName;
         }
 
-        // Multiple args
         List<String> varRefs = new ArrayList<>();
         for (int i = 0; i < argLiterals.size(); i++) {
             String arg = argLiterals.get(i);
@@ -280,9 +291,13 @@ public class TesterGenerator {
 
     private String inferElemType(String arg, MethodSpec method, int paramIndex) {
         if (method.getParams().size() > paramIndex) {
-            String t = extractGenericType(method.getParams().get(paramIndex).getType());
-            if (!"Object".equals(t)) return t;
+            String paramType = method.getParams().get(paramIndex).getType();
+            if (!paramType.contains("<")) return "Object"; 
+            String t = extractGenericType(paramType);
+            if (!"Object".equals(t) && !t.trim().isEmpty()) return t;
+            return "Object"; 
         }
+        
         if (arg.contains("\\\"") || arg.contains("\"\\")) return "String";
         int asIdx = arg.indexOf("asList(");
         if (asIdx >= 0) {
@@ -350,15 +365,11 @@ public class TesterGenerator {
             if (isListType(paramType)) {
                 String elemType = extractGenericType(paramType);
                 if (!elemType.equals("Object") && !elemType.isBlank()) {
-                    // Use explicit type to fix Java type inference e.g. new ArrayList<Shape>(...)
                     arg = arg.replace("new java.util.ArrayList<>(",
                                       "new java.util.ArrayList<" + elemType + ">(");
-                    // Strip (Object) casts — invalid for typed lists
                     arg = arg.replace("(Object)", "");
                 }
             }
-            // Strip qualified class names like ShapeComparator.Rectangle -> Rectangle
-            // LLM sometimes thinks concrete classes are inner classes of helper files
             arg = arg.replaceAll("new \\w+\\.(Rectangle|Circle|Shape)\\(", "new $1(");
             result.add(arg);
         }
@@ -437,16 +448,32 @@ public class TesterGenerator {
         sb.append("        if (a == null && b == null) return true;\n");
         sb.append("        if (a == null || b == null) return false;\n");
         sb.append("        return new java.util.HashSet<>(a).equals(new java.util.HashSet<>(b));\n");
+        sb.append("    }\n\n");
+        
+        sb.append("    private static <T> T runWithTimeout(java.util.concurrent.Callable<T> task) throws Exception {\n");
+        sb.append("        java.util.concurrent.ExecutorService exec = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {\n");
+        sb.append("            Thread t = new Thread(r); t.setDaemon(true); return t;\n"); 
+        sb.append("        });\n");
+        sb.append("        java.util.concurrent.Future<T> future = exec.submit(task);\n");
+        sb.append("        try {\n");
+        sb.append("            return future.get(2, java.util.concurrent.TimeUnit.SECONDS);\n");
+        sb.append("        } catch (java.util.concurrent.TimeoutException | InterruptedException e) {\n");
+        sb.append("            future.cancel(true);\n");
+        sb.append("            throw new Exception(\"Timeout (Infinite Loop)\");\n");
+        sb.append("        } catch (java.util.concurrent.ExecutionException e) {\n");
+        sb.append("            if (e.getCause() instanceof Exception) throw (Exception) e.getCause();\n");
+        sb.append("            throw new Exception(e.getCause());\n");
+        sb.append("        } finally {\n");
+        sb.append("            exec.shutdownNow();\n");
+        sb.append("        }\n");
         sb.append("    }\n");
     }
 
-    // =========================================================================
-    // Strategy + condition
-    // =========================================================================
-
     private String resolveStrategy(GeneratedTestCase tc, String returnType) {
         String strategy = tc.getEqualityStrategy() != null ? tc.getEqualityStrategy() : "equals";
-        if ("exception".equals(strategy)) return strategy;
+        if ("exception".equals(strategy) || "toString_equals".equals(strategy)) {
+            return strategy;
+        }
         if (isListType(returnType)) {
             String elem = extractGenericType(returnType);
             return SAFE_EQUALS_TYPES.contains(elem) ? "list_equals" : "toString_equals";
@@ -473,10 +500,6 @@ public class TesterGenerator {
         };
     }
 
-    // =========================================================================
-    // Input description
-    // =========================================================================
-
     private String buildInputDescription(List<String> argLiterals) {
         if (argLiterals.isEmpty()) return "\"\"";
         if (argLiterals.size() == 1) return argLiterals.get(0);
@@ -488,17 +511,9 @@ public class TesterGenerator {
         return sb.toString();
     }
 
-    // =========================================================================
-    // canExtend detection
-    // =========================================================================
-
     private boolean canExtend(QuestionSpec spec) {
         return !spec.hasParameterisedConstructor() || spec.getFields().isEmpty();
     }
-
-    // =========================================================================
-    // Arg helpers
-    // =========================================================================
 
     private List<String> buildArgLiterals(GeneratedTestCase tc, MethodSpec method, int seed) {
         List<String> raw = (tc.getArgs() != null && !tc.getArgs().isEmpty())
@@ -571,11 +586,6 @@ public class TesterGenerator {
         };
     }
 
-    // =========================================================================
-    // Utility
-    // =========================================================================
-
-    /** Public accessor used by TestCaseReviewController. */
     public List<MethodSpec> getTestableMethods(QuestionSpec spec) {
         return pickTestableMethods(spec);
     }
