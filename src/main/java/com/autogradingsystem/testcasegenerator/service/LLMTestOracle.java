@@ -17,40 +17,21 @@ import java.time.Duration;
 import java.util.*;
 import java.util.regex.*;
 
-/**
- * LLMTestOracle — generates test cases via the configured LLM provider.
- *
- * SPEED FIX: Collapsed from 2 API calls per method to 1.
- *   Previously: reasoning call (up to 120s) + JSON call (up to 120s) = up to 4 min per question.
- *   Now: single combined call with inline scratchpad → JSON output = ~15-30s per question.
- *   The prompt instructs the model to think first then immediately produce JSON in the same response.
- *
- * ACCURACY FIX: main() examples are extracted from the template source and
- *   injected verbatim into the prompt as ground-truth test cases. The LLM is told
- *   to copy these exactly rather than recompute expected values — eliminating the
- *   primary source of wrong expected values.
- */
 public class LLMTestOracle {
 
-    private final String       apiKey;
-    private final HttpClient   http;
+    private final String apiKey;
+    private final HttpClient http;
     private final ObjectMapper mapper;
-
     private final Map<String, List<GeneratedTestCase>> cache = new HashMap<>();
 
-    private String examPdfText = null;
-
     private static final Set<String> SAFE_EQUALS_TYPES = Set.of(
-            "String", "Integer", "Long", "Double", "Float",
-            "Boolean", "Character", "int", "long", "double",
-            "float", "boolean", "char", "Object"
-    );
+            "String","Integer","Long","Double","Float","Boolean","Character",
+            "int","long","double","float","boolean","char","Object");
 
     public LLMTestOracle(String apiKey) {
         this.apiKey = apiKey;
         this.http   = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(LLMConfig.TIMEOUT_S))
-                .build();
+                .connectTimeout(Duration.ofSeconds(LLMConfig.TIMEOUT_S)).build();
         this.mapper = new ObjectMapper();
     }
 
@@ -58,222 +39,82 @@ public class LLMTestOracle {
         return new LLMTestOracle(LLMConfig.resolveApiKey());
     }
 
-    // -------------------------------------------------------------------------
+    // =========================================================================
     // Public API
-    // -------------------------------------------------------------------------
+    // =========================================================================
 
     public List<GeneratedTestCase> generateTestCases(
-            String questionId, QuestionSpec spec,
-            List<MethodSpec> methods, int numTests) {
+            String questionId, QuestionSpec spec, List<MethodSpec> methods, int numTests) {
 
         Map<String, List<GeneratedTestCase>> perMethod = new LinkedHashMap<>();
         for (MethodSpec m : methods) {
-            String cacheKey = questionId + "::" + m.getName() + "::" + numTests;
+            String key = questionId + "::" + m.getName() + "::" + numTests;
             perMethod.put(m.getName(),
-                    cache.computeIfAbsent(cacheKey,
-                            k -> callLLM(questionId, spec, m, numTests)));
+                    cache.computeIfAbsent(key, k -> generateForMethod(questionId, spec, m, numTests)));
         }
 
         List<GeneratedTestCase> result = new ArrayList<>();
         for (int i = 0; i < numTests; i++) {
             MethodSpec method = methods.get(i % methods.size());
             List<GeneratedTestCase> pool = perMethod.get(method.getName());
-            int poolIndex = i / methods.size();
-            if (poolIndex < pool.size()) {
-                result.add(pool.get(poolIndex));
-            }
+            int idx = i / methods.size();
+            if (idx < pool.size()) result.add(pool.get(idx));
         }
         return result;
     }
 
-    // -------------------------------------------------------------------------
-    // Single HTTP call (replaces the old 2-call reasoning+JSON architecture)
-    // -------------------------------------------------------------------------
+    // =========================================================================
+    // Orchestration
+    // =========================================================================
 
-    private List<GeneratedTestCase> callLLM(
+    private List<GeneratedTestCase> generateForMethod(
             String questionId, QuestionSpec spec, MethodSpec method, int numTests) {
 
-        if (apiKey == null || apiKey.isBlank()) {
-            System.err.println("⚠️  No API key — cannot generate test cases for " + questionId);
-            return new ArrayList<>();
-        }
-
-        try {
-            String prompt   = buildCombinedPrompt(questionId, spec, method, numTests);
-            String payload  = LLMConfig.buildTextPayload(prompt, mapper);
-
-            HttpRequest req = LLMConfig.addAuthHeaders(
-                    HttpRequest.newBuilder()
-                            .uri(URI.create(LLMConfig.buildUrl(apiKey)))
-                            .timeout(Duration.ofSeconds(LLMConfig.TIMEOUT_S)),
-                    apiKey)
-                    .POST(HttpRequest.BodyPublishers.ofString(payload))
-                    .build();
-
-            HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
-
-            if (res.statusCode() != 200) {
-                System.err.println("⚠️  LLMTestOracle: HTTP " + res.statusCode()
-                        + " for " + questionId + "::" + method.getName());
-                return new ArrayList<>();
-            }
-
-            String responseText = LLMConfig.extractText(res.body(), mapper);
-            List<GeneratedTestCase> cases   = parseTestCases(responseText, method, numTests);
-            List<GeneratedTestCase> repaired = validateAndRepair(cases, method);
-            return sanitiseAll(repaired, method);
-
-        } catch (Exception e) {
-            System.err.println("⚠️  LLMTestOracle: failed for "
-                    + questionId + "::" + method.getName() + " — " + e.getMessage());
-            return new ArrayList<>();
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // Combined prompt — think + JSON in one response
-    // -------------------------------------------------------------------------
-
-    private String buildCombinedPrompt(String questionId, QuestionSpec spec,
-                                        MethodSpec method, int numTests) {
-
         String mainSource = spec.getSourceLines() != null && !spec.getSourceLines().isEmpty()
-                ? String.join("\n", spec.getSourceLines()).replace("%", "%%")
-                : "// No source available";
+                ? String.join("\n", spec.getSourceLines()) : "";
 
-        // Extract main() examples verbatim — these are the ground-truth test cases
-        List<MainExample> mainExamples = extractMainExamples(mainSource, method);
+        // FIX 2+3: improved parser handles String expected="..." and DataException
+        List<GeneratedTestCase> mainCases = extractMainExampleCases(mainSource, method);
 
-        StringBuilder supportingCtx = new StringBuilder();
-        if (!spec.getSupportingSourceFiles().isEmpty()) {
-            supportingCtx.append("=== SUPPORTING FILES ===\n");
-            for (Map.Entry<String, String> e : spec.getSupportingSourceFiles().entrySet()) {
-                supportingCtx.append("--- ").append(e.getKey()).append(" ---\n");
-                supportingCtx.append(e.getValue().replace("%", "%%")).append("\n");
-            }
+        if (mainCases.size() >= numTests) {
+            System.out.println("   OK Using " + numTests + " main() examples for "
+                    + questionId + "::" + method.getName());
+            return mainCases.subList(0, numTests);
         }
 
-        String abstractWarning = buildAbstractClassWarning(spec);
-        String methodSig       = buildMethodSignature(method);
-        String returnType      = method.getReturnType();
+        int needed = numTests - mainCases.size();
+        List<List<String>> llmInputs = callLLMForInputsOnly(questionId, spec, method, needed);
 
-        // Determine correct equality strategy for this return type
-        String strategyGuide   = buildStrategyGuide(returnType, spec);
+        if (llmInputs.isEmpty()) return padWithSmoke(mainCases, numTests, method);
 
-        StringBuilder p = new StringBuilder();
+        List<GeneratedTestCase> oracleCases =
+                deriveExpectedFromTemplate(questionId, spec, method, llmInputs);
 
-        // ── Instructions ──────────────────────────────────────────────────
-        p.append("You are a Java test-case generator. Produce exactly ").append(numTests)
-         .append(" test case(s) for the method below.\n\n");
-
-        p.append("=== STRICT OUTPUT RULES ===\n");
-        p.append("1. Your response must end with a JSON array [ {...}, ... ] and nothing after it.\n");
-        p.append("2. Before the JSON, write a brief SCRATCHPAD section where you:\n");
-        p.append("   a) Copy each example from main() — input and expected output EXACTLY as shown.\n");
-        p.append("   b) If you need more test cases beyond what main() provides, trace the method\n");
-        p.append("      line by line for your chosen input to determine the expected value.\n");
-        p.append("   c) List your final ").append(numTests).append(" input→result pairs before writing JSON.\n");
-        p.append("3. The JSON array is the ONLY thing the grading system reads. It must be valid JSON.\n\n");
-
-        p.append("=== JAVA SYNTAX RULES — every value must be a valid standalone Java expression ===\n");
-        p.append("  ArrayList:    new java.util.ArrayList<>(java.util.Arrays.asList(e1, e2))\n");
-        p.append("  Empty list:   new java.util.ArrayList<>()\n");
-        p.append("  String:       \\\"value\\\"   (escaped quotes inside JSON)\n");
-        p.append("  int/long:     42  or  100L\n");
-        p.append("  double/float: 3.14  or  3.14f\n");
-        p.append("  boolean:      true  or  false\n");
-        p.append("  Mixed list:   new java.util.ArrayList<>(java.util.Arrays.asList((Object)10, (Object)true, (Object)\\\"abc\\\"))\n");
-        p.append("  ❌ NEVER: [1,2,3]  unquoted words  variable names  abstract class constructors\n\n");
-
-        p.append("=== EQUALITY STRATEGY ===\n");
-        p.append(strategyGuide).append("\n\n");
-
-        if (!abstractWarning.isBlank()) {
-            p.append(abstractWarning).append("\n");
-        }
-
-        // ── Method and source ──────────────────────────────────────────────
-        p.append("=== METHOD TO TEST ===\n");
-        p.append(methodSig).append("\n\n");
-
-        p.append("=== FULL SOURCE (contains main() with ground-truth examples) ===\n");
-        p.append(mainSource).append("\n\n");
-
-        if (supportingCtx.length() > 0) {
-            p.append(supportingCtx).append("\n");
-        }
-
-        // ── Extracted main() examples — most important section ─────────────
-        if (!mainExamples.isEmpty()) {
-            p.append("=== GROUND-TRUTH EXAMPLES FROM main() — USE THESE FIRST ===\n");
-            p.append("These inputs and expected outputs are taken directly from the examiner's main() method.\n");
-            p.append("Copy them EXACTLY into your test cases. Do NOT recompute expected values.\n\n");
-            for (int i = 0; i < mainExamples.size(); i++) {
-                MainExample ex = mainExamples.get(i);
-                p.append("Example ").append(i + 1).append(":\n");
-                p.append("  Input args:  ").append(ex.argsDescription).append("\n");
-                p.append("  Expected:    ").append(ex.expectedDescription).append("\n\n");
-            }
-        }
-
-        // ── JSON output format ─────────────────────────────────────────────
-        p.append("=== OUTPUT FORMAT ===\n");
-        p.append("Write SCRATCHPAD first, then end your response with this JSON array:\n");
-        p.append("[\n");
-        p.append("  {\n");
-        p.append("    \"args\": [\"<arg1 as Java expression>\", \"<arg2>\"],\n");
-        p.append("    \"expected\": \"<expected value as Java expression>\",\n");
-        p.append("    \"equalityStrategy\": \"<strategy>\",\n");
-        p.append("    \"rationale\": \"<one sentence explaining this test case>\"\n");
-        p.append("  }\n");
-        p.append("]\n\n");
-
-        p.append("Produce exactly ").append(numTests).append(" test case(s). ");
-        p.append("Prioritise the main() examples above. ");
-        p.append("The JSON array must be the last thing in your response.\n");
-
-        return p.toString();
+        List<GeneratedTestCase> combined = new ArrayList<>(mainCases);
+        combined.addAll(oracleCases);
+        return combined.size() >= numTests
+                ? combined.subList(0, numTests)
+                : padWithSmoke(combined, numTests, method);
     }
 
-    // -------------------------------------------------------------------------
-    // Extract main() examples from source
-    // Each example is a structured input→expected pair parsed from the main() body
-    // -------------------------------------------------------------------------
+    // =========================================================================
+    // FIX 2+3: Improved main() parser
+    // =========================================================================
 
-    private static class MainExample {
-        String argsDescription;    // human-readable for the scratchpad
-        String expectedDescription; // human-readable for the scratchpad
-    }
-
-    /**
-     * Parses the main() method body to extract input→expected pairs.
-     * These are injected verbatim into the prompt so the LLM copies rather than recomputes.
-     * Handles the common IS442 pattern:
-     *   - ArrayList<> inputs built with .add() calls
-     *   - expected = literal value
-     *   - String filename + String surname/courseName args
-     *   - Shape list args
-     */
-    private List<MainExample> extractMainExamples(String source, MethodSpec method) {
-        List<MainExample> examples = new ArrayList<>();
+    private List<GeneratedTestCase> extractMainExampleCases(String source, MethodSpec method) {
+        List<GeneratedTestCase> cases = new ArrayList<>();
         try {
-            // Find main() body
             int mainIdx = source.indexOf("public static void main(");
-            if (mainIdx < 0) return examples;
+            if (mainIdx < 0) return cases;
             int braceStart = source.indexOf('{', mainIdx);
-            if (braceStart < 0) return examples;
+            if (braceStart < 0) return cases;
 
-            // Find all { } blocks inside main — each is a test case block
-            int depth = 1, i = braceStart + 1;
-            int blockStart = -1;
+            int depth = 1, i = braceStart + 1, blockStart = -1;
             List<String> blocks = new ArrayList<>();
-
             while (i < source.length() && depth > 0) {
                 char c = source.charAt(i);
-                if (c == '{') {
-                    depth++;
-                    if (depth == 2) blockStart = i;
-                } else if (c == '}') {
+                if (c == '{') { depth++; if (depth == 2) blockStart = i; }
+                else if (c == '}') {
                     depth--;
                     if (depth == 1 && blockStart >= 0) {
                         blocks.add(source.substring(blockStart + 1, i));
@@ -284,153 +125,427 @@ public class LLMTestOracle {
             }
 
             for (String block : blocks) {
-                MainExample ex = parseBlock(block, method);
-                if (ex != null) examples.add(ex);
+                if (block.contains("DataException")) {
+                    GeneratedTestCase tc = parseExceptionBlock(block, method);
+                    if (tc != null) cases.add(tc);
+                } else {
+                    GeneratedTestCase tc = parseMainBlock(block, method);
+                    if (tc != null) cases.add(tc);
+                }
             }
-        } catch (Exception e) {
-            // ignore — examples are optional
-        }
-        return examples;
+        } catch (Exception ignored) {}
+        return cases;
     }
 
-    private MainExample parseBlock(String block, MethodSpec method) {
-        MainExample ex = new MainExample();
+    // FIX 3: exception test cases
+    private GeneratedTestCase parseExceptionBlock(String block, MethodSpec method) {
+        List<String> args = buildArgsFromMainBlock(block, method);
+        if (args.isEmpty()) return null;
+        return new GeneratedTestCase(args, "DataException", false, false,
+                "Expects DataException", "exception");
+    }
 
-        // Extract expected value — look for: type expected = <value>;
-        Pattern expectedPat = Pattern.compile(
-                "(?:int|double|float|long|boolean|String)\\s+expected\\s*=\\s*([^;]+);");
-        Matcher em = expectedPat.matcher(block);
+    // FIX 2: broadened to match String expected = "..."
+    private GeneratedTestCase parseMainBlock(String block, MethodSpec method) {
+        // FIX: Added List<[^>]+> and ArrayList<[^>]+> to the regex match
+        Pattern pat = Pattern.compile(
+                "(?:int|double|float|long|boolean|String|List<[^>]+>|ArrayList<[^>]+>)\\s+expected\\s*=\\s*([^;]+);");
+        Matcher em = pat.matcher(block);
         if (!em.find()) return null;
         String expectedRaw = em.group(1).trim();
 
-        // Build args description based on method parameter types
+        String retType = method.getReturnType();
+        String strategy = resolveStrategyForType(retType);
+        String expected;
+
+        if (isListType(retType)) {
+            // String expected = "[R2=>10.0:13.0]"  -- already the toString form
+            expected = expectedRaw.startsWith("\"") ? expectedRaw
+                    : "\"" + expectedRaw.replace("\"", "\\\"") + "\"";
+            strategy = "toString_equals";
+        } else if ("String".equals(retType)) {
+            expected = expectedRaw.startsWith("\"") ? expectedRaw : "\"" + expectedRaw + "\"";
+        } else {
+            expected = expectedRaw;
+        }
+
+        List<String> args = buildArgsFromMainBlock(block, method);
+        if (args.isEmpty()) return null;
+        return new GeneratedTestCase(args, expected, false, false, "From main()", strategy);
+    }
+
+    private List<String> buildArgsFromMainBlock(String block, MethodSpec method) {
         List<ParamSpec> params = method.getParams();
-        StringBuilder argsDesc = new StringBuilder();
+        List<String> args = new ArrayList<>();
 
         if (params.size() == 1 && isListType(params.get(0).getType())) {
-            // ArrayList-based question (Q1a, Q1b, Q3)
-            argsDesc.append(extractListContents(block, params.get(0).getType()));
+            // FIX: Use balanced parenthesis matching instead of regex to support nested objects
+            List<String> items = new ArrayList<>();
+            int addIdx = 0;
+            while ((addIdx = block.indexOf(".add(", addIdx)) >= 0) {
+                int start = addIdx + 5;
+                int depth = 1;
+                int end = start;
+                while (end < block.length() && depth > 0) {
+                    char c = block.charAt(end);
+                    if (c == '(') depth++;
+                    else if (c == ')') depth--;
+                    end++;
+                }
+                if (depth == 0) {
+                    items.add(block.substring(start, end - 1).trim());
+                }
+                addIdx = end;
+            }
+            if (!items.isEmpty()) {
+                args.add("new java.util.ArrayList<>(java.util.Arrays.asList("
+                        + String.join(", ", items) + "))");
+            }
         } else if (params.size() == 2
                 && "String".equals(params.get(0).getType())
                 && "String".equals(params.get(1).getType())) {
-            // File-based question (Q2a, Q2b) — extract string literals
-            List<String> strArgs = extractStringArgs(block, method.getName());
-            if (strArgs.size() >= 2) {
-                argsDesc.append("\"").append(strArgs.get(0)).append("\", \"")
-                        .append(strArgs.get(1)).append("\"");
+            // Try method call first
+            Pattern callPat = Pattern.compile(
+                    method.getName() + "\\s*\\(\\s*\"([^\"]+)\"\\s*,\\s*\"([^\"]+)\"\\s*\\)");
+            Matcher m = callPat.matcher(block);
+            if (m.find()) {
+                args.add("\"" + m.group(1) + "\"");
+                args.add("\"" + m.group(2) + "\"");
+            } else {
+                // Fallback: printf pattern
+                Pattern pfPat = Pattern.compile(
+                        "printf[^,]+,\\s*\"([^\"]+)\"\\s*,\\s*\"([^\"]+)\"");
+                Matcher m2 = pfPat.matcher(block);
+                if (m2.find()) {
+                    args.add("\"" + m2.group(1) + "\"");
+                    args.add("\"" + m2.group(2) + "\"");
+                }
             }
         } else {
-            argsDesc.append("(see main() source above)");
+            Pattern callPat = Pattern.compile(method.getName() + "\\s*\\(([^)]+)\\)");
+            Matcher m = callPat.matcher(block);
+            if (m.find()) {
+                for (String a : m.group(1).split(",")) args.add(a.trim());
+            }
         }
-
-        ex.argsDescription    = argsDesc.toString();
-        ex.expectedDescription = expectedRaw;
-        return ex;
+        return args;
     }
 
-    private String extractListContents(String block, String paramType) {
-        // Look for .add(...) calls and collect them
-        Pattern addPat = Pattern.compile("\\.add\\(([^)]+)\\)");
-        Matcher m = addPat.matcher(block);
-        List<String> items = new ArrayList<>();
-        while (m.find()) {
-            items.add(m.group(1).trim());
+    // =========================================================================
+    // Phase 1: LLM inputs-only (FIX 1: injects data file contents)
+    // =========================================================================
+
+    private List<List<String>> callLLMForInputsOnly(
+            String questionId, QuestionSpec spec, MethodSpec method, int numTests) {
+        if (apiKey == null || apiKey.isBlank()) return Collections.emptyList();
+        try {
+            String prompt  = buildInputsOnlyPrompt(questionId, spec, method, numTests);
+            String payload = LLMConfig.buildTextPayload(prompt, mapper);
+            HttpRequest req = LLMConfig.addAuthHeaders(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create(LLMConfig.buildUrl(apiKey)))
+                            .timeout(Duration.ofSeconds(LLMConfig.TIMEOUT_S)),
+                    apiKey)
+                    .POST(HttpRequest.BodyPublishers.ofString(payload)).build();
+            HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
+            if (res.statusCode() != 200) return Collections.emptyList();
+            return parseInputsResponse(LLMConfig.extractText(res.body(), mapper), method, numTests);
+        } catch (Exception e) {
+            System.err.println("LLM input generation failed: " + e.getMessage());
+            return Collections.emptyList();
         }
-        if (items.isEmpty()) return "new java.util.ArrayList<>()";
+    }
 
-        String elemType = extractGenericType(paramType);
-        StringBuilder sb = new StringBuilder("new java.util.ArrayList<>(java.util.Arrays.asList(");
+    private String buildInputsOnlyPrompt(
+        String questionId, QuestionSpec spec, MethodSpec method, int numTests) {
 
-        // For Object lists, cast each item
-        boolean isObjectList = "Object".equals(elemType);
+        String mainSource = spec.getSourceLines() != null && !spec.getSourceLines().isEmpty()
+                ? String.join("\n", spec.getSourceLines()).replace("%", "%%")
+                : "// No source available";
 
-        for (int i = 0; i < items.size(); i++) {
-            String item = items.get(i);
-            if (isObjectList) {
-                // Determine cast type
-                if (item.startsWith("\"")) sb.append("(Object)").append(item);
-                else if (item.equals("true") || item.equals("false")) sb.append("(Object)").append(item);
-                else if (item.contains(".") && !item.startsWith("\"")) sb.append("(Object)").append(item);
-                else sb.append("(Object)").append(item);
-            } else {
-                sb.append(item);
+        StringBuilder p = new StringBuilder();
+        // UPDATE: Explicitly request REAL CONCRETE inputs
+        p.append("Generate exactly ").append(numTests)
+        .append(" sets of REAL, CONCRETE INPUT ARGUMENTS for this Java method. Do NOT include expected values.\n\n");
+
+        // UPDATE: Strict warning against placeholders to fix the "%s" issue
+        p.append("CRITICAL: Do NOT use placeholders like \"%s\", \"arg1\", or \"value\". Provide actual data strings or numbers.\n");
+        p.append("Return ONLY a JSON array:\n[{\"args\":[\"arg1\",\"arg2\"],\"rationale\":\"...\"}]\n\n");
+
+        // --- NEW DYNAMIC SECTION: This fixes Q1a/Q1b ---
+        if (spec.getDescription() != null && !spec.getDescription().isBlank()) {
+            p.append("=== CRITICAL EXAM REQUIREMENTS (MUST FOLLOW) ===\n");
+            p.append("You MUST generate inputs that test the specific logic rules defined here:\n");
+            p.append(spec.getDescription()).append("\n\n");
+        }
+
+        // --- KEEP: Strict Syntax Rules ---
+        p.append("CRITICAL JAVA SYNTAX RULES:\n");
+        p.append("1. PERFECT GENERICS: If a parameter is ArrayList<Integer>, you MUST ONLY use numbers. NEVER insert booleans or strings into a numeric list.\n");
+        p.append("2. FLAT OBJECTS: Keep object instantiations simple. DO NOT nest constructors deeply.\n");
+        p.append("3. BALANCED BRACKETS: Ensure all parentheses are perfectly closed.\n");
+        p.append("4. String: \\\"value\\\"  - int: 42  - double: 3.14  - boolean: true/false\n");
+        p.append("5. ArrayList: new java.util.ArrayList<>(java.util.Arrays.asList(1, 2))\n\n");
+
+        // --- KEEP: Data Files Section ---
+        if (spec.hasDataFiles()) {
+            p.append("=== DATA FILES IN THIS QUESTION FOLDER ===\n");
+            p.append("IMPORTANT: The method reads from files. Use ONLY these exact filenames.\n");
+            for (Map.Entry<String, String> df : spec.getDataFiles().entrySet()) {
+                p.append("FILE: ").append(df.getKey()).append("\n");
+                String[] lines = df.getValue().split("\n");
+                int show = Math.min(lines.length, 25);
+                for (int i = 0; i < show; i++) p.append("  ").append(lines[i]).append("\n");
+                if (lines.length > show) p.append("  ... (").append(lines.length - show).append(" more rows)\n");
+                p.append("\n");
             }
-            if (i < items.size() - 1) sb.append(", ");
+            p.append("Rules for file-based inputs:\n");
+            p.append("  - arg1 (filename) must be one of the filenames above\n");
+            p.append("  - arg2 must be a real value present in that file\n");
+            p.append("  - Include one test with a non-existent filename to test error handling\n\n");
         }
-        sb.append("))");
+
+        String abstractWarning = buildAbstractClassWarning(spec);
+        if (!abstractWarning.isBlank()) p.append(abstractWarning).append("\n\n");
+
+        p.append("METHOD: ").append(buildMethodSignature(method)).append("\n\n");
+        p.append("SOURCE:\n").append(mainSource).append("\n\n");
+
+        if (!spec.getSupportingSourceFiles().isEmpty()) {
+            p.append("SUPPORTING FILES:\n");
+            for (Map.Entry<String, String> e : spec.getSupportingSourceFiles().entrySet()) {
+                p.append("--- ").append(e.getKey()).append(" ---\n");
+                p.append(e.getValue().replace("%", "%%")).append("\n");
+            }
+        }
+
+        p.append("Return ONLY the JSON array with ").append(numTests).append(" elements.\n");
+        return p.toString();
+    }
+    // =========================================================================
+    // Phase 2: Template oracle (FIX 1: copies data files into temp dir)
+    // =========================================================================
+
+    private List<GeneratedTestCase> deriveExpectedFromTemplate(
+            String questionId, QuestionSpec spec, MethodSpec method,
+            List<List<String>> inputSets) {
+        try {
+            Path tempDir = Files.createTempDirectory("oracle_" + questionId + "_");
+            try {
+                copyTemplateSourceToDir(spec, tempDir);
+                // FIX 1: copy data files so file-reading methods can find them
+                for (Map.Entry<String, String> df : spec.getDataFiles().entrySet()) {
+                    Files.writeString(tempDir.resolve(df.getKey()), df.getValue());
+                }
+
+                String driverClass = "OracleDriver_" + questionId;
+                Files.writeString(tempDir.resolve(driverClass + ".java"),
+                        buildOracleDriver(questionId, spec, method, inputSets));
+
+                if (!compileDir(tempDir)) return smokeTestsForInputs(inputSets);
+                return parseOracleOutput(runClass(driverClass, tempDir), inputSets, method);
+            } finally {
+                deleteDirectory(tempDir);
+            }
+        } catch (Exception e) {
+            System.err.println("Oracle error for " + questionId + ": " + e.getMessage());
+            return smokeTestsForInputs(inputSets);
+        }
+    }
+
+    private void copyTemplateSourceToDir(QuestionSpec spec, Path tempDir) throws Exception {
+        if (spec.getSourceLines() != null && !spec.getSourceLines().isEmpty()) {
+            String src = stripPackageDeclaration(String.join("\n", spec.getSourceLines()));
+            String cn  = spec.getClassName() != null ? spec.getClassName() : "Q";
+            Files.writeString(tempDir.resolve(cn + ".java"), src);
+        }
+        for (Map.Entry<String, String> e : spec.getSupportingSourceFiles().entrySet()) {
+            if (!e.getKey().endsWith(".java")) continue;
+            Files.writeString(tempDir.resolve(e.getKey()),
+                    stripPackageDeclaration(e.getValue()));
+        }
+    }
+
+    private String buildOracleDriver(String questionId, QuestionSpec spec,
+            MethodSpec method, List<List<String>> inputSets) {
+        String studentClass = spec.getClassName() != null ? spec.getClassName() : questionId;
+        boolean canExtend   = canExtend(spec);
+        StringBuilder sb    = new StringBuilder();
+        sb.append("import java.util.*;\n\n");
+        sb.append("public class OracleDriver_").append(questionId);
+        if (canExtend && !method.isStatic()) sb.append(" extends ").append(studentClass);
+        sb.append(" {\n\n    public static void main(String[] args) {\n");
+
+        for (int i = 0; i < inputSets.size(); i++) {
+            sb.append("        System.out.println(\"===ORACLE_START:").append(i).append("===\");\n");
+            sb.append("        try {\n");
+            List<String> callArgs = buildCallArgs(sb, inputSets.get(i), method, i);
+            String callExpr = canExtend && !method.isStatic()
+                    ? "new OracleDriver_" + questionId + "()." + method.getName()
+                      + "(" + String.join(", ", callArgs) + ")"
+                    : studentClass + "." + method.getName()
+                      + "(" + String.join(", ", callArgs) + ")";
+            if (method.returnsVoid()) {
+                sb.append("            ").append(callExpr).append(";\n");
+                sb.append("            System.out.println(\"__VOID__\");\n");
+            } else {
+                sb.append("            Object __r = ").append(callExpr).append(";\n");
+                sb.append("            System.out.println(__r);\n");
+            }
+            sb.append("        } catch (Exception __e) {\n");
+            sb.append("            System.out.println(\"__EXCEPTION__:\" + __e.getClass().getSimpleName());\n");
+            sb.append("        }\n");
+            sb.append("        System.out.println(\"===ORACLE_END:").append(i).append("===\");\n");
+        }
+        sb.append("    }\n}\n");
         return sb.toString();
     }
 
-    private List<String> extractStringArgs(String block, String methodName) {
-        // Find the method call line: methodName("arg1", "arg2")
-        Pattern callPat = Pattern.compile(
-                methodName + "\\s*\\(\\s*\"([^\"]+)\"\\s*,\\s*\"([^\"]+)\"\\s*\\)");
-        Matcher m = callPat.matcher(block);
-        if (m.find()) {
-            return List.of(m.group(1), m.group(2));
-        }
-        // Fallback: find printf line which shows the args
-        Pattern printfPat = Pattern.compile("printf[^,]+,\\s*\"([^\"]+)\"\\s*,\\s*\"([^\"]+)\"");
-        Matcher m2 = printfPat.matcher(block);
-        if (m2.find()) {
-            return List.of(m2.group(1), m2.group(2));
-        }
-        return Collections.emptyList();
-    }
-
-    // -------------------------------------------------------------------------
-    // Strategy guide — tailored per return type
-    // -------------------------------------------------------------------------
-
-    private String buildStrategyGuide(String returnType, QuestionSpec spec) {
-        if (isListType(returnType)) {
-            String elemType = extractGenericType(returnType);
-            if (SAFE_EQUALS_TYPES.contains(elemType)) {
-                return "Use \"list_equals\" — return type is List<" + elemType + ">.\n"
-                     + "  expected must be: new java.util.ArrayList<>(java.util.Arrays.asList(...))";
+    private List<String> buildCallArgs(StringBuilder sb, List<String> rawArgs,
+            MethodSpec method, int seed) {
+        List<String> callArgs = new ArrayList<>();
+        List<ParamSpec> params = method.getParams();
+        for (int j = 0; j < params.size(); j++) {
+            String argExpr = j < rawArgs.size() ? rawArgs.get(j) : "null";
+            String pType   = params.get(j).getType();
+            String varName = "arg_" + seed + "_" + j;
+            if (isListType(pType)) {
+                String inner = argExpr
+                        .replaceFirst("new\\s+java\\.util\\.ArrayList<[^>]*>\\(", "")
+                        .replaceFirst("java\\.util\\.Arrays\\.asList\\(", "")
+                        .replaceAll("\\)\\)$", "");
+                sb.append("            ArrayList<").append(extractGenericType(pType))
+                  .append("> ").append(varName).append(" = new ArrayList<>(Arrays.asList(")
+                  .append(inner).append("));\n");
+                callArgs.add(varName);
             } else {
-                return "Use \"toString_equals\" — return type is List<" + elemType + "> (custom object).\n"
-                     + "  expected must be a QUOTED STRING matching the exact .toString() output.\n"
-                     + "  Example: \"[R3=>30.0:22.0, R1=>20.0:24.0]\"  (copy from main() exactly)";
+                callArgs.add(argExpr);
             }
         }
-        if ("String".equals(returnType)) {
-            return "Use \"equals\" — return type is String.\n"
-                 + "  expected must be a quoted string: \\\"John LEE-4.0\\\"";
-        }
-        if ("double".equals(returnType) || "float".equals(returnType)) {
-            return "Use \"eq_float\" — return type is " + returnType + " (tolerance ±1e-9).\n"
-                 + "  expected must be a numeric literal: 36.0";
-        }
-        if ("int".equals(returnType) || "long".equals(returnType) || "boolean".equals(returnType)) {
-            return "Use \"==\" — return type is " + returnType + " (primitive).\n"
-                 + "  expected must be a numeric or boolean literal: 60";
-        }
-        return "Use \"equals\" for object types, \"==\" for primitives, \"eq_float\" for double/float.";
+        return callArgs;
     }
 
-    // -------------------------------------------------------------------------
-    // Abstract class warning
-    // -------------------------------------------------------------------------
+    private boolean compileDir(Path dir) {
+        try {
+            StringBuilder cmd = new StringBuilder("javac -cp \"")
+                    .append(dir.toAbsolutePath()).append("\" -d \"")
+                    .append(dir.toAbsolutePath()).append("\" -encoding UTF-8 -nowarn");
+            try (var walk = Files.walk(dir)) {
+                walk.filter(p -> p.toString().endsWith(".java"))
+                    .forEach(p -> cmd.append(" \"").append(p.toAbsolutePath()).append("\""));
+            }
+            ProcessBuilder pb = isWindows()
+                    ? new ProcessBuilder("cmd", "/c", cmd.toString())
+                    : new ProcessBuilder("sh", "-c", cmd.toString());
+            pb.directory(dir.toFile()); pb.redirectErrorStream(true);
+            Process proc = pb.start();
+            String out = new String(proc.getInputStream().readAllBytes());
+            boolean ok = proc.waitFor(30, java.util.concurrent.TimeUnit.SECONDS)
+                         && proc.exitValue() == 0;
+            if (!ok) System.err.println("[Oracle] " + out.substring(0, Math.min(400, out.length())));
+            return ok;
+        } catch (Exception e) { return false; }
+    }
 
-    private String buildAbstractClassWarning(QuestionSpec spec) {
-        List<String> abstractClasses = new ArrayList<>();
-        for (Map.Entry<String, String> entry : spec.getSupportingSourceFiles().entrySet()) {
-            String source = entry.getValue();
-            Pattern p = Pattern.compile("(?:abstract class|interface)\\s+(\\w+)");
-            Matcher m = p.matcher(source);
-            while (m.find()) abstractClasses.add(m.group(1));
+    private String runClass(String className, Path workingDir) {
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                    "java", "-Xmx64m", "-cp", workingDir.toAbsolutePath().toString(), className);
+            pb.directory(workingDir.toFile()); pb.redirectErrorStream(true);
+            Process proc = pb.start();
+            String out = new String(proc.getInputStream().readAllBytes());
+            proc.waitFor(15, java.util.concurrent.TimeUnit.SECONDS);
+            if (proc.isAlive()) proc.destroyForcibly();
+            return out;
+        } catch (Exception e) { return ""; }
+    }
+
+    private List<GeneratedTestCase> parseOracleOutput(String output,
+            List<List<String>> inputSets, MethodSpec method) {
+        List<GeneratedTestCase> cases = new ArrayList<>();
+        String retType = method.getReturnType();
+        for (int i = 0; i < inputSets.size(); i++) {
+            String sm = "===ORACLE_START:" + i + "===";
+            String em = "===ORACLE_END:"   + i + "===";
+            int si = output.indexOf(sm), ei = output.indexOf(em);
+            if (si < 0 || ei <= si) {
+                cases.add(GeneratedTestCase.smokeTest(inputSets.get(i), "Oracle block missing")); continue;
+            }
+            String block = output.substring(si + sm.length(), ei).trim();
+            if (block.startsWith("__VOID__")) {
+                cases.add(new GeneratedTestCase(inputSets.get(i), null, true, false, "Void", "void_check")); continue;
+            }
+            if (block.startsWith("__EXCEPTION__")) {
+                cases.add(GeneratedTestCase.smokeTest(inputSets.get(i), "Exception thrown")); continue;
+            }
+            cases.add(new GeneratedTestCase(inputSets.get(i),
+                    buildExpectedExpr(block, retType), false, false,
+                    "Oracle-derived", resolveStrategyForType(retType)));
         }
-        if (spec.getSourceLines() != null) {
-            String mainSource = String.join("\n", spec.getSourceLines());
-            Pattern p = Pattern.compile("(?:abstract class|interface)\\s+(\\w+)");
-            Matcher m = p.matcher(mainSource);
-            while (m.find()) abstractClasses.add(m.group(1));
+        return cases;
+    }
+
+    private String buildExpectedExpr(String raw, String retType) {
+        raw = raw.trim();
+        if (!isPrimitive(retType) && !"String".equals(retType))
+            return "\"" + raw.replace("\\","\\\\").replace("\"","\\\"") + "\"";
+        if ("String".equals(retType))
+            return "\"" + raw.replace("\\","\\\\").replace("\"","\\\"") + "\"";
+        try { Double.parseDouble(raw); return raw; } catch (NumberFormatException ignored) {}
+        if ("true".equals(raw) || "false".equals(raw)) return raw;
+        return "\"" + raw.replace("\\","\\\\").replace("\"","\\\"") + "\"";
+    }
+
+    private String resolveStrategyForType(String retType) {
+        if (isListType(retType)) return "toString_equals";
+        if ("double".equals(retType) || "float".equals(retType)) return "eq_float";
+        if ("int".equals(retType) || "long".equals(retType) || "boolean".equals(retType)) return "==";
+        if ("String".equals(retType)) return "equals";
+        return "toString_equals";
+    }
+
+    // =========================================================================
+    // Parse LLM inputs response
+    // =========================================================================
+
+    private List<List<String>> parseInputsResponse(String llmText, MethodSpec method, int numTests) {
+        List<List<String>> result = new ArrayList<>();
+        try {
+            String c = llmText.trim().replaceAll("```[a-zA-Z]*\\n?","").trim();
+            int as = c.lastIndexOf('['), ae = c.lastIndexOf(']');
+            if (as >= 0 && ae > as) c = c.substring(as, ae + 1);
+            List<Map<String, Object>> raw = mapper.readValue(c, new TypeReference<>() {});
+            for (Map<String, Object> e : raw) result.add(castToStringList(e.get("args")));
+        } catch (Exception e) {
+            System.err.println("Could not parse LLM inputs: " + e.getMessage());
         }
-        if (abstractClasses.isEmpty()) return "";
-        return "=== ABSTRACT/INTERFACE — NEVER instantiate these with 'new': "
-                + String.join(", ", abstractClasses) + " ===\n"
-                + "Use concrete subclasses from supporting files instead (e.g. Rectangle, Circle).";
+        return result;
+    }
+
+    // =========================================================================
+    // Helpers
+    // =========================================================================
+
+    private List<GeneratedTestCase> smokeTestsForInputs(List<List<String>> inputSets) {
+        List<GeneratedTestCase> r = new ArrayList<>();
+        for (List<String> ins : inputSets) r.add(GeneratedTestCase.smokeTest(ins, "Smoke fallback"));
+        return r;
+    }
+
+    private List<GeneratedTestCase> padWithSmoke(List<GeneratedTestCase> existing,
+            int targetSize, MethodSpec method) {
+        List<GeneratedTestCase> result = new ArrayList<>(existing);
+        int seed = existing.size();
+        while (result.size() < targetSize) {
+            List<String> da = new ArrayList<>();
+            for (ParamSpec p : method.getParams()) da.add(safeDefault(p.getType(), seed));
+            result.add(GeneratedTestCase.smokeTest(da, "Padding smoke " + seed++));
+        }
+        return result;
+    }
+
+    private String stripPackageDeclaration(String src) {
+        return src.replaceFirst("(?m)^\\s*package\\s+[^;]+;", "// [package removed]");
     }
 
     private String buildMethodSignature(MethodSpec method) {
@@ -442,232 +557,23 @@ public class LLMTestOracle {
             sb.append(params.get(i).getType()).append(" ").append(params.get(i).getName());
             if (i < params.size() - 1) sb.append(", ");
         }
-        sb.append(")");
-        return sb.toString();
+        return sb.append(")").toString();
     }
 
-    // -------------------------------------------------------------------------
-    // Post-processing sanitiser (unchanged)
-    // -------------------------------------------------------------------------
-
-    private List<GeneratedTestCase> sanitiseAll(List<GeneratedTestCase> cases, MethodSpec method) {
-        List<GeneratedTestCase> result = new ArrayList<>();
-        for (GeneratedTestCase tc : cases) {
-            GeneratedTestCase sanitised = sanitise(tc, method);
-            if (sanitised != null) result.add(sanitised);
+    private String buildAbstractClassWarning(QuestionSpec spec) {
+        List<String> abs = new ArrayList<>();
+        for (Map.Entry<String, String> e : spec.getSupportingSourceFiles().entrySet()) {
+            Matcher m = Pattern.compile("(?:abstract class|interface)\\s+(\\w+)").matcher(e.getValue());
+            while (m.find()) abs.add(m.group(1));
         }
-        return result;
+        if (abs.isEmpty()) return "";
+        return "NEVER instantiate these abstract/interfaces: " + String.join(", ", abs)
+                + "\nUse concrete subclasses instead.";
     }
 
-    private GeneratedTestCase sanitise(GeneratedTestCase tc, MethodSpec method) {
-        if (tc.isSmokeTest() || tc.isVoidCheck()) return tc;
-
-        String expected   = tc.getExpected();
-        String strategy   = tc.getEqualityStrategy();
-        String returnType = method.getReturnType();
-        List<String> args = tc.getArgs() != null ? new ArrayList<>(tc.getArgs()) : new ArrayList<>();
-
-        boolean isCustomList = isListType(returnType)
-                && !SAFE_EQUALS_TYPES.contains(extractGenericType(returnType));
-        if (isCustomList) {
-            strategy = "toString_equals";
-            expected = repairToStringExpected(expected);
-            if (SMOKE_TEST_MARKER.equals(expected)) return null;
-        } else if ("toString_equals".equals(strategy)) {
-            expected = repairToStringExpected(expected);
-            if (SMOKE_TEST_MARKER.equals(expected)) return null;
-        } else {
-            expected = repairExpected(expected, returnType);
-        }
-
-        List<ParamSpec> params = method.getParams();
-        for (int i = 0; i < args.size() && i < params.size(); i++) {
-            args.set(i, repairArg(args.get(i), params.get(i).getType()));
-        }
-
-        return new GeneratedTestCase(args, expected,
-                tc.isVoidCheck(), tc.isSmokeTest(),
-                tc.getRationale(), strategy);
+    private boolean canExtend(QuestionSpec spec) {
+        return !spec.hasParameterisedConstructor() || spec.getFields().isEmpty();
     }
-
-    private static final String SMOKE_TEST_MARKER = "__SMOKE_TEST__";
-
-    private String repairToStringExpected(String raw) {
-        if (raw == null || raw.isBlank()) return SMOKE_TEST_MARKER;
-        String t = raw.trim();
-        if (t.startsWith("\"")) return t;
-        if (t.startsWith("[")) return "\"" + t.replace("\"", "\\\"") + "\"";
-        if (t.startsWith("new ") || t.startsWith("java.")) {
-            System.err.println("⚠️  toString_equals: cannot use Java expression as expected — smoke test: "
-                    + t.substring(0, Math.min(60, t.length())));
-            return SMOKE_TEST_MARKER;
-        }
-        return "\"" + t.replace("\"", "\\\"") + "\"";
-    }
-
-    private String repairExpected(String raw, String returnType) {
-        if (raw == null || raw.isBlank()) return safeDefault(returnType, 0);
-        String trimmed = raw.trim();
-        if (trimmed.startsWith("new ") || trimmed.startsWith("\"")
-                || trimmed.startsWith("java.") || trimmed.matches("-?\\d.*")
-                || trimmed.equals("true") || trimmed.equals("false")
-                || trimmed.equals("null") || trimmed.startsWith("'")) {
-            return trimmed;
-        }
-        if (trimmed.equals("[]")) return isListType(returnType) ? "new java.util.ArrayList<>()" : trimmed;
-        if (trimmed.startsWith("[") && trimmed.endsWith("]")) return repairPythonList(trimmed, returnType);
-        if (isStringType(returnType) && !trimmed.contains("(") && !trimmed.startsWith("\"")) {
-            return "\"" + trimmed.replace("\"", "\\\"") + "\"";
-        }
-        return trimmed;
-    }
-
-    private String repairPythonList(String bracketExpr, String returnType) {
-        String inner = bracketExpr.substring(1, bracketExpr.length() - 1).trim();
-        if (inner.isEmpty()) return "new java.util.ArrayList<>()";
-        String[] items = inner.split(",(?![^<>]*>)"); // split on comma not inside generics
-        String elementType = extractGenericType(returnType);
-        StringBuilder sb = new StringBuilder("new java.util.ArrayList<>(java.util.Arrays.asList(");
-        for (int i = 0; i < items.length; i++) {
-            String item = items[i].trim();
-            if (("String".equals(elementType) || "Object".equals(elementType))
-                    && !item.startsWith("\"") && !item.equals("null")) {
-                sb.append("\"").append(item.replace("\"", "\\\"")).append("\"");
-            } else {
-                sb.append(item);
-            }
-            if (i < items.length - 1) sb.append(", ");
-        }
-        sb.append("))");
-        return sb.toString();
-    }
-
-    private String repairArg(String raw, String paramType) {
-        if (raw == null) return safeDefault(paramType, 0);
-        String repaired = repairExpected(raw, paramType);
-        repaired = repaired.replaceAll("\\(Object\\)(-\\d)", "(Object)($1)");
-        return repaired;
-    }
-
-    // -------------------------------------------------------------------------
-    // Response parsing — extracts the JSON array from end of response
-    // -------------------------------------------------------------------------
-
-    private List<GeneratedTestCase> parseTestCases(
-            String llmText, MethodSpec method, int numTests) {
-
-        String cleaned = llmText.trim();
-
-        // Strip markdown fences
-        if (cleaned.contains("```")) {
-            cleaned = cleaned.replaceAll("```[a-zA-Z]*\\n?", "").trim();
-        }
-
-        // Find the LAST [ ... ] array in the response (after the scratchpad)
-        int arrayStart = cleaned.lastIndexOf('[');
-        int arrayEnd   = cleaned.lastIndexOf(']');
-        if (arrayStart >= 0 && arrayEnd > arrayStart) {
-            cleaned = cleaned.substring(arrayStart, arrayEnd + 1);
-        }
-
-        cleaned = quoteUnquotedJavaExpressions(cleaned);
-
-        List<GeneratedTestCase> result = new ArrayList<>();
-        try {
-            List<Map<String, Object>> raw = mapper.readValue(cleaned, new TypeReference<>() {});
-            for (Map<String, Object> entry : raw) {
-                try {
-                    List<String> args = castToStringList(entry.get("args"));
-                    String expected   = entry.get("expected") == null
-                                        ? "null" : entry.get("expected").toString();
-                    String strategy   = entry.getOrDefault("equalityStrategy", "equals").toString();
-                    String rationale  = entry.getOrDefault("rationale", "").toString();
-                    result.add(new GeneratedTestCase(
-                            args, expected, method.returnsVoid(), false, rationale, strategy));
-                } catch (Exception ex) {
-                    System.err.println("⚠️  Skipped one test case for " + method.getName());
-                }
-            }
-        } catch (Exception e) {
-            System.err.println("⚠️  Could not parse LLM response for "
-                    + method.getName() + ": " + e.getMessage());
-            return new ArrayList<>();
-        }
-        return result;
-    }
-
-    private String quoteUnquotedJavaExpressions(String json) {
-        String[] lines = json.split("\n");
-        StringBuilder out = new StringBuilder();
-        for (String line : lines) out.append(fixLine(line)).append("\n");
-        return out.toString();
-    }
-
-    private String fixLine(String line) {
-        String trimmed = line.trim();
-        if (trimmed.matches("\"\\w+\"\\s*:\\s*new .*")) {
-            int colonIdx = line.indexOf(':');
-            String key = line.substring(0, colonIdx + 1);
-            String val = line.substring(colonIdx + 1).trim();
-            boolean hadComma = val.endsWith(",");
-            if (hadComma) val = val.substring(0, val.length() - 1).trim();
-            return key + " \"" + val.replace("\"", "\\\"") + "\"" + (hadComma ? "," : "");
-        }
-        if (trimmed.startsWith("[new ")) {
-            int bracketIdx = line.indexOf('[');
-            String before = line.substring(0, bracketIdx + 1);
-            String rest = line.substring(bracketIdx + 1).trim();
-            String suffix = "";
-            if (rest.endsWith("],"))      { rest = rest.substring(0, rest.length() - 2).trim(); suffix = "],"; }
-            else if (rest.endsWith("]")) { rest = rest.substring(0, rest.length() - 1).trim(); suffix = "]";  }
-            return before + "\"" + rest.replace("\"", "\\\"") + "\"" + suffix;
-        }
-        return line;
-    }
-
-    // -------------------------------------------------------------------------
-    // Null-arg repair
-    // -------------------------------------------------------------------------
-
-    private List<GeneratedTestCase> validateAndRepair(
-            List<GeneratedTestCase> cases, MethodSpec method) {
-
-        List<ParamSpec> params = method.getParams();
-        List<GeneratedTestCase> repaired = new ArrayList<>();
-        for (int i = 0; i < cases.size(); i++) {
-            GeneratedTestCase tc = cases.get(i);
-            if (tc.isSmokeTest() || tc.isVoidCheck() || tc.getArgs() == null) {
-                repaired.add(tc); continue;
-            }
-            List<String> fixedArgs = new ArrayList<>(tc.getArgs());
-            boolean changed = false;
-            for (int j = 0; j < params.size() && j < fixedArgs.size(); j++) {
-                if ("null".equals(fixedArgs.get(j))) {
-                    fixedArgs.set(j, safeDefault(params.get(j).getType(), i));
-                    changed = true;
-                }
-            }
-            repaired.add(changed
-                    ? new GeneratedTestCase(fixedArgs, tc.getExpected(), tc.isVoidCheck(),
-                            tc.isSmokeTest(), tc.getRationale(), tc.getEqualityStrategy())
-                    : tc);
-        }
-        return repaired;
-    }
-
-    // -------------------------------------------------------------------------
-    // Fallbacks
-    // -------------------------------------------------------------------------
-
-    private GeneratedTestCase smokeTestFallback(MethodSpec method, int index) {
-        List<String> args = new ArrayList<>();
-        for (ParamSpec p : method.getParams()) args.add(safeDefault(p.getType(), index));
-        return GeneratedTestCase.smokeTest(args, "Smoke test fallback");
-    }
-
-    // -------------------------------------------------------------------------
-    // Type utilities
-    // -------------------------------------------------------------------------
 
     private boolean isListType(String type) {
         if (type == null) return false;
@@ -676,16 +582,15 @@ public class LLMTestOracle {
                 || t.startsWith("java.util.List") || t.startsWith("java.util.ArrayList");
     }
 
-    private boolean isStringType(String type) {
-        if (type == null) return false;
-        return "String".equals(type.trim()) || "java.lang.String".equals(type.trim());
+    private boolean isPrimitive(String type) {
+        return Set.of("int","long","double","float","boolean","char","byte","short")
+                  .contains(type == null ? "" : type.trim());
     }
 
     private String extractGenericType(String type) {
         if (type == null) return "Object";
         int lt = type.indexOf('<'), gt = type.lastIndexOf('>');
-        if (lt >= 0 && gt > lt) return type.substring(lt + 1, gt).trim();
-        return "Object";
+        return (lt >= 0 && gt > lt) ? type.substring(lt + 1, gt).trim() : "Object";
     }
 
     private String safeDefault(String type, int seed) {
@@ -693,70 +598,40 @@ public class LLMTestOracle {
         String t = type.trim();
         if (isListType(t)) {
             String elem = extractGenericType(t);
-            if ("String".equals(elem))
-                return "new java.util.ArrayList<>(java.util.Arrays.asList(\"hello\", \"world\"))";
-            if ("Integer".equals(elem) || "int".equals(elem))
-                return "new java.util.ArrayList<>(java.util.Arrays.asList(1, 2, 3))";
-            if ("Object".equals(elem))
-                return "new java.util.ArrayList<>(java.util.Arrays.asList((Object)10, (Object)20, (Object)30))";
+            if ("String".equals(elem)) return "new java.util.ArrayList<>(java.util.Arrays.asList(\"hello\",\"world\"))";
+            if ("Integer".equals(elem)||"int".equals(elem)) return "new java.util.ArrayList<>(java.util.Arrays.asList(1,2,3))";
             return "new java.util.ArrayList<>()";
         }
-        if (t.contains("Map"))    return "new java.util.HashMap<>()";
-        if (t.contains("Set"))    return "new java.util.HashSet<>()";
-        if (t.equals("int[]"))    return "new int[]{1, 2, 3}";
-        if (t.equals("double[]")) return "new double[]{1.0, 2.0, 3.0}";
-        if (t.equals("String[]")) return "new String[]{\"a\", \"b\", \"c\"}";
         return switch (t) {
-            case "int", "Integer"     -> String.valueOf(seed % 10 + 1);
-            case "long", "Long"       -> seed + "L";
-            case "double", "Double"   -> seed + ".0";
-            case "float", "Float"     -> seed + ".0f";
-            case "boolean", "Boolean" -> seed % 2 == 0 ? "true" : "false";
-            case "char", "Character"  -> "'a'";
-            case "String"             -> "\"hello\"";
-            default                   -> "null";
+            case "int","Integer"    -> String.valueOf(seed%10+1);
+            case "long","Long"      -> seed+"L";
+            case "double","Double"  -> seed+".0";
+            case "float","Float"    -> seed+".0f";
+            case "boolean","Boolean"-> seed%2==0?"true":"false";
+            case "char","Character" -> "'a'";
+            case "String"           -> "\"hello\"";
+            default                 -> "null";
         };
+    }
+
+    private boolean isWindows() {
+        return System.getProperty("os.name").toLowerCase().contains("win");
+    }
+
+    private void deleteDirectory(Path dir) {
+        try (var walk = Files.walk(dir)) {
+            walk.sorted(Comparator.reverseOrder())
+                .forEach(p -> { try { Files.deleteIfExists(p); } catch (Exception ignored) {} });
+        } catch (Exception ignored) {}
     }
 
     @SuppressWarnings("unchecked")
     private List<String> castToStringList(Object obj) {
         if (obj instanceof List<?> list) {
-            List<String> result = new ArrayList<>();
-            for (Object item : list) result.add(item == null ? "null" : item.toString());
-            return result;
+            List<String> r = new ArrayList<>();
+            for (Object item : list) r.add(item==null?"null":item.toString());
+            return r;
         }
-        return List.of(obj == null ? "null" : obj.toString());
-    }
-
-    private String getExamPdfText() {
-        if (examPdfText != null) return examPdfText;
-        try {
-            if (!Files.exists(ExamPaperParser.EXAM_DIR)) { examPdfText = ""; return examPdfText; }
-            try (var stream = Files.list(ExamPaperParser.EXAM_DIR)) {
-                Optional<Path> pdf = stream
-                        .filter(p -> p.toString().toLowerCase().endsWith(".pdf"))
-                        .findFirst();
-                if (pdf.isPresent()) {
-                    examPdfText = extractPdfTextViaPdfBox(pdf.get());
-                    if (examPdfText == null) examPdfText = "";
-                } else { examPdfText = ""; }
-            }
-        } catch (Exception e) { examPdfText = ""; }
-        return examPdfText;
-    }
-
-    private String extractPdfTextViaPdfBox(Path pdfPath) {
-        try {
-            Class<?> loaderClass   = Class.forName("org.apache.pdfbox.Loader");
-            Class<?> docClass      = Class.forName("org.apache.pdfbox.pdmodel.PDDocument");
-            Class<?> stripperClass = Class.forName("org.apache.pdfbox.text.PDFTextStripper");
-            Object doc      = loaderClass.getMethod("loadPDF", java.io.File.class)
-                                         .invoke(null, pdfPath.toFile());
-            Object stripper = stripperClass.getDeclaredConstructor().newInstance();
-            String text     = (String) stripperClass.getMethod("getText", docClass)
-                                                     .invoke(stripper, doc);
-            docClass.getMethod("close").invoke(doc);
-            return text != null && text.length() > 8000 ? text.substring(0, 8000) : text;
-        } catch (Exception e) { return null; }
+        return List.of(obj==null?"null":obj.toString());
     }
 }

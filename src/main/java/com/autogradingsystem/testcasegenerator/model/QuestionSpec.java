@@ -7,14 +7,16 @@ import java.util.*;
  *
  * PACKAGE: com.autogradingsystem.testcasegenerator.model
  *
- * v3.5: Added supportingSourceFiles — all other .java files in the same question
- * folder (e.g. Shape.java, Rectangle.java, Circle.java for Q3). These are passed
- * to the LLM so it knows about abstract classes, concrete subclasses, constructors,
- * and helper classes when generating test cases.
+ * v3.6: Added description field to store natural language requirements 
+ * from the PDF (e.g. "stop parsing at second dot"). This is used by 
+ * the LLM Oracle to generate specific edge-case test cases.
  */
 public class QuestionSpec {
 
     private String className;
+    // --- ADDED ONLY THIS FIELD ---
+    private String description; 
+    
     private final List<MethodSpec> methods = new ArrayList<>();
     private final List<FieldSpec>  fields  = new ArrayList<>();
     private boolean hasParameterisedConstructor = false;
@@ -22,13 +24,13 @@ public class QuestionSpec {
 
     /**
      * All OTHER .java source files in the same question folder.
-     * Key   = filename (e.g. "Shape.java")
-     * Value = full source text
-     *
-     * Used by LLMTestOracle to understand abstract classes, concrete subclasses,
-     * and helper classes when generating test cases.
      */
     private Map<String, String> supportingSourceFiles = new LinkedHashMap<>();
+
+    /**
+     * Non-Java data files bundled with the question.
+     */
+    private Map<String, String> dataFiles = new LinkedHashMap<>();
 
     // -------------------------------------------------------------------------
     // Getters / setters
@@ -36,6 +38,10 @@ public class QuestionSpec {
 
     public String getClassName()                          { return className; }
     public void   setClassName(String className)          { this.className = className; }
+
+    // --- ADDED ONLY THESE TWO METHODS ---
+    public String getDescription()                        { return description; }
+    public void   setDescription(String description)      { this.description = description; }
 
     public List<MethodSpec> getMethods()                  { return methods; }
     public void addMethod(MethodSpec m)                   { methods.add(m); }
@@ -56,6 +62,12 @@ public class QuestionSpec {
     public void addSupportingFile(String filename, String source) {
         this.supportingSourceFiles.put(filename, source);
     }
+
+    public Map<String, String> getDataFiles() { return dataFiles; }
+    public void addDataFile(String filename, String content) {
+        this.dataFiles.put(filename, content);
+    }
+    public boolean hasDataFiles() { return !dataFiles.isEmpty(); }
 
     // =========================================================================
     // Inner models

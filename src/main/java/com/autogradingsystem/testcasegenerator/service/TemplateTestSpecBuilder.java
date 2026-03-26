@@ -39,13 +39,19 @@ public class TemplateTestSpecBuilder {
         try {
             extractZip(templateZip, tempDir);
 
-            // Group all .java files by their parent folder (Q1, Q2, Q3, ...)
+            // Group ALL files (not just .java) by their parent folder (Q1, Q2, Q3, ...)
+            // This ensures data files like persons.txt, students.txt are captured too.
             // Map: folderName → Map<filename, Path>
             Map<String, Map<String, Path>> byFolder = new LinkedHashMap<>();
             try (var walk = Files.walk(tempDir)) {
                 walk.filter(Files::isRegularFile)
-                    .filter(p -> p.toString().endsWith(".java"))
                     .filter(p -> !p.toString().contains("__MACOSX"))
+                    .filter(p -> !p.toString().contains(".DS_Store"))
+                    .filter(p -> !p.toString().contains("/api/"))   // skip javadoc
+                    .filter(p -> !p.toString().endsWith(".class"))  // skip bytecode
+                    .filter(p -> !p.toString().endsWith(".html"))
+                    .filter(p -> !p.toString().endsWith(".js"))
+                    .filter(p -> !p.toString().endsWith(".css"))
                     .forEach(p -> {
                         String folder = p.getParent().getFileName().toString();
                         byFolder
@@ -69,12 +75,20 @@ public class TemplateTestSpecBuilder {
                     try {
                         QuestionSpec spec = specParser.parse(fpath);
 
-                        // Attach all OTHER .java files in the same folder as supporting context
+                        // Attach all OTHER files in the same folder as supporting context
                         for (Map.Entry<String, Path> sibling : files.entrySet()) {
                             if (sibling.getKey().equals(fname)) continue; // skip self
                             try {
-                                String siblingSource = Files.readString(sibling.getValue());
-                                spec.addSupportingFile(sibling.getKey(), siblingSource);
+                                if (sibling.getKey().endsWith(".java")) {
+                                    // Java source files: attach as supporting source
+                                    String siblingSource = Files.readString(sibling.getValue());
+                                    spec.addSupportingFile(sibling.getKey(), siblingSource);
+                                } else {
+                                    // Data files (txt, csv, etc.): attach as data file content
+                                    // The LLM needs to see these to generate meaningful test cases
+                                    String content = Files.readString(sibling.getValue());
+                                    spec.addDataFile(sibling.getKey(), content);
+                                }
                             } catch (IOException e) {
                                 System.err.println("⚠️  Could not read " + sibling.getKey());
                             }
