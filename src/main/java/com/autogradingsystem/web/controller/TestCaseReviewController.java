@@ -182,6 +182,37 @@ public class TestCaseReviewController {
                 return ResponseEntity.badRequest().body(response);
             }
 
+            // ── DYNAMIC INJECTION: extract per-question requirements from exam PDF ──
+            // This populates QuestionSpec.description so the LLM input generator
+            // knows specific logic rules (e.g. "stop at second dot", "ignore non-Integer
+            // objects") and generates semantically correct edge-case inputs instead of
+            // generic ones — which directly fixes the "all students 0" problem for Q1a/Q1b.
+            try {
+                ExamPaperParser descParser = (inputExam != null)
+                        ? ExamPaperParser.fromEnvironment(inputExam)
+                        : ExamPaperParser.fromEnvironment();
+                Map<String, String> descriptions = descParser.extractQuestionDescriptions();
+
+                if (!descriptions.isEmpty()) {
+                    for (Map.Entry<String, QuestionSpec> entry : specs.entrySet()) {
+                        String desc = descriptions.get(entry.getKey());
+                        if (desc != null && !desc.isBlank()) {
+                            entry.getValue().setDescription(desc);
+                            System.out.println("  📋 Injected description for "
+                                    + entry.getKey() + ": " + desc.substring(0, Math.min(80, desc.length())) + "...");
+                        }
+                    }
+                } else {
+                    System.out.println("  ℹ️  No exam descriptions extracted — " +
+                            "testers will use main() examples only.");
+                }
+            } catch (Exception descEx) {
+                // Non-fatal: generation continues without descriptions
+                System.err.println("  ⚠️  Description extraction failed (non-fatal): "
+                        + descEx.getMessage());
+            }
+            // ── END DYNAMIC INJECTION ──
+
             // Generate tester source per question
             LLMTestOracle   oracle    = LLMTestOracle.fromEnvironment();
             TesterGenerator generator = new TesterGenerator(oracle);
