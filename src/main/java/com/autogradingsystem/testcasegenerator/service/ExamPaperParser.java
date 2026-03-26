@@ -32,7 +32,9 @@ public class ExamPaperParser {
     private final HttpClient   http;
     private final ObjectMapper mapper;
 
-    private Map<String, Integer> cachedWeights = null;
+    private Map<String, Integer> cachedWeights      = null;
+    private Map<String, String>  cachedDescriptions = null;
+    private String               cachedPdfText      = null;
 
     // -------------------------------------------------------------------------
     // Constructors
@@ -84,7 +86,13 @@ public class ExamPaperParser {
         }
 
         try {
-            Map<String, Integer> weights = callLLM(pdfPath);
+            // Cache the PDF text so extractQuestionDescriptions() can reuse it
+            // without reading the file a second time
+            if (cachedPdfText == null) {
+                cachedPdfText = extractPdfText(pdfPath);
+            }
+
+            Map<String, Integer> weights = callLLMForWeights(pdfPath, cachedPdfText);
             if (!weights.isEmpty()) {
                 System.out.println("  ✅ Mark weights from exam PDF: " + weights);
                 cachedWeights = weights;
@@ -98,11 +106,69 @@ public class ExamPaperParser {
         }
     }
 
+    /**
+     * Extracts per-question natural language requirements from the exam PDF.
+     *
+     * These are the specific logic rules the student must implement, e.g.:
+     *   Q1a: "Words are separated by one or more spaces. A word is an isogram
+     *         if it contains no repeated characters (case-insensitive)."
+     *   Q1b: "Once a non-numeric character (excluding decimal point or e/E) is
+     *         encountered, stop parsing."
+     *
+     * This is injected into QuestionSpec.description so the LLM input generator
+     * knows what edge cases to create (e.g. "123.45.67", "this  is  spaced").
+     *
+     * Caches results — safe to call multiple times without extra LLM calls.
+     */
+    public Map<String, String> extractQuestionDescriptions() {
+        if (cachedDescriptions != null) {
+            System.out.println("  📄 Question descriptions (cached): "
+                    + cachedDescriptions.keySet());
+            return cachedDescriptions;
+        }
+
+        Path pdfPath = findExamPdf();
+        if (pdfPath == null) {
+            System.out.println("  ℹ️  No exam PDF — skipping description extraction.");
+            return Map.of();
+        }
+
+        if (apiKey == null || apiKey.isBlank()) {
+            System.err.println("  ⚠️  No API key — cannot extract question descriptions.");
+            return Map.of();
+        }
+
+        try {
+            // Reuse cached PDF text if already extracted by extractMarkWeights()
+            if (cachedPdfText == null) {
+                cachedPdfText = extractPdfText(pdfPath);
+            }
+            if (cachedPdfText == null || cachedPdfText.isBlank()) {
+                System.err.println("  ⚠️  PDF text empty — cannot extract descriptions.");
+                return Map.of();
+            }
+
+            Map<String, String> descriptions = callLLMForDescriptions(cachedPdfText);
+            if (!descriptions.isEmpty()) {
+                System.out.println("  ✅ Question descriptions extracted: "
+                        + descriptions.keySet());
+                cachedDescriptions = descriptions;
+            } else {
+                System.err.println("  ⚠️  LLM returned no question descriptions.");
+            }
+            return descriptions;
+
+        } catch (Exception e) {
+            System.err.println("  ⚠️  Description extraction failed: " + e.getMessage());
+            return Map.of();
+        }
+    }
+
     // -------------------------------------------------------------------------
     // HTTP call
     // -------------------------------------------------------------------------
 
-    private Map<String, Integer> callLLM(Path pdfPath) throws Exception {
+    private Map<String, Integer> callLLMForWeights(Path pdfPath, String pdfText) throws Exception {
         String prompt = """
 Read this exam paper carefully.
 Extract EVERY question ID and its mark allocation.
@@ -117,7 +183,6 @@ Example: {"Q1a": 5, "Q1b": 3, "Q2a": 8, "Q2b": 4, "Q3": 10}
 
         byte[] pdfBytes  = Files.readAllBytes(pdfPath);
         String base64Pdf = Base64.getEncoder().encodeToString(pdfBytes);
-        String pdfText   = extractPdfText(pdfPath);
         String payload   = LLMConfig.buildPdfPayload(prompt, base64Pdf, pdfText, mapper);
 
         HttpRequest request = LLMConfig.addAuthHeaders(
@@ -138,6 +203,88 @@ Example: {"Q1a": 5, "Q1b": 3, "Q2a": 8, "Q2b": 4, "Q3": 10}
 
         String text = LLMConfig.extractText(response.body(), mapper);
         return parseWeights(text);
+    }
+
+    /**
+     * Calls the LLM with the raw exam PDF text and asks it to extract per-question
+     * functional requirements as a JSON map.
+     *
+     * The prompt deliberately asks for:
+     *   - Specific parsing rules (stop-conditions, delimiters)
+     *   - Edge cases explicitly mentioned (e.g. "double dots", "multiple spaces")
+     *   - Return-value contracts (what -1 means, what empty list means)
+     *   - Exception conditions (what triggers DataException)
+     *
+     * This text is stored in QuestionSpec.description and injected into the
+     * LLM input-generation prompt so it produces semantically correct inputs
+     * instead of generic ones.
+     */
+    private Map<String, String> callLLMForDescriptions(String pdfText) throws Exception {
+        String prompt = """
+Read this exam paper carefully.
+
+For each question, extract the SPECIFIC FUNCTIONAL REQUIREMENTS that a student's
+implementation must satisfy. Focus especially on:
+  - Parsing / stopping rules (e.g. "stop at second dot", "ignore non-integer objects")
+  - Case sensitivity rules (e.g. "comparison is case-insensitive")
+  - Edge case behaviour (e.g. "return -1.0 if file not found", "return empty list if no match")
+  - Input format details (e.g. "words separated by one or more spaces")
+  - Exception contracts (e.g. "throw DataException when course not found")
+  - Return format (e.g. "Surname FIRSTNAME-gpa" format)
+
+Return ONLY a valid JSON object. No markdown, no explanation, no code fences.
+Keys must be question IDs like "Q1a", "Q1b", "Q2a".
+Values must be 1-3 concise sentences describing the requirements.
+
+Example:
+{
+  "Q1a": "Return all isogram words (no repeated letters, case-insensitive) from the input list, preserving order.",
+  "Q1b": "Sum only Integer elements from the mixed-type list. Ignore non-Integer objects (booleans, doubles, strings).",
+  "Q2a": "Read persons from the given file (surname:first-age format). Average the ages for all persons matching the given surname (case-insensitive). Return -1.0 if the file cannot be found.",
+  "Q2b": "Return the top student as SURNAME Firstname-gpa string. Throw DataException if the course is not found or if the file is missing.",
+  "Q3": "Sort shapes by area descending, then perimeter descending. Exclude shapes where area exceeds 100 or radius > threshold."
+}
+""";
+
+        String payload = LLMConfig.buildTextPayload(
+                prompt + "\n\nEXAM PAPER TEXT:\n" + pdfText, mapper);
+
+        HttpRequest request = LLMConfig.addAuthHeaders(
+                HttpRequest.newBuilder()
+                        .uri(URI.create(LLMConfig.buildUrl(apiKey)))
+                        .timeout(Duration.ofSeconds(LLMConfig.TIMEOUT_S)),
+                apiKey)
+                .POST(HttpRequest.BodyPublishers.ofString(payload))
+                .build();
+
+        HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+
+        if (response.statusCode() != 200) {
+            throw new RuntimeException("HTTP " + response.statusCode() + " for description extraction");
+        }
+
+        String text = LLMConfig.extractText(response.body(), mapper);
+        return parseDescriptions(text);
+    }
+
+    /**
+     * Parses the LLM JSON response into a Map<questionId, description>.
+     * Normalises question IDs (Q1a, Q1b, etc.) for consistent lookup.
+     */
+    private Map<String, String> parseDescriptions(String text) throws Exception {
+        String cleaned = text.trim();
+        if (cleaned.startsWith("```")) {
+            cleaned = cleaned.replaceAll("^```[a-zA-Z]*\\n?", "")
+                             .replaceAll("```\\s*$", "").trim();
+        }
+        Map<String, Object> raw = mapper.readValue(cleaned, new TypeReference<>() {});
+        Map<String, String> descriptions = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : raw.entrySet()) {
+            String qId  = normaliseId(entry.getKey().trim());
+            String desc = entry.getValue() == null ? "" : entry.getValue().toString().trim();
+            if (!desc.isEmpty()) descriptions.put(qId, desc);
+        }
+        return descriptions;
     }
 
     // -------------------------------------------------------------------------

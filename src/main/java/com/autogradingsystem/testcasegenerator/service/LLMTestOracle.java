@@ -204,7 +204,7 @@ public class LLMTestOracle {
         } else if (params.size() == 2
                 && "String".equals(params.get(0).getType())
                 && "String".equals(params.get(1).getType())) {
-            // Try method call first
+            // Try method call with inline string literals first: method("val1", "val2")
             Pattern callPat = Pattern.compile(
                     method.getName() + "\\s*\\(\\s*\"([^\"]+)\"\\s*,\\s*\"([^\"]+)\"\\s*\\)");
             Matcher m = callPat.matcher(block);
@@ -212,7 +212,7 @@ public class LLMTestOracle {
                 args.add("\"" + m.group(1) + "\"");
                 args.add("\"" + m.group(2) + "\"");
             } else {
-                // Fallback: printf pattern
+                // Fallback: printf pattern with inline literals
                 Pattern pfPat = Pattern.compile(
                         "printf[^,]+,\\s*\"([^\"]+)\"\\s*,\\s*\"([^\"]+)\"");
                 Matcher m2 = pfPat.matcher(block);
@@ -221,7 +221,55 @@ public class LLMTestOracle {
                     args.add("\"" + m2.group(2) + "\"");
                 }
             }
+        } else if (params.size() == 1 && "String".equals(params.get(0).getType())) {
+            // ── FIX: Single-String parameter (e.g. reorderWordsInSentence, stringToDouble) ──
+            // The template stores the input in a variable: String input = "...";
+            // then calls: method(input)
+            // The old fallback regex captured the variable NAME "input" — not its value.
+            // We now resolve it: look for `String <varName> = "<value>";` in the block,
+            // then verify that <varName> is what's passed to the method call.
+            //
+            // CRITICAL: We must skip printf/println lines because they contain
+            // format strings like reorderWordsInSentence("%s") which would be matched
+            // before the real method call line (e.g. String actual = method(input)).
+
+            // Step 1: find the method call, skipping printf/println lines
+            Pattern callPat = Pattern.compile(method.getName() + "\\s*\\(([^)]+)\\)");
+            String argExpr = null;
+            for (String line : block.split("\n")) {
+                String trimmed = line.trim();
+                // Skip print/printf/println lines — contain format strings, not real args
+                if (trimmed.contains("printf") || trimmed.contains("println")
+                        || trimmed.contains("print(")) {
+                    continue;
+                }
+                Matcher callM = callPat.matcher(trimmed);
+                if (callM.find()) {
+                    argExpr = callM.group(1).trim();
+                    break;
+                }
+            }
+
+            if (argExpr != null && argExpr.startsWith("\"")) {
+                // Already an inline literal — use directly
+                args.add(argExpr);
+            } else if (argExpr != null) {
+                // It's a variable name — look up its assignment in the block
+                // Pattern: String <varName> = "<value>";  (value may be empty string)
+                Pattern varPat = Pattern.compile(
+                        "String\\s+" + Pattern.quote(argExpr)
+                        + "\\s*=\\s*\"([^\"]*)\";");
+                Matcher varM = varPat.matcher(block);
+                if (varM.find()) {
+                    // Resolved the variable to its string literal value
+                    args.add("\"" + varM.group(1) + "\"");
+                } else {
+                    // Variable assignment not found — treat as literal (best effort)
+                    args.add("\"" + argExpr + "\"");
+                }
+            }
         } else {
+            // Generic fallback: try to extract inline literals or variable references
             Pattern callPat = Pattern.compile(method.getName() + "\\s*\\(([^)]+)\\)");
             Matcher m = callPat.matcher(block);
             if (m.find()) {
