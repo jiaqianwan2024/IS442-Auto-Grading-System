@@ -8,78 +8,54 @@ import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.*;
 
 import java.io.IOException;
-import java.io.OutputStream;
-import java.util.Collection;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.Collection;
 import java.util.stream.Collectors;
 
 /**
- * @deprecated v3.4 — Statistics sheets are now embedded directly in
- * IS442-ScoreSheet-Updated.xlsx by {@link ScoreSheetExporter}.
- * This class is retained only for backward compatibility with any
- * external callers; it performs NO file I/O and returns null.
+ * StatisticsReportExporter
  *
- * <p>The former IS442-Statistics.xlsx is no longer generated.</p>
- * <p>The former "Anomaly Report" sheet has been removed per v3.4 requirements.</p>
+ * v3.4+ — Statistics sheets are now embedded directly in IS442-ScoreSheet-Updated.xlsx
+ * by {@link ScoreSheetExporter}. The standalone IS442-Statistics.xlsx is no longer produced.
+ *
+ * The build*() methods are package-private so ScoreSheetExporter can call them on a
+ * shared XSSFWorkbook, appending sheets directly after Score Sheet + Anomalies.
+ *
+ * The top-level export() is retained as a no-op for backward compatibility only.
  */
 @Deprecated
 public class StatisticsReportExporter {
 
-    private static final double A_MIN    = 80.0;
-    private static final double B_MIN    = 70.0;
-    private static final double C_MIN    = 60.0;
-    private static final double D_MIN    = 50.0;
-    private static final double PASS     = 50.0;
-    private static final String FILENAME = "IS442-Statistics.xlsx";
+    private static final double A_MIN = 80.0;
+    private static final double B_MIN = 70.0;
+    private static final double C_MIN = 60.0;
+    private static final double D_MIN = 50.0;
+    private static final double PASS  = 50.0;
 
-    // Colour palette
-    private static final String COL_NAVY      = "1F3864";
-    private static final String COL_BLUE      = "2E75B6";
-    private static final String COL_LIGHT_BLU = "D6E4F0";
-    private static final String COL_WHITE     = "FFFFFF";
-    private static final String COL_GREEN     = "E2EFDA";
-    private static final String COL_RED       = "FCE4D6";
-    private static final String COL_YELLOW    = "FFF2CC";
+    // Colour palette (package-private so ScoreSheetExporter can reference if needed)
+    static final String COL_NAVY      = "1F3864";
+    static final String COL_BLUE      = "2E75B6";
+    static final String COL_LIGHT_BLU = "D6E4F0";
+    static final String COL_GREEN     = "E2EFDA";
+    static final String COL_RED       = "FCE4D6";
+    static final String COL_YELLOW    = "FFF2CC";
 
-    // ================================================================
-    // PATH FIELDS — null means "use global PathConfig" (single-assessment)
-    // ================================================================
+    // ── PATH FIELDS ──────────────────────────────────────────────────────────
 
     private final Path outputReports;
     private final Path inputTesters;
 
-    // ================================================================
-    // CONSTRUCTORS
-    // ================================================================
-
-    /** Default constructor — uses global PathConfig. Called by AnalysisController. */
     public StatisticsReportExporter() {
         this.outputReports = null;
         this.inputTesters  = null;
     }
 
-    /**
-     * Path-aware constructor for multi-assessment support.
-     * @param outputReports Path to the reports output directory for this assessment
-     * @param inputTesters  Path to this assessment's testers directory
-     */
     public StatisticsReportExporter(Path outputReports, Path inputTesters) {
         this.outputReports = outputReports;
         this.inputTesters  = inputTesters;
-    }
-
-    // ================================================================
-    // PATH RESOLUTION
-    // ================================================================
-
-    private Path resolveOutputDir() {
-        return outputReports != null
-            ? outputReports.toAbsolutePath()
-            : PathConfig.OUTPUT_BASE.resolve("reports").toAbsolutePath();
     }
 
     private Path resolveInputTesters() {
@@ -88,70 +64,76 @@ public class StatisticsReportExporter {
             : PathConfig.INPUT_TESTERS.toAbsolutePath();
     }
 
-    // Shared styles
-    private XSSFCellStyle titleStyle, sectionStyle, colHeaderStyle;
-    private XSSFCellStyle normalStyle, altStyle, boldStyle;
-    private XSSFCellStyle pctStyle, pctAltStyle;
+    // Shared styles — initialised by initStyles() before any build* call
+    XSSFCellStyle titleStyle, sectionStyle, colHeaderStyle;
+    XSSFCellStyle normalStyle, altStyle, boldStyle;
+    XSSFCellStyle pctStyle, pctAltStyle;
 
+    // ── NO-OP export() ───────────────────────────────────────────────────────
+
+    /**
+     * @deprecated Stats are now embedded in IS442-ScoreSheet-Updated.xlsx.
+     *             Call ScoreSheetExporter.export() instead.
+     */
+    @Deprecated
     public Path export(Map<String, List<GradingResult>> resultsByStudent) throws IOException {
-
-        Path outputDir = resolveOutputDir();
-        Files.createDirectories(outputDir);
-        Path outputFile = outputDir.resolve(FILENAME);
-
-        // Pre-compute data
-        List<GradingResult> allResults = resultsByStudent.values().stream()
-                .flatMap(Collection::stream).collect(Collectors.toList());
-
-        Map<String, Double>              maxScores  = ScoreAnalyzer.inferMaxScores(allResults, resolveInputTesters());
-        Map<String, List<GradingResult>> byQuestion = ScoreAnalyzer.groupByQuestion(allResults);
-
-        List<String> qOrder = new ArrayList<>(maxScores.keySet());
-        qOrder.sort(ScoreSheetExporter::naturalCompare);
-
-        double totalMax    = maxScores.values().stream().mapToDouble(Double::doubleValue).sum();
-        List<StudentRecord> ranked = buildRanked(resultsByStudent, totalMax);
-        int    n           = ranked.size();
-        double classAvg    = ranked.stream().mapToDouble(r -> r.total).average().orElse(0.0);
-        double classAvgPct = totalMax > 0 ? classAvg / totalMax * 100.0 : 0.0;
-        double median      = calcMedian(ranked.stream().mapToDouble(r -> r.total).boxed().collect(Collectors.toList()));
-        double stdDev      = calcStdDev(ranked.stream().mapToDouble(r -> r.total).boxed().collect(Collectors.toList()), classAvg);
-        long   cPass       = ranked.stream().filter(r -> r.pct >= PASS).count();
-        long   cA = ranked.stream().filter(r -> r.pct >= A_MIN).count();
-        long   cB = ranked.stream().filter(r -> r.pct >= B_MIN && r.pct < A_MIN).count();
-        long   cC = ranked.stream().filter(r -> r.pct >= C_MIN && r.pct < B_MIN).count();
-        long   cD = ranked.stream().filter(r -> r.pct >= D_MIN && r.pct < C_MIN).count();
-        long   cF = ranked.stream().filter(r -> r.pct < D_MIN).count();
-
-        XSSFWorkbook wb = new XSSFWorkbook();
-        initStyles(wb);
-
-        buildDashboard(wb, n, totalMax, classAvg, classAvgPct, median, stdDev, cPass, ranked);
-        buildGradeDist(wb, n, cA, cB, cC, cD, cF);
-        buildQuestions(wb, qOrder, maxScores, byQuestion);
-        buildRanking(wb, ranked, totalMax);
-        buildMatrix(wb, ranked, qOrder, maxScores, totalMax, classAvg, classAvgPct, byQuestion);
-        buildAnomalies(wb, ranked, qOrder, totalMax, byQuestion);
-
-        try (OutputStream out = Files.newOutputStream(outputFile)) {
-            wb.write(out);
-        }
-        wb.close();
-        return outputFile;
+        System.out.println("ℹ️  StatisticsReportExporter.export() — stats are now embedded in the score sheet.");
+        return null;
     }
 
-    // ── Sheet 1: Dashboard ──────────────────────────────────────────────────
+    // ── PACKAGE-PRIVATE: append all stats sheets to an existing workbook ─────
+    // Called by ScoreSheetExporter after writing Score Sheet + Anomalies tabs.
 
-    private void buildDashboard(XSSFWorkbook wb, int n, double totalMax,
-                                 double classAvg, double classAvgPct,
-                                 double median, double stdDev, long cPass,
-                                 List<StudentRecord> ranked) {
+    void appendStatsSheets(XSSFWorkbook wb,
+                           Map<String, List<GradingResult>> resultsByStudent) {
+        try {
+            List<GradingResult> allResults = resultsByStudent.values().stream()
+                    .flatMap(Collection::stream).collect(Collectors.toList());
+
+            Map<String, Double>              maxScores  = ScoreAnalyzer.inferMaxScores(allResults, resolveInputTesters());
+            Map<String, List<GradingResult>> byQuestion = ScoreAnalyzer.groupByQuestion(allResults);
+
+            List<String> qOrder = new ArrayList<>(maxScores.keySet());
+            qOrder.sort(ScoreSheetExporter::naturalCompare);
+
+            double totalMax    = maxScores.values().stream().mapToDouble(Double::doubleValue).sum();
+            List<StudentRecord> ranked = buildRanked(resultsByStudent, totalMax);
+            int    n           = ranked.size();
+            double classAvg    = ranked.stream().mapToDouble(r -> r.total).average().orElse(0.0);
+            double classAvgPct = totalMax > 0 ? classAvg / totalMax * 100.0 : 0.0;
+            double median      = calcMedian(ranked.stream().mapToDouble(r -> r.total).boxed().collect(Collectors.toList()));
+            double stdDev      = calcStdDev(ranked.stream().mapToDouble(r -> r.total).boxed().collect(Collectors.toList()), classAvg);
+            long   cPass       = ranked.stream().filter(r -> r.pct >= PASS).count();
+            long   cA = ranked.stream().filter(r -> r.pct >= A_MIN).count();
+            long   cB = ranked.stream().filter(r -> r.pct >= B_MIN && r.pct < A_MIN).count();
+            long   cC = ranked.stream().filter(r -> r.pct >= C_MIN && r.pct < B_MIN).count();
+            long   cD = ranked.stream().filter(r -> r.pct >= D_MIN && r.pct < C_MIN).count();
+            long   cF = ranked.stream().filter(r -> r.pct < D_MIN).count();
+
+            initStyles(wb);
+            buildDashboard(wb, n, totalMax, classAvg, classAvgPct, median, stdDev, cPass, ranked);
+            buildGradeDist(wb, n, cA, cB, cC, cD, cF);
+            buildQuestions(wb, qOrder, maxScores, byQuestion);
+            buildRanking(wb, ranked, totalMax);
+            buildMatrix(wb, ranked, qOrder, maxScores, totalMax, classAvg, classAvgPct, byQuestion);
+
+        } catch (Exception e) {
+            System.err.println("❌ Statistics sheet generation failed: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    // ── Dashboard ────────────────────────────────────────────────────────────
+
+    void buildDashboard(XSSFWorkbook wb, int n, double totalMax,
+                        double classAvg, double classAvgPct,
+                        double median, double stdDev, long cPass,
+                        List<StudentRecord> ranked) {
         XSSFSheet s = wb.createSheet("Dashboard");
         s.setColumnWidth(0, 10000);
         s.setColumnWidth(1, 8000);
         s.setColumnWidth(2, 5000);
 
-        // Title row
         Row titleRow = s.createRow(0);
         titleRow.setHeightInPoints(36);
         XSSFCell tc = (XSSFCell) titleRow.createCell(0);
@@ -159,14 +141,12 @@ public class StatisticsReportExporter {
         tc.setCellStyle(titleStyle);
         s.addMergedRegion(new CellRangeAddress(0, 0, 0, 2));
 
-        // Timestamp
         Row tsRow = s.createRow(1);
         cell(tsRow, 0, "Generated: " + LocalDateTime.now()
                 .format(DateTimeFormatter.ofPattern("dd MMM yyyy  HH:mm:ss")), normalStyle);
         s.addMergedRegion(new CellRangeAddress(1, 1, 0, 2));
 
-        s.createRow(2); // blank
-
+        s.createRow(2);
         sectionRow(s, 3, "CLASS DASHBOARD", 3);
 
         Row hdr = s.createRow(4);
@@ -208,15 +188,14 @@ public class StatisticsReportExporter {
         }
     }
 
-    // ── Sheet 2: Grade Distribution ────────────────────────────────────────
+    // ── Grade Distribution ───────────────────────────────────────────────────
 
-    private void buildGradeDist(XSSFWorkbook wb, int n,
-                                 long cA, long cB, long cC, long cD, long cF) {
+    void buildGradeDist(XSSFWorkbook wb, int n,
+                        long cA, long cB, long cC, long cD, long cF) {
         XSSFSheet s = wb.createSheet("Grade Distribution");
         for (int i = 0; i < 4; i++) s.setColumnWidth(i, 5000);
 
         sectionRow(s, 0, "GRADE DISTRIBUTION", 4);
-
         Row hdr = s.createRow(1);
         hdr.setHeightInPoints(20);
         cell(hdr, 0, "Grade",      colHeaderStyle);
@@ -236,9 +215,9 @@ public class StatisticsReportExporter {
             Row r = s.createRow(2 + i);
             r.setHeightInPoints(18);
             String bg = (String) grades[i][3];
-            XSSFCellStyle cs  = cloneWithBg(wb, boldStyle,   bg);
-            XSSFCellStyle ds  = cloneWithBg(wb, normalStyle, bg);
-            XSSFCellStyle ps  = cloneWithBg(wb, pctStyle,    bg);
+            XSSFCellStyle cs = cloneWithBg(wb, boldStyle,   bg);
+            XSSFCellStyle ds = cloneWithBg(wb, normalStyle, bg);
+            XSSFCellStyle ps = cloneWithBg(wb, pctStyle,    bg);
             cell(r, 0, (String) grades[i][0], cs);
             cell(r, 1, (String) grades[i][1], ds);
             long count = (long) grades[i][2];
@@ -246,7 +225,6 @@ public class StatisticsReportExporter {
             Cell pc = r.createCell(3); pc.setCellValue(n > 0 ? (double)count/n : 0.0); pc.setCellStyle(ps);
         }
 
-        // Totals
         Row tot = s.createRow(7);
         tot.setHeightInPoints(18);
         cell(tot, 0, "TOTAL", boldStyle);
@@ -255,13 +233,13 @@ public class StatisticsReportExporter {
         Cell tp = tot.createCell(3); tp.setCellValue(1.0); tp.setCellStyle(pctStyle);
     }
 
-    // ── Sheet 3: Question Analysis ─────────────────────────────────────────
+    // ── Question Analysis ────────────────────────────────────────────────────
 
-    private void buildQuestions(XSSFWorkbook wb, List<String> qOrder,
-                                 Map<String, Double> maxScores,
-                                 Map<String, List<GradingResult>> byQuestion) {
+    void buildQuestions(XSSFWorkbook wb, List<String> qOrder,
+                        Map<String, Double> maxScores,
+                        Map<String, List<GradingResult>> byQuestion) {
         XSSFSheet s = wb.createSheet("Question Analysis");
-        int[] widths = {4000, 4500, 4500, 4500, 4000, 4000, 4500, 4500, 4500, 5500};
+        int[] widths = {4000,4500,4500,4500,4000,4000,4500,4500,4500,5500};
         for (int i = 0; i < widths.length; i++) s.setColumnWidth(i, widths[i]);
 
         sectionRow(s, 0, "QUESTION ANALYSIS", 10);
@@ -304,11 +282,11 @@ public class StatisticsReportExporter {
         }
     }
 
-    // ── Sheet 4: Student Ranking ───────────────────────────────────────────
+    // ── Student Ranking ──────────────────────────────────────────────────────
 
-    private void buildRanking(XSSFWorkbook wb, List<StudentRecord> ranked, double totalMax) {
+    void buildRanking(XSSFWorkbook wb, List<StudentRecord> ranked, double totalMax) {
         XSSFSheet s = wb.createSheet("Student Ranking");
-        int[] widths = {3000, 7500, 5000, 5000, 5000, 3500, 3500, 4500};
+        int[] widths = {3000,7500,5000,5000,5000,3500,3500,4500};
         for (int i = 0; i < widths.length; i++) s.setColumnWidth(i, widths[i]);
 
         sectionRow(s, 0, "STUDENT RANKING", 8);
@@ -333,18 +311,18 @@ public class StatisticsReportExporter {
             numCell(r, 2, sr.total,   cs);
             numCell(r, 3, totalMax,   cs);
             Cell pc = r.createCell(4); pc.setCellValue(sr.pct/100.0); pc.setCellStyle(ps);
-            cell(r, 5, sr.grade,                     bold);
-            cell(r, 6, sr.pct >= PASS ? "PASS":"FAIL", bold);
-            cell(r, 7, "Top " + percentile + "%",    cs);
+            cell(r, 5, sr.grade,                       bold);
+            cell(r, 6, sr.pct >= PASS ? "PASS" : "FAIL", bold);
+            cell(r, 7, "Top " + percentile + "%",      cs);
         }
     }
 
-    // ── Sheet 5: Performance Matrix ────────────────────────────────────────
+    // ── Performance Matrix ───────────────────────────────────────────────────
 
-    private void buildMatrix(XSSFWorkbook wb, List<StudentRecord> ranked,
-                              List<String> qOrder, Map<String, Double> maxScores,
-                              double totalMax, double classAvg, double classAvgPct,
-                              Map<String, List<GradingResult>> byQuestion) {
+    void buildMatrix(XSSFWorkbook wb, List<StudentRecord> ranked,
+                     List<String> qOrder, Map<String, Double> maxScores,
+                     double totalMax, double classAvg, double classAvgPct,
+                     Map<String, List<GradingResult>> byQuestion) {
         XSSFSheet s = wb.createSheet("Performance Matrix");
         s.setColumnWidth(0, 7000);
         for (int i = 1; i <= qOrder.size()+2; i++) s.setColumnWidth(i, 3800);
@@ -364,12 +342,11 @@ public class StatisticsReportExporter {
             Row r = s.createRow(2+i);
             r.setHeightInPoints(18);
             cell(r, 0, sr.username, alt ? altStyle : normalStyle);
-
             for (int qi = 0; qi < qOrder.size(); qi++) {
-                double score  = sr.qScores.getOrDefault(qOrder.get(qi), 0.0);
-                double qMax   = maxScores.getOrDefault(qOrder.get(qi), 1.0);
-                double sPct   = qMax > 0 ? score / qMax : 0.0;
-                String bg     = sPct >= 1.0 ? COL_GREEN : sPct > 0 ? COL_YELLOW : COL_RED;
+                double score = sr.qScores.getOrDefault(qOrder.get(qi), 0.0);
+                double qMax  = maxScores.getOrDefault(qOrder.get(qi), 1.0);
+                double sPct  = qMax > 0 ? score / qMax : 0.0;
+                String bg    = sPct >= 1.0 ? COL_GREEN : sPct > 0 ? COL_YELLOW : COL_RED;
                 numCell(r, 1+qi, score, cloneWithBg(wb, normalStyle, bg));
             }
             numCell(r, 1+qOrder.size(), sr.total, alt ? altStyle : normalStyle);
@@ -378,7 +355,6 @@ public class StatisticsReportExporter {
             pc.setCellStyle(alt ? pctAltStyle : pctStyle);
         }
 
-        // MAX row
         Row mr = s.createRow(2+ranked.size());
         mr.setHeightInPoints(18);
         cell(mr, 0, "MAX POSSIBLE", boldStyle);
@@ -387,7 +363,6 @@ public class StatisticsReportExporter {
         numCell(mr, 1+qOrder.size(), totalMax, boldStyle);
         Cell mp = mr.createCell(2+qOrder.size()); mp.setCellValue(1.0); mp.setCellStyle(pctStyle);
 
-        // AVG row
         Row ar = s.createRow(3+ranked.size());
         ar.setHeightInPoints(18);
         cell(ar, 0, "CLASS AVERAGE", boldStyle);
@@ -399,92 +374,14 @@ public class StatisticsReportExporter {
         Cell ap = ar.createCell(2+qOrder.size()); ap.setCellValue(classAvgPct/100.0); ap.setCellStyle(pctStyle);
     }
 
-    // ── Sheet 6: Anomaly Report ────────────────────────────────────────────
+    // ── Style initialisation ─────────────────────────────────────────────────
 
-    private void buildAnomalies(XSSFWorkbook wb, List<StudentRecord> ranked,
-                                 List<String> qOrder, double totalMax,
-                                 Map<String, List<GradingResult>> byQuestion) {
-        XSSFSheet s = wb.createSheet("Anomaly Report");
-        s.setColumnWidth(0, 6500);
-        s.setColumnWidth(1, 7000);
-        s.setColumnWidth(2, 12000);
-        s.setColumnWidth(3, 14000);
-
-        sectionRow(s, 0, "ANOMALY REPORT", 4);
-        Row hdr = s.createRow(1);
-        hdr.setHeightInPoints(20);
-        cell(hdr, 0, "Type",             colHeaderStyle);
-        cell(hdr, 1, "Student",          colHeaderStyle);
-        cell(hdr, 2, "Detail",           colHeaderStyle);
-        cell(hdr, 3, "Suggested Action", colHeaderStyle);
-
-        int row = 2;
-        boolean any = false;
-
-        for (StudentRecord sr : ranked) {
-            if (sr.total == 0.0) {
-                row = anomRow(wb, s, row, "ZERO SCORE", sr.username,
-                        "Student scored 0 on all questions",
-                        "Check for infinite loop / compile error / missing submission", COL_RED);
-                any = true;
-            }
-            List<String> missing = qOrder.stream().filter(q -> !sr.qScores.containsKey(q)).collect(Collectors.toList());
-            if (!missing.isEmpty()) {
-                row = anomRow(wb, s, row, "MISSING QUESTION", sr.username,
-                        "No score recorded for: " + String.join(", ", missing),
-                        "Verify submission structure — file may be absent", COL_RED);
-                any = true;
-            }
-            for (String qid : qOrder) {
-                if (sr.qScores.getOrDefault(qid, -1.0) == 0.0 && sr.total > 0) {
-                    row = anomRow(wb, s, row, "ZERO ON QUESTION", sr.username,
-                            "Scored 0 on " + qid + " but passed other questions",
-                            "Check for hard-coding / infinite loop / compile error on " + qid, COL_YELLOW);
-                    any = true;
-                }
-            }
-            if (sr.pct == 100.0) {
-                row = anomRow(wb, s, row, "PERFECT SCORE", sr.username,
-                        "Student achieved 100% — " + fmt(sr.total) + " of " + fmt(totalMax),
-                        "Verify solution is not hard-coded to test cases", COL_YELLOW);
-                any = true;
-            }
-        }
-        for (String qid : qOrder) {
-            List<GradingResult> qr = byQuestion.getOrDefault(qid, Collections.emptyList());
-            if (!qr.isEmpty() && qr.stream().allMatch(r -> r.getScore() == 0.0)) {
-                row = anomRow(wb, s, row, "QUESTION ALL-ZERO", "ALL STUDENTS",
-                        "Every student scored 0 on " + qid,
-                        "Check tester file for " + qid + " — possible tester bug or wrong expected output", COL_RED);
-                any = true;
-            }
-        }
-        if (!any)
-            anomRow(wb, s, row, "No anomalies detected", "", "All students have complete submissions", "", COL_GREEN);
-    }
-
-    private int anomRow(XSSFWorkbook wb, XSSFSheet s, int rowIdx,
-                         String type, String student, String detail, String action, String bg) {
-        XSSFCellStyle bold = cloneWithBg(wb, boldStyle,   bg);
-        XSSFCellStyle norm = cloneWithBg(wb, normalStyle, bg);
-        Row r = s.createRow(rowIdx);
-        r.setHeightInPoints(18);
-        cell(r, 0, type,    bold);
-        cell(r, 1, student, norm);
-        cell(r, 2, detail,  norm);
-        cell(r, 3, action,  norm);
-        return rowIdx + 1;
-    }
-
-    // ── Style initialisation ───────────────────────────────────────────────
-
-    private void initStyles(XSSFWorkbook wb) {
+    void initStyles(XSSFWorkbook wb) {
         Font nf = wb.createFont(); nf.setFontName("Arial"); nf.setFontHeightInPoints((short)10);
         Font bf = wb.createFont(); bf.setFontName("Arial"); bf.setFontHeightInPoints((short)10); bf.setBold(true);
         Font wf = wb.createFont(); wf.setFontName("Arial"); wf.setFontHeightInPoints((short)16); wf.setBold(true); wf.setColor(IndexedColors.WHITE.getIndex());
         Font sf = wb.createFont(); sf.setFontName("Arial"); sf.setFontHeightInPoints((short)12); sf.setBold(true); sf.setColor(IndexedColors.WHITE.getIndex());
         Font hf = wb.createFont(); hf.setFontName("Arial"); hf.setFontHeightInPoints((short)10); hf.setBold(true); hf.setColor(IndexedColors.WHITE.getIndex());
-
         DataFormat df = wb.createDataFormat();
 
         titleStyle = wb.createCellStyle();
@@ -523,9 +420,9 @@ public class StatisticsReportExporter {
         pctAltStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
     }
 
-    // ── Cell helpers ───────────────────────────────────────────────────────
+    // ── Cell helpers ─────────────────────────────────────────────────────────
 
-    private void sectionRow(XSSFSheet s, int rowIdx, String title, int cols) {
+    void sectionRow(XSSFSheet s, int rowIdx, String title, int cols) {
         Row r = s.createRow(rowIdx);
         r.setHeightInPoints(22);
         XSSFCell c = (XSSFCell) r.createCell(0);
@@ -534,15 +431,15 @@ public class StatisticsReportExporter {
         if (cols > 1) s.addMergedRegion(new CellRangeAddress(rowIdx, rowIdx, 0, cols-1));
     }
 
-    private void cell(Row r, int col, String val, CellStyle style) {
+    void cell(Row r, int col, String val, CellStyle style) {
         Cell c = r.createCell(col); c.setCellValue(val); c.setCellStyle(style);
     }
 
-    private void numCell(Row r, int col, double val, CellStyle style) {
+    void numCell(Row r, int col, double val, CellStyle style) {
         Cell c = r.createCell(col); c.setCellValue(val); c.setCellStyle(style);
     }
 
-    private XSSFCellStyle cloneWithBg(XSSFWorkbook wb, XSSFCellStyle base, String hex) {
+    XSSFCellStyle cloneWithBg(XSSFWorkbook wb, XSSFCellStyle base, String hex) {
         XSSFCellStyle s = wb.createCellStyle();
         s.cloneStyleFrom(base);
         s.setFillForegroundColor(new XSSFColor(hexRGB(hex), null));
@@ -550,7 +447,7 @@ public class StatisticsReportExporter {
         return s;
     }
 
-    private static byte[] hexRGB(String hex) {
+    static byte[] hexRGB(String hex) {
         return new byte[]{
             (byte) Integer.parseInt(hex.substring(0,2), 16),
             (byte) Integer.parseInt(hex.substring(2,4), 16),
@@ -558,28 +455,30 @@ public class StatisticsReportExporter {
         };
     }
 
-    // ── Data model ─────────────────────────────────────────────────────────
+    // ── Data model ────────────────────────────────────────────────────────────
 
-    private static class StudentRecord {
+    static class StudentRecord {
         String username; double total, pct; String grade; Map<String, Double> qScores;
         StudentRecord(String u, double t, double p, String g, Map<String, Double> q) {
             username=u; total=t; pct=p; grade=g; qScores=q;
         }
     }
 
-    private List<StudentRecord> buildRanked(Map<String, List<GradingResult>> map, double totalMax) {
+    List<StudentRecord> buildRanked(Map<String, List<GradingResult>> map, double totalMax) {
         List<StudentRecord> list = new ArrayList<>();
         for (Map.Entry<String, List<GradingResult>> e : map.entrySet()) {
             Map<String, Double> qs = new LinkedHashMap<>();
             double total = 0.0;
-            for (GradingResult r : e.getValue()) { qs.put(r.getTask().getQuestionId(), r.getScore()); total += r.getScore(); }
+            for (GradingResult r : e.getValue()) {
+                qs.put(r.getTask().getQuestionId(), r.getScore());
+                total += r.getScore();
+            }
             double pct = totalMax > 0 ? total/totalMax*100.0 : 0.0;
             list.add(new StudentRecord(e.getKey(), total, pct, grade(pct), qs));
         }
         list.sort((a, b) -> Double.compare(b.total, a.total));
         return list;
     }
-    // ── Utility helpers ────────────────────────────────────────────────────────
 
     private String fmt(double v) {
         return v == Math.floor(v) ? String.valueOf((int) v) : String.format("%.2f", v);
@@ -599,19 +498,12 @@ public class StatisticsReportExporter {
     }
 
     private String grade(double p) {
-        if (p >= 80) return "A";
-        if (p >= 70) return "B";
-        if (p >= 60) return "C";
-        if (p >= 50) return "D";
-        return "F";
+        if (p >= 80) return "A"; if (p >= 70) return "B";
+        if (p >= 60) return "C"; if (p >= 50) return "D"; return "F";
     }
 
     private String difficulty(double p) {
-        if (p >= 85) return "Easy";
-        if (p >= 65) return "Moderate";
-        if (p >= 40) return "Hard";
-        return "Very Hard";
+        if (p >= 85) return "Easy"; if (p >= 65) return "Moderate";
+        if (p >= 40) return "Hard"; return "Very Hard";
     }
-
-
 }

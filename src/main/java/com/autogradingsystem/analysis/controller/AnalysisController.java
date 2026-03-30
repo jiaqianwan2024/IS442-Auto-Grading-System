@@ -16,42 +16,43 @@ import java.util.Map;
  * AnalysisController
  *
  * Orchestrates the full analysis pipeline:
- * 1. Console display of grading results
- * 2. Export official score sheet → IS442-ScoreSheet-Updated.xlsx (two tabs)
- * 3. Export statistics report    → IS442-Statistics.xlsx
+ *   1. Console display of grading results
+ *   2. Export combined score sheet → IS442-ScoreSheet-Updated.xlsx
+ *      (7 tabs: Score Sheet, Anomalies, Dashboard, Grade Distribution,
+ *       Question Analysis, Student Ranking, Performance Matrix)
+ *
+ * NOTE: IS442-Statistics.xlsx is no longer produced as a separate file.
+ * All statistics are embedded in IS442-ScoreSheet-Updated.xlsx by ScoreSheetExporter,
+ * which calls StatisticsReportExporter.appendStatsSheets() on the same workbook.
  */
 public class AnalysisController {
 
-    private final ScoreSheetExporter       scoreSheetExporter;
-    private final StatisticsReportExporter statisticsReportExporter;
-    private final java.nio.file.Path       inputTesters;
+    private final ScoreSheetExporter scoreSheetExporter;
+    private final Path               inputTesters;
 
-    /**
-     * Default constructor — uses global PathConfig static paths.
-     * Called by GradingService for the standard single-assessment flow.
-     * Behaviour is identical to the original constructor.
-     */
+    // ── CONSTRUCTORS ─────────────────────────────────────────────────────────
+
+    /** Default — uses global PathConfig (single-assessment flow). */
     public AnalysisController() {
-        this.scoreSheetExporter       = new ScoreSheetExporter();
-        this.statisticsReportExporter = new StatisticsReportExporter();
-        this.inputTesters             = null;
+        this.scoreSheetExporter = new ScoreSheetExporter();
+        this.inputTesters       = null;
     }
 
     /**
-     * Path-aware constructor for multi-assessment support.
+     * Path-aware — multi-assessment support.
      *
      * @param csvScoresheet Path to the scoresheet CSV for this assessment
      * @param outputReports Path to the reports output directory for this assessment
      * @param inputTesters  Path to this assessment's testers directory
      */
     public AnalysisController(Path csvScoresheet, Path outputReports, Path inputTesters) {
-        this.scoreSheetExporter       = new ScoreSheetExporter(csvScoresheet, outputReports, inputTesters);
-        this.statisticsReportExporter = new StatisticsReportExporter(outputReports, inputTesters);
-        this.inputTesters             = inputTesters;
+        this.scoreSheetExporter = new ScoreSheetExporter(csvScoresheet, outputReports, inputTesters);
+        this.inputTesters       = inputTesters;
     }
 
-    // ── Original overload — backward compatible ────────────────────────────
+    // ── PUBLIC API ────────────────────────────────────────────────────────────
 
+    /** Backward-compatible overload — no plagiarism notes. */
     public void analyzeAndDisplay(List<GradingResult> results,
                                   Map<String, String> remarksByStudent,
                                   Map<String, String> anomalyRemarks,
@@ -60,11 +61,10 @@ public class AnalysisController {
                           Collections.emptyMap());
     }
 
-    // ── Full overload — includes plagiarism notes ──────────────────────────
-
     /**
+     * Full overload — includes plagiarism notes.
+     *
      * @param plagiarismNotes studentId → plagiarism note for the "Plagiarism" column.
-     *                        e.g. "Q1a: flagged with ping.lee.2023 (87.3%)"
      *                        Pass Collections.emptyMap() if check was not run.
      */
     public void analyzeAndDisplay(List<GradingResult> results,
@@ -73,8 +73,8 @@ public class AnalysisController {
                                   List<Student> allStudents,
                                   Map<String, String> plagiarismNotes) {
 
-        java.nio.file.Path testersDir = inputTesters != null
-                ? inputTesters : com.autogradingsystem.PathConfig.INPUT_TESTERS;
+        Path testersDir = inputTesters != null ? inputTesters : PathConfig.INPUT_TESTERS;
+
         Map<String, Double>              maxScores      = ScoreAnalyzer.inferMaxScores(results, testersDir);
         List<GradingResult>              updatedResults = ScoreAnalyzer.updateWithMaxScores(results, testersDir);
         Map<String, List<GradingResult>> byStudent      = ScoreAnalyzer.groupByStudent(updatedResults);
@@ -86,18 +86,16 @@ public class AnalysisController {
         displayCompactView(byStudent, maxScores);
         displayOverallStatistics(byStudent, maxScores);
 
-        exportBothReports(byStudent, remarksByStudent, anomalyRemarks, allStudents, plagiarismNotes);
+        exportReport(byStudent, remarksByStudent, anomalyRemarks, allStudents, plagiarismNotes);
     }
 
-    // ================================================================
-    // PRIVATE — EXPORT
-    // ================================================================
+    // ── PRIVATE: EXPORT ───────────────────────────────────────────────────────
 
-    private void exportBothReports(Map<String, List<GradingResult>> byStudent,
-                                   Map<String, String> remarksByStudent,
-                                   Map<String, String> anomalyRemarks,
-                                   List<Student> allStudents,
-                                   Map<String, String> plagiarismNotes) {
+    private void exportReport(Map<String, List<GradingResult>> byStudent,
+                              Map<String, String> remarksByStudent,
+                              Map<String, String> anomalyRemarks,
+                              List<Student> allStudents,
+                              Map<String, String> plagiarismNotes) {
         System.out.println("\n" + "=".repeat(70));
         System.out.println("📄 EXPORTING REPORTS");
         System.out.println("=".repeat(70));
@@ -106,26 +104,18 @@ public class AnalysisController {
             Path scoreSheet = scoreSheetExporter.export(byStudent, remarksByStudent,
                                                         anomalyRemarks, allStudents,
                                                         plagiarismNotes);
-            System.out.println("✅ Score Sheet   → " + scoreSheet.toAbsolutePath());
+            System.out.println("✅ Score Sheet + Statistics → " + scoreSheet.toAbsolutePath());
+            System.out.println("   Tabs: Score Sheet | Anomalies | Dashboard | Grade Distribution");
+            System.out.println("         Question Analysis | Student Ranking | Performance Matrix");
         } catch (Exception e) {
             System.out.println("❌ Score Sheet export failed: " + e.getMessage());
-        }
-
-        try {
-            Path statsReport = statisticsReportExporter.export(byStudent);
-            System.out.println("✅ Statistics    → " + statsReport.toAbsolutePath());
-        } catch (Exception e) {
-            System.out.println("❌ Statistics export failed: " + e.getClass().getName()
-                    + ": " + e.getMessage());
             e.printStackTrace();
         }
 
         System.out.println("=".repeat(70));
     }
 
-    // ================================================================
-    // PRIVATE — CONSOLE DISPLAY
-    // ================================================================
+    // ── PRIVATE: CONSOLE DISPLAY ──────────────────────────────────────────────
 
     private void displayQuestionStatistics(List<GradingResult> results,
                                            Map<String, Double> maxScores) {
@@ -137,13 +127,13 @@ public class AnalysisController {
         for (Map.Entry<String, List<GradingResult>> entry : byQuestion.entrySet()) {
             String qid             = entry.getKey();
             List<GradingResult> qr = entry.getValue();
-            double max   = maxScores.getOrDefault(qid, 0.0);
-            double avg   = ScoreAnalyzer.calculateAverageScore(qr);
-            long perfect = ScoreAnalyzer.countPerfect(qr);
-            long passed  = ScoreAnalyzer.countPassed(qr);
-            long failed  = ScoreAnalyzer.countFailed(qr);
-            int total    = qr.size();
-            String pct   = max > 0 ? String.format("%.1f%%", avg / max * 100) : "N/A";
+            double max    = maxScores.getOrDefault(qid, 0.0);
+            double avg    = ScoreAnalyzer.calculateAverageScore(qr);
+            long perfect  = ScoreAnalyzer.countPerfect(qr);
+            long passed   = ScoreAnalyzer.countPassed(qr);
+            long failed   = ScoreAnalyzer.countFailed(qr);
+            int total     = qr.size();
+            String pct    = max > 0 ? String.format("%.1f%%", avg / max * 100) : "N/A";
 
             System.out.println("\n" + qid + " (" + max + " points):");
             System.out.println("  Average: " + avg + " / " + max + " (" + pct + ")");

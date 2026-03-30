@@ -15,87 +15,57 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/**
- * PlagiarismController
- *
- * Entry-point for the plagiarism microservice.
- *
- * CHANGES IN v2.8 (multi-assessment):
- * - Added path-aware constructor accepting outputExtracted path.
- * - resolveOutputExtracted() falls back to PathConfig when path is null.
- *
- * @author IS442 Team
- * @version 2.8
- */
 public class PlagiarismController {
 
-    private final PlagiarismDetector       detector;
+    private final PlagiarismDetector detector;
     private final PlagiarismReportExporter exporter;
-    private final PlagiarismConfig         config;
-
-    // ================================================================
-    // PATH FIELDS — null means "use global PathConfig" (single-assessment)
-    // ================================================================
-
+    private final PlagiarismConfig config;
     private final Path outputExtracted;
+    private final Path outputReports; // ← NEW
 
-    // ================================================================
-    // CONSTRUCTORS
-    // ================================================================
+    // ── Constructors ──────────────────────────────────────────────────────────
 
-    /** Default constructor — uses PlagiarismConfig defaults and global PathConfig. */
+    /** Single-assessment: uses global PathConfig */
     public PlagiarismController() {
-        this(new PlagiarismConfig(), null);
+        this(new PlagiarismConfig(), null, null);
     }
 
-    /**
-     * Constructor for custom thresholds — uses global PathConfig paths.
-     *
-     * @param config Custom plagiarism configuration
-     */
+    /** Custom config, global PathConfig paths */
     public PlagiarismController(PlagiarismConfig config) {
-        this(config, null);
+        this(config, null, null);
     }
 
-    /**
-     * Path-aware constructor for multi-assessment support.
-     * Called by AssessmentOrchestrator with per-assessment isolated paths.
-     *
-     * @param outputExtracted Path to the extracted students directory for this assessment
-     */
+    /** Path-aware: extracted only (legacy multi-assessment constructor) */
     public PlagiarismController(Path outputExtracted) {
-        this(new PlagiarismConfig(), outputExtracted);
+        this(new PlagiarismConfig(), outputExtracted, null);
     }
 
-    /**
-     * Full constructor — custom config + explicit path.
-     *
-     * @param config          Custom plagiarism configuration
-     * @param outputExtracted Path to the extracted students directory (null = use PathConfig)
-     */
-    public PlagiarismController(PlagiarismConfig config, Path outputExtracted) {
-        this.config          = config;
-        this.detector        = new PlagiarismDetector();
-        this.exporter        = new PlagiarismReportExporter();
+    /** Path-aware: extracted + reports (used by GradingService) */
+    public PlagiarismController(Path outputExtracted, Path outputReports) {
+        this(new PlagiarismConfig(), outputExtracted, outputReports);
+    }
+
+    /** Full constructor — everything delegates here */
+    public PlagiarismController(PlagiarismConfig config, Path outputExtracted, Path outputReports) {
+        this.config = config;
+        this.detector = new PlagiarismDetector();
+        this.exporter = new PlagiarismReportExporter();
         this.outputExtracted = outputExtracted;
+        this.outputReports = outputReports;
     }
 
-    // ================================================================
-    // PATH RESOLUTION
-    // ================================================================
+    // ── Path resolution ───────────────────────────────────────────────────────
 
     private Path resolveOutputExtracted() {
         return outputExtracted != null ? outputExtracted : PathConfig.OUTPUT_EXTRACTED;
     }
 
+    private Path resolveOutputReports() {
+        return outputReports != null ? outputReports : PathConfig.OUTPUT_REPORTS;
+    }
+
     // ── Public API ────────────────────────────────────────────────────────────
 
-    /**
-     * Runs the full plagiarism detection pipeline and exports the report.
-     *
-     * @param gradingPlan The GradingPlan produced by DiscoveryController
-     * @return PlagiarismSummary with flagged pair counts and report path
-     */
     public PlagiarismSummary runPlagiarismCheck(GradingPlan gradingPlan) {
         System.out.println("\n" + "=".repeat(70));
         System.out.println("🔍 PLAGIARISM DETECTION");
@@ -109,8 +79,8 @@ public class PlagiarismController {
         List<PlagiarismResult> results;
         try {
             results = detector.detect(resolveOutputExtracted(),
-                                      gradingPlan.getTasks(),
-                                      config);
+                    gradingPlan.getTasks(),
+                    config);
         } catch (IOException e) {
             System.out.println("❌ Plagiarism detection failed: " + e.getMessage());
             return PlagiarismSummary.empty();
@@ -118,7 +88,7 @@ public class PlagiarismController {
 
         Path reportPath = null;
         try {
-            reportPath = exporter.export(results);
+            reportPath = exporter.export(results, resolveOutputReports()); // ← KEY FIX
             System.out.println("✅ Plagiarism Report → " + reportPath.toAbsolutePath());
         } catch (IOException e) {
             System.out.println("❌ Plagiarism report export failed: " + e.getMessage());
@@ -136,12 +106,11 @@ public class PlagiarismController {
             System.out.println("🚨 " + flagged.size() + " suspicious pair(s) found:");
             flagged.forEach(r -> System.out.println(
                     "   • " + r.getStudentA() + " ↔ " + r.getStudentB()
-                    + "  [" + r.getQuestionId() + "]  "
-                    + String.format("%.1f%%", r.getSimilarityPercent())));
+                            + "  [" + r.getQuestionId() + "]  "
+                            + String.format("%.1f%%", r.getSimilarityPercent())));
         }
 
         System.out.println("=".repeat(70));
-
         return new PlagiarismSummary(results, flagged, flaggedStudents, reportPath);
     }
 
@@ -151,42 +120,43 @@ public class PlagiarismController {
         Map<String, Set<String>> map = new java.util.LinkedHashMap<>();
         for (PlagiarismResult r : flagged) {
             map.computeIfAbsent(r.getStudentA(), k -> new java.util.LinkedHashSet<>())
-               .add(r.getQuestionId());
+                    .add(r.getQuestionId());
             map.computeIfAbsent(r.getStudentB(), k -> new java.util.LinkedHashSet<>())
-               .add(r.getQuestionId());
+                    .add(r.getQuestionId());
         }
         return Collections.unmodifiableMap(map);
     }
 
-    // ── Inner class: PlagiarismSummary ────────────────────────────────────────
+    // ── PlagiarismSummary (unchanged) ─────────────────────────────────────────
 
     public static class PlagiarismSummary {
-
-        public final List<PlagiarismResult>   allResults;
-        public final List<PlagiarismResult>   flaggedResults;
+        public final List<PlagiarismResult> allResults;
+        public final List<PlagiarismResult> flaggedResults;
         public final Map<String, Set<String>> flaggedStudents;
-        public final Path                     reportPath;
+        public final Path reportPath;
 
         public PlagiarismSummary(List<PlagiarismResult> allResults,
-                                  List<PlagiarismResult> flaggedResults,
-                                  Map<String, Set<String>> flaggedStudents,
-                                  Path reportPath) {
-            this.allResults      = Collections.unmodifiableList(allResults);
-            this.flaggedResults  = Collections.unmodifiableList(flaggedResults);
+                List<PlagiarismResult> flaggedResults,
+                Map<String, Set<String>> flaggedStudents,
+                Path reportPath) {
+            this.allResults = Collections.unmodifiableList(allResults);
+            this.flaggedResults = Collections.unmodifiableList(flaggedResults);
             this.flaggedStudents = flaggedStudents;
-            this.reportPath      = reportPath;
+            this.reportPath = reportPath;
         }
 
         public static PlagiarismSummary empty() {
-            return new PlagiarismSummary(
-                    Collections.emptyList(),
-                    Collections.emptyList(),
-                    Collections.emptyMap(),
-                    null);
+            return new PlagiarismSummary(Collections.emptyList(),
+                    Collections.emptyList(), Collections.emptyMap(), null);
         }
 
-        public boolean hasSuspiciousPairs()  { return !flaggedResults.isEmpty(); }
-        public int     getFlaggedPairCount() { return flaggedResults.size(); }
+        public boolean hasSuspiciousPairs() {
+            return !flaggedResults.isEmpty();
+        }
+
+        public int getFlaggedPairCount() {
+            return flaggedResults.size();
+        }
 
         public boolean isStudentFlagged(String studentId) {
             return flaggedStudents.containsKey(studentId);
