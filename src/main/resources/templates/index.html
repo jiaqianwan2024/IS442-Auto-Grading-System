@@ -475,7 +475,7 @@ async function uploadAll() {
             assessments[a.sanitisedName] = {
                 displayName:    a.name,
                 sanitisedName:  a.sanitisedName,
-                currentStep:    1, // start at "Confirm Marks"
+                currentStep:    1,
                 hasTesters:     a.saved.includes('testers'),
                 testerSources:  {},
                 savedState:     {},
@@ -506,7 +506,6 @@ function showWizardPhase() {
     document.getElementById('uploadPhase').style.display = 'none';
     document.getElementById('wizardPhase').style.display = 'block';
     buildAssessmentTabs();
-    // Activate first assessment
     const first = Object.keys(assessments)[0];
     if (first) switchAssessment(first);
 }
@@ -525,7 +524,6 @@ function buildAssessmentTabs() {
     for (const key of Object.keys(assessments)) {
         const a = assessments[key];
 
-        // Tab
         const tab = document.createElement('div');
         tab.className = 'assess-tab';
         tab.id = 'atab-' + key;
@@ -533,7 +531,6 @@ function buildAssessmentTabs() {
         tab.onclick = () => switchAssessment(key);
         tabBar.appendChild(tab);
 
-        // Panel — contains the full 4-step wizard for this assessment
         const panel = document.createElement('div');
         panel.className = 'assess-panel';
         panel.id = 'apanel-' + key;
@@ -650,10 +647,12 @@ function buildWizardHTML(key, a) {
         <div class="download-area-card">
             <h4>Download Reports</h4>
             <div class="download-buttons-row">
-                <a class="btn-dl" href="/assessments/${key}/download?file=csv"><span>📄</span> Score Sheet (CSV)</a>
-                <a class="btn-dl" href="/assessments/${key}/download?file=scoresheet"><span>📊</span> Score Sheet (Excel)</a>
-                <a class="btn-dl" href="/assessments/${key}/download?file=excel"><span>📈</span> Statistics (Excel)</a>
-                <a class="btn-dl" href="/assessments/${key}/download?file=plagiarism"><span>🔬</span> Plagiarism Report</a>
+                <a class="btn-dl" href="/assessments/${key}/download?file=scoresheet">
+                    <span>📊</span> Score Sheet + Statistics (Excel)
+                </a>
+                <a class="btn-dl" href="/assessments/${key}/download?file=plagiarism">
+                    <span>🔬</span> Plagiarism Report (Excel)
+                </a>
             </div>
         </div>
         <div class="log-container" style="margin-top:16px;">
@@ -931,7 +930,6 @@ function handleTabKey(e) {
     const ta = e.target, s = ta.selectionStart, end = ta.selectionEnd;
     ta.value = ta.value.substring(0, s) + '    ' + ta.value.substring(end);
     ta.selectionStart = ta.selectionEnd = s + 4;
-    // Find which assessment this editor belongs to
     const key = activeAssessment;
     if (key) markUnsaved(key);
 }
@@ -991,7 +989,6 @@ async function doGrade(key) {
     const a = assessments[key];
     flushActiveEditor(key);
 
-    // Save all testers to disk first
     if (Object.keys(a.testerSources).length > 0) {
         const ok = await callSaveTesters(key, a.testerSources);
         if (!ok) return;
@@ -1004,7 +1001,6 @@ async function doGrade(key) {
     document.getElementById(key + '-gradingSection').style.display = 'block';
     document.getElementById(key + '-gradingSection').scrollIntoView({ behavior:'smooth' });
 
-    // Simulate progress
     const fill = document.getElementById(key + '-progressFill');
     const label = document.getElementById(key + '-progressLabel');
     const stages = ['Extracting...','Discovering...','Compiling...','Grading...','Analyzing...'];
@@ -1061,14 +1057,12 @@ async function doGrade(key) {
 // ── Skip to grade (for assessments with pre-uploaded testers) ─────────────────
 
 async function skipToGrade(key) {
-    // No tester sources to save — they were uploaded as a ZIP
     assessments[key].testerSources = {};
     wizardGotoStep(key, 3);
     document.getElementById(key + '-marksSection').style.display = 'none';
     document.getElementById(key + '-gradingSection').style.display = 'block';
     document.getElementById(key + '-gradingSection').scrollIntoView({ behavior:'smooth' });
 
-    // Run grading directly
     updateTabStatus(key, 3, 'Grading...', 'step-2');
 
     const fill = document.getElementById(key + '-progressFill');

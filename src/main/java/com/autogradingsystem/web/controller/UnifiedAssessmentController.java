@@ -2,7 +2,6 @@ package com.autogradingsystem.web.controller;
 
 import com.autogradingsystem.multiassessment.AssessmentPathConfig;
 import com.autogradingsystem.web.service.GradingService;
-import com.autogradingsystem.testcasegenerator.service.ExamPaperParser;
 
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
@@ -20,62 +19,33 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 /**
- * UnifiedAssessmentController - Unified entry point for 1–5 assessments.
- *
- * REPLACES the separate Single Assessment + Multi Assessment tabs with ONE flow:
- *
- *   Landing page:  Upload 1–5 assessments (each with submissions, template,
- *                  scoresheet, exam PDF, and optionally a testers ZIP).
- *
- *   Per assessment: Each assessment gets its own tab running the full 4-step
- *                   single-assessment wizard:
- *                     Step 1 — Upload (done from landing page)
- *                     Step 2 — Confirm Marks   → POST /assessments/{name}/parse-exam-marks
- *                     Step 3 — Review Testers  → POST /assessments/{name}/generate-testers
- *                                              → POST /assessments/{name}/save-testers
- *                     Step 4 — Grade           → POST /assessments/{name}/grade
+ * UnifiedAssessmentController — Unified entry point for 1–5 assessments.
  *
  * ROUTES:
- *   POST   /assessments/upload              — Upload 1–5 assessments in one request
- *   GET    /assessments/status              — List all assessments with readiness flags
- *   POST   /assessments/{name}/parse-exam-marks   — LLM reads exam PDF for one assessment
- *   POST   /assessments/{name}/generate-testers   — LLM generates testers for one assessment
- *   POST   /assessments/{name}/save-testers       — Save examiner-edited testers for one assessment
- *   POST   /assessments/{name}/grade              — Run full pipeline for one assessment
- *   GET    /assessments/{name}/download           — Download report for one assessment
+ *   POST   /assessments/upload                    — Upload 1–5 assessments
+ *   GET    /assessments/status                    — List assessments with readiness flags
+ *   POST   /assessments/{name}/parse-exam-marks   — LLM reads exam PDF
+ *   POST   /assessments/{name}/generate-testers   — LLM generates tester source (review only)
+ *   POST   /assessments/{name}/save-testers       — Save examiner-edited testers
+ *   POST   /assessments/{name}/grade              — Run full 7-phase pipeline
+ *   GET    /assessments/{name}/download           — Download report (?file=csv|scoresheet|plagiarism)
  *   POST   /assessments/clear                     — Clear all or one assessment
  *
- * DESIGN:
- *   - Each assessment is stored under resources/assessments/<sanitised-name>/
- *   - Per-assessment endpoints instantiate path-aware controllers/services
- *     using AssessmentPathConfig so each assessment is fully isolated.
- *   - The existing single-assessment flow (GradingController, TestCaseReviewController)
- *     is completely unchanged and still available at the old routes.
+ * OUTPUTS per assessment:
+ *   IS442-ScoreSheet-Updated.xlsx  — Score Sheet + Anomalies + all statistics tabs
+ *   IS442-ScoreSheet-Updated.csv   — CSV sidecar (used by status checks)
+ *   IS442-Plagiarism-Report.xlsx   — Plagiarism flagged + all-pairs report
  *
- * @author IS442 Team
- * @version 4.0 (Unified Assessment)
+ * NOTE: IS442-Statistics.xlsx is no longer produced. Statistics tabs are
+ * embedded directly inside IS442-ScoreSheet-Updated.xlsx.
  */
 @RestController
 public class UnifiedAssessmentController {
 
-    // Maximum number of assessments allowed in one upload
     private static final int MAX_ASSESSMENTS = 5;
 
-    // =====================================================================
-    // POST /assessments/upload — Upload 1–5 assessments
-    // =====================================================================
+    // ── POST /assessments/upload ──────────────────────────────────────────────
 
-    /**
-     * Accepts N sets of files (1 ≤ N ≤ 5) in a single multipart request.
-     *
-     * Form params (all are lists, matched by index):
-     *   name[]        — assessment names, e.g. "Midterm 2526", "Lab Test 1"
-     *   submission[]   — student-submission.zip per assessment
-     *   template[]     — RenameToYourUsername.zip per assessment
-     *   scoresheet[]   — IS442-ScoreSheet.csv per assessment
-     *   examPdf[]      — exam-paper.pdf per assessment
-     *   testers[]      — (optional) pre-made testers ZIP per assessment
-     */
     @PostMapping("/assessments/upload")
     public ResponseEntity<Map<String, Object>> handleUpload(
             @RequestParam(value = "name",       required = false) List<String>        names,
@@ -86,14 +56,12 @@ public class UnifiedAssessmentController {
             @RequestParam(value = "testers",    required = false) List<MultipartFile> testerZips) {
 
         Map<String, Object> response = new LinkedHashMap<>();
-
         try {
             if (names == null || names.isEmpty()) {
                 response.put("success", false);
                 response.put("message", "No assessment names provided.");
                 return ResponseEntity.badRequest().body(response);
             }
-
             if (names.size() > MAX_ASSESSMENTS) {
                 response.put("success", false);
                 response.put("message", "Maximum " + MAX_ASSESSMENTS + " assessments allowed.");
@@ -114,42 +82,27 @@ public class UnifiedAssessmentController {
                 List<String> saved   = new ArrayList<>();
                 List<String> missing = new ArrayList<>();
 
-                // Submission ZIP
                 if (hasFile(submissions, i)) {
-                    saveFile(submissions.get(i),
-                            paths.INPUT_SUBMISSIONS.resolve("student-submission.zip"));
+                    saveFile(submissions.get(i), paths.INPUT_SUBMISSIONS.resolve("student-submission.zip"));
                     saved.add("submission");
-                } else {
-                    missing.add("submission");
-                }
+                } else { missing.add("submission"); }
 
-                // Template ZIP
                 if (hasFile(templates, i)) {
-                    saveFile(templates.get(i),
-                            paths.INPUT_TEMPLATE.resolve("RenameToYourUsername.zip"));
+                    saveFile(templates.get(i), paths.INPUT_TEMPLATE.resolve("RenameToYourUsername.zip"));
                     saved.add("template");
-                } else {
-                    missing.add("template");
-                }
+                } else { missing.add("template"); }
 
-                // Scoresheet CSV
                 if (hasFile(scoresheets, i)) {
                     saveFile(scoresheets.get(i), paths.CSV_SCORESHEET);
                     saved.add("scoresheet");
-                } else {
-                    missing.add("scoresheet");
-                }
+                } else { missing.add("scoresheet"); }
 
-                // Exam PDF
                 if (hasFile(examPdfs, i)) {
                     saveFile(examPdfs.get(i),
                             paths.INPUT_EXAM.resolve(examPdfs.get(i).getOriginalFilename()));
                     saved.add("examPdf");
-                } else {
-                    missing.add("examPdf");
-                }
+                } else { missing.add("examPdf"); }
 
-                // Testers ZIP (optional — examiner can generate via LLM instead)
                 if (hasFile(testerZips, i)) {
                     extractZip(testerZips.get(i), paths.INPUT_TESTERS);
                     flattenDirectory(paths.INPUT_TESTERS);
@@ -158,9 +111,8 @@ public class UnifiedAssessmentController {
 
                 result.put("saved",   saved);
                 result.put("missing", missing);
-                result.put("ready",   missing.isEmpty() || 
+                result.put("ready",   missing.isEmpty() ||
                         (missing.size() == 1 && missing.contains("examPdf") && saved.contains("testers")));
-
                 assessmentResults.add(result);
             }
 
@@ -177,9 +129,7 @@ public class UnifiedAssessmentController {
         }
     }
 
-    // =====================================================================
-    // GET /assessments/status — List all uploaded assessments
-    // =====================================================================
+    // ── GET /assessments/status ───────────────────────────────────────────────
 
     @GetMapping("/assessments/status")
     public ResponseEntity<Map<String, Object>> getStatus() {
@@ -195,18 +145,20 @@ public class UnifiedAssessmentController {
                         AssessmentPathConfig paths = new AssessmentPathConfig(name);
 
                         Map<String, Object> info = new LinkedHashMap<>();
-                        info.put("name",           name);
-                        info.put("sanitisedName",  name);
-                        info.put("hasSubmission",  Files.isDirectory(paths.INPUT_SUBMISSIONS) && hasFilesIn(paths.INPUT_SUBMISSIONS));
-                        info.put("hasTemplate",    Files.isDirectory(paths.INPUT_TEMPLATE) && hasFilesIn(paths.INPUT_TEMPLATE));
-                        info.put("hasScoresheet",  Files.exists(paths.CSV_SCORESHEET));
-                        info.put("hasExamPdf",     Files.isDirectory(paths.INPUT_EXAM) && hasPdfIn(paths.INPUT_EXAM));
-                        info.put("hasTesters",     Files.isDirectory(paths.INPUT_TESTERS) && hasJavaFiles(paths.INPUT_TESTERS));
-                        info.put("hasReports",     Files.exists(paths.OUTPUT_REPORTS.resolve("IS442-ScoreSheet-Updated.csv"))
-                                                   || Files.exists(paths.OUTPUT_REPORTS.resolve("IS442-ScoreSheet-Updated.xlsx")));
-                        info.put("ready",          (boolean) info.get("hasSubmission")
-                                                   && (boolean) info.get("hasTemplate")
-                                                   && (boolean) info.get("hasScoresheet"));
+                        info.put("name",          name);
+                        info.put("sanitisedName", name);
+                        info.put("hasSubmission", Files.isDirectory(paths.INPUT_SUBMISSIONS) && hasFilesIn(paths.INPUT_SUBMISSIONS));
+                        info.put("hasTemplate",   Files.isDirectory(paths.INPUT_TEMPLATE)   && hasFilesIn(paths.INPUT_TEMPLATE));
+                        info.put("hasScoresheet", Files.exists(paths.CSV_SCORESHEET));
+                        info.put("hasExamPdf",    Files.isDirectory(paths.INPUT_EXAM)       && hasPdfIn(paths.INPUT_EXAM));
+                        info.put("hasTesters",    Files.isDirectory(paths.INPUT_TESTERS)    && hasJavaFiles(paths.INPUT_TESTERS));
+                        // hasReports: true when the combined scoresheet XLSX exists
+                        info.put("hasReports",
+                                Files.exists(paths.OUTPUT_REPORTS.resolve("IS442-ScoreSheet-Updated.xlsx"))
+                             || Files.exists(paths.OUTPUT_REPORTS.resolve("IS442-ScoreSheet-Updated.csv")));
+                        info.put("ready", (boolean) info.get("hasSubmission")
+                                       && (boolean) info.get("hasTemplate")
+                                       && (boolean) info.get("hasScoresheet"));
                         assessments.add(info);
                     });
                 }
@@ -224,14 +176,8 @@ public class UnifiedAssessmentController {
         }
     }
 
-    // =====================================================================
-    // POST /assessments/{name}/parse-exam-marks
-    // =====================================================================
+    // ── POST /assessments/{name}/parse-exam-marks ─────────────────────────────
 
-    /**
-     * LLM reads the exam PDF for one assessment and returns detected marks.
-     * Delegates to a path-aware TestCaseReviewController instance.
-     */
     @PostMapping("/assessments/{name}/parse-exam-marks")
     public ResponseEntity<Map<String, Object>> parseExamMarks(@PathVariable String name) {
         AssessmentPathConfig paths = new AssessmentPathConfig(name);
@@ -240,14 +186,8 @@ public class UnifiedAssessmentController {
         return reviewer.parseExamMarks();
     }
 
-    // =====================================================================
-    // POST /assessments/{name}/generate-testers
-    // =====================================================================
+    // ── POST /assessments/{name}/generate-testers ─────────────────────────────
 
-    /**
-     * Generates *Tester.java source for one assessment using confirmed marks.
-     * Returns raw source for examiner review — does NOT write files.
-     */
     @PostMapping("/assessments/{name}/generate-testers")
     public ResponseEntity<Map<String, Object>> generateTesters(
             @PathVariable String name,
@@ -258,13 +198,8 @@ public class UnifiedAssessmentController {
         return reviewer.generateTesters(body);
     }
 
-    // =====================================================================
-    // POST /assessments/{name}/save-testers
-    // =====================================================================
+    // ── POST /assessments/{name}/save-testers ────────────────────────────────
 
-    /**
-     * Saves examiner-edited tester source files for one assessment.
-     */
     @PostMapping("/assessments/{name}/save-testers")
     public ResponseEntity<Map<String, Object>> saveTesters(
             @PathVariable String name,
@@ -275,13 +210,8 @@ public class UnifiedAssessmentController {
         return reviewer.saveTesters(body);
     }
 
-    // =====================================================================
-    // POST /assessments/{name}/grade
-    // =====================================================================
+    // ── POST /assessments/{name}/grade ────────────────────────────────────────
 
-    /**
-     * Runs the full 7-phase grading pipeline for one assessment.
-     */
     @PostMapping("/assessments/{name}/grade")
     public ResponseEntity<Map<String, Object>> grade(@PathVariable String name) {
         Map<String, Object> response = new LinkedHashMap<>();
@@ -312,9 +242,14 @@ public class UnifiedAssessmentController {
         }
     }
 
-    // =====================================================================
-    // GET /assessments/{name}/download?file=csv|scoresheet|excel|plagiarism
-    // =====================================================================
+    // ── GET /assessments/{name}/download ──────────────────────────────────────
+    //
+    // ?file=csv          → IS442-ScoreSheet-Updated.csv
+    // ?file=scoresheet   → IS442-ScoreSheet-Updated.xlsx  (Score Sheet + Statistics tabs)
+    // ?file=plagiarism   → IS442-Plagiarism-Report.xlsx
+    //
+    // NOTE: "excel" (?file=excel) is removed — IS442-Statistics.xlsx no longer exists.
+    //       Statistics are embedded inside the scoresheet XLSX.
 
     @GetMapping("/assessments/{name}/download")
     public ResponseEntity<Resource> download(
@@ -331,12 +266,9 @@ public class UnifiedAssessmentController {
             case "scoresheet":
                 reportFile = paths.OUTPUT_REPORTS.resolve("IS442-ScoreSheet-Updated.xlsx");
                 break;
-            case "excel":
-                reportFile = paths.OUTPUT_REPORTS.resolve("IS442-Statistics.xlsx");
-                break;
             case "plagiarism":
-                reportFile = paths.OUTPUT_REPORTS.resolve("IS442-Plagiarism-Report.xlsx");
-                break;
+    reportFile = Paths.get("resources", "output", "reports", "IS442-Plagiarism-Report.xlsx");
+    break;
             default:
                 return ResponseEntity.badRequest().build();
         }
@@ -353,9 +285,7 @@ public class UnifiedAssessmentController {
                 .body(resource);
     }
 
-    // =====================================================================
-    // POST /assessments/clear — Clear all or one assessment
-    // =====================================================================
+    // ── POST /assessments/clear ───────────────────────────────────────────────
 
     @PostMapping("/assessments/clear")
     public ResponseEntity<Map<String, Object>> clear(
@@ -366,7 +296,6 @@ public class UnifiedAssessmentController {
             Path root = Paths.get("resources", "assessments");
 
             if (assessment != null && !assessment.isBlank()) {
-                // Clear one assessment
                 Path target = root.resolve(assessment);
                 if (Files.isDirectory(target)) {
                     deleteRecursive(target);
@@ -375,7 +304,6 @@ public class UnifiedAssessmentController {
                     response.put("message", "Assessment not found: " + assessment);
                 }
             } else {
-                // Clear all assessments
                 if (Files.isDirectory(root)) {
                     try (Stream<Path> dirs = Files.list(root)) {
                         dirs.filter(Files::isDirectory).forEach(this::deleteRecursive);
@@ -395,9 +323,7 @@ public class UnifiedAssessmentController {
         }
     }
 
-    // =====================================================================
-    // Private helpers
-    // =====================================================================
+    // ── PRIVATE HELPERS ───────────────────────────────────────────────────────
 
     private boolean hasFile(List<MultipartFile> files, int index) {
         return files != null && index < files.size()
@@ -417,15 +343,10 @@ public class UnifiedAssessmentController {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
                 if (entry.isDirectory()) continue;
-
-                // Skip macOS metadata
                 String entryName = entry.getName();
                 if (entryName.contains("__MACOSX") || entryName.contains(".DS_Store")) continue;
-
                 Path outPath = destination.resolve(entryName).normalize();
-                // Security: prevent zip-slip
                 if (!outPath.startsWith(destination)) continue;
-
                 Files.createDirectories(outPath.getParent());
                 Files.copy(zis, outPath, StandardCopyOption.REPLACE_EXISTING);
             }
@@ -434,34 +355,25 @@ public class UnifiedAssessmentController {
 
     private void flattenDirectory(Path dir) throws IOException {
         if (!Files.isDirectory(dir)) return;
-
-        // Move all .java files from subdirectories to root
         try (Stream<Path> walk = Files.walk(dir)) {
             walk.filter(p -> p.toString().endsWith(".java"))
                 .filter(p -> !p.getParent().equals(dir))
                 .forEach(p -> {
-                    try {
-                        Path target = dir.resolve(p.getFileName());
-                        Files.move(p, target, StandardCopyOption.REPLACE_EXISTING);
-                    } catch (IOException ignored) {}
+                    try { Files.move(p, dir.resolve(p.getFileName()), StandardCopyOption.REPLACE_EXISTING); }
+                    catch (IOException ignored) {}
                 });
         }
-
-        // Delete empty subdirectories
         try (Stream<Path> walk = Files.walk(dir)) {
             walk.sorted(Comparator.reverseOrder())
                 .filter(Files::isDirectory)
                 .filter(p -> !p.equals(dir))
-                .forEach(p -> {
-                    try { Files.deleteIfExists(p); } catch (IOException ignored) {}
-                });
+                .forEach(p -> { try { Files.deleteIfExists(p); } catch (IOException ignored) {} });
         }
     }
 
     private boolean hasFilesIn(Path dir) {
-        try (Stream<Path> s = Files.list(dir)) {
-            return s.findAny().isPresent();
-        } catch (Exception e) { return false; }
+        try (Stream<Path> s = Files.list(dir)) { return s.findAny().isPresent(); }
+        catch (Exception e) { return false; }
     }
 
     private boolean hasPdfIn(Path dir) {
@@ -479,9 +391,7 @@ public class UnifiedAssessmentController {
     private void deleteRecursive(Path dir) {
         try (Stream<Path> walk = Files.walk(dir)) {
             walk.sorted(Comparator.reverseOrder())
-                .forEach(p -> {
-                    try { Files.deleteIfExists(p); } catch (IOException ignored) {}
-                });
+                .forEach(p -> { try { Files.deleteIfExists(p); } catch (IOException ignored) {} });
         } catch (Exception ignored) {}
     }
 }

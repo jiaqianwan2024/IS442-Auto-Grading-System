@@ -20,70 +20,52 @@ import java.util.stream.Collectors;
 
 /**
  * Exports a single combined XLSX report containing:
- *   Sheet 1  — Score Sheet      (identified students)
- *   Sheet 2  — Anomalies        (unidentifiable submissions)
- *   Sheet 3  — Dashboard        (class-level statistics)
+ *   Sheet 1  — Score Sheet          (identified students)
+ *   Sheet 2  — Anomalies            (unidentifiable submissions)
+ *   Sheet 3  — Dashboard            (class-level statistics)
  *   Sheet 4  — Grade Distribution
  *   Sheet 5  — Question Analysis
  *   Sheet 6  — Student Ranking
  *   Sheet 7  — Performance Matrix
  *
- * NOTE: The former "Anomaly Report" sheet (flagging zero/missing/perfect scores) has been
- * removed per v3.4 requirements. The separate IS442-Statistics.xlsx is no longer produced;
- * all content is combined into IS442-ScoreSheet-Updated.xlsx.
+ * Output: IS442-ScoreSheet-Updated.xlsx
+ *
+ * Sheets 3-7 are delegated to StatisticsReportExporter.appendStatsSheets()
+ * on the same XSSFWorkbook, so there is exactly ONE output file.
+ * The separate IS442-Statistics.xlsx is no longer produced.
  */
 public class ScoreSheetExporter {
 
-    // -------------------------------------------------------------------------
-    // Public API
-    // -------------------------------------------------------------------------
-
-    // ================================================================
-    // PATH FIELDS â null means "use global PathConfig" (single-assessment)
-    // ================================================================
+    // ── PATH FIELDS ──────────────────────────────────────────────────────────
 
     private final Path csvScoresheet;
     private final Path outputReports;
-    private final Path inputTesters;  // null = use global PathConfig
+    private final Path inputTesters;
 
-    // ================================================================
-    // CONSTRUCTORS
-    // ================================================================
+    // ── CONSTRUCTORS ─────────────────────────────────────────────────────────
 
-    /**
-     * Default constructor â uses global PathConfig static paths.
-     * Called by AnalysisController for the standard single-assessment flow.
-     * Behaviour is identical to the original (field-less) class.
-     */
+    /** Default — uses global PathConfig (single-assessment flow). */
     public ScoreSheetExporter() {
         this.csvScoresheet = null;
         this.outputReports = null;
         this.inputTesters  = null;
     }
 
-    /**
-     * Path-aware constructor for multi-assessment support.
-     * Called by AnalysisController(Path, Path) with per-assessment paths
-     * so each assessment's scoresheet is read from and written to its own directory.
-     *
-     * @param csvScoresheet Path to the scoresheet CSV for this assessment
-     * @param outputReports Path to the reports output directory for this assessment
-     */
+    /** Path-aware — multi-assessment support (no inputTesters). */
     public ScoreSheetExporter(Path csvScoresheet, Path outputReports) {
         this.csvScoresheet = csvScoresheet;
         this.outputReports = outputReports;
         this.inputTesters  = null;
     }
 
+    /** Path-aware — multi-assessment support (full). */
     public ScoreSheetExporter(Path csvScoresheet, Path outputReports, Path inputTesters) {
         this.csvScoresheet = csvScoresheet;
         this.outputReports = outputReports;
         this.inputTesters  = inputTesters;
     }
 
-    // ================================================================
-    // PATH RESOLUTION
-    // ================================================================
+    // ── PATH RESOLUTION ──────────────────────────────────────────────────────
 
     private Path resolveCsvScoresheet() {
         return csvScoresheet != null
@@ -103,6 +85,7 @@ public class ScoreSheetExporter {
             : PathConfig.OUTPUT_BASE.resolve("reports").toAbsolutePath();
     }
 
+    // ── PUBLIC API ────────────────────────────────────────────────────────────
 
     /** Backward-compatible overload — no plagiarism notes. */
     public Path export(
@@ -110,10 +93,17 @@ public class ScoreSheetExporter {
             Map<String, String> remarksByStudent,
             Map<String, String> anomalyRemarks,
             List<Student> allStudents) throws IOException {
-        return export(resultsByStudent, remarksByStudent, anomalyRemarks, allStudents, Collections.emptyMap());
+        return export(resultsByStudent, remarksByStudent, anomalyRemarks, allStudents,
+                      Collections.emptyMap());
     }
 
-    /** Full overload — includes plagiarism notes (v3.3+). */
+    /**
+     * Full overload — includes plagiarism notes (v3.3+).
+     *
+     * Produces IS442-ScoreSheet-Updated.xlsx with 7 sheets:
+     *   1 Score Sheet  2 Anomalies  3 Dashboard  4 Grade Distribution
+     *   5 Question Analysis  6 Student Ranking  7 Performance Matrix
+     */
     public Path export(
             Map<String, List<GradingResult>> resultsByStudent,
             Map<String, String> remarksByStudent,
@@ -138,33 +128,36 @@ public class ScoreSheetExporter {
                     k -> ScoreAnalyzer.getMaxScoreFromTester(k, resolveInputTesters()));
 
         Set<String> gradedUsernames = totals.keySet();
-
         double totalMaxScore = maxScores.values().stream().mapToDouble(Double::doubleValue).sum();
 
         try (XSSFWorkbook workbook = new XSSFWorkbook()) {
 
+            // ── Sheets 1 & 2: Score Sheet + Anomalies ────────────────────────
             buildMainSheet(workbook, resultsByStudent, remarksByStudent, allStudents,
                            plagiarismNotes, questionOrder, totals, qScoreMap, totalMaxScore);
 
             buildAnomalySheet(workbook, resultsByStudent, anomalyRemarks, allStudents,
                               questionOrder, qScoreMap, totalMaxScore);
 
+            // ── Sheets 3-7: Statistics (Dashboard, Grade Dist, Q Analysis, Ranking, Matrix)
+            StatisticsReportExporter statsExporter =
+                new StatisticsReportExporter(outputReports, inputTesters);
+            statsExporter.appendStatsSheets(workbook, resultsByStudent);
+
             try (OutputStream os = Files.newOutputStream(outputFile)) {
                 workbook.write(os);
             }
         }
 
+        // CSV sidecar (used by status checks and legacy download routes)
         exportCsv(outputDir, questionOrder, totals, qScoreMap, remarksByStudent,
                   plagiarismNotes, gradedUsernames);
 
         return outputFile;
     }
 
-    /**
-     * Writes IS442-ScoreSheet-Updated.csv — a plain CSV version of the main score sheet.
-     * Reads the original scoresheet CSV for student identity columns, then appends
-     * per-question scores, total, remarks and plagiarism notes.
-     */
+    // ── CSV EXPORT ────────────────────────────────────────────────────────────
+
     private void exportCsv(Path outputDir,
                             List<String> questionOrder,
                             Map<String, Double> totals,
@@ -187,14 +180,12 @@ public class ScoreSheetExporter {
                 String[] cols = line.split(",", -1);
 
                 if (isHeader) {
-                    // Write identity columns (skip EOL col, add it last)
                     StringBuilder headerRow = new StringBuilder();
                     for (int c = 0; c < cols.length; c++) {
                         if (c == COL_EOL) continue;
                         if (headerRow.length() > 0) headerRow.append(",");
                         headerRow.append(escapeCsv(cols[c].trim()));
                     }
-                    // Question columns
                     for (String qid : questionOrder) {
                         headerRow.append(",").append(escapeCsv(qid));
                     }
@@ -246,9 +237,7 @@ public class ScoreSheetExporter {
         return value;
     }
 
-    // =========================================================================
-    // SHEET 1 — Score Sheet
-    // =========================================================================
+    // ── SHEET 1: Score Sheet ──────────────────────────────────────────────────
 
     private static final int COL_USERNAME  = 1;
     private static final int COL_NUMERATOR = 5;
@@ -282,7 +271,6 @@ public class ScoreSheetExporter {
 
             while ((line = reader.readLine()) != null) {
                 if (rowIdx == 0 && line.startsWith("\uFEFF")) line = line.substring(1);
-
                 String[] cols = line.split(",", -1);
                 Row row = sheet.createRow(rowIdx++);
 
@@ -304,13 +292,11 @@ public class ScoreSheetExporter {
                         outHeaders.add(qid);
                     }
                     Cell rh = row.createCell(cellIdx++);
-                    rh.setCellValue("Remarks");
-                    rh.setCellStyle(headerStyle);
+                    rh.setCellValue("Remarks"); rh.setCellStyle(headerStyle);
                     outHeaders.add("Remarks");
 
                     Cell ph = row.createCell(cellIdx++);
-                    ph.setCellValue("Plagiarism");
-                    ph.setCellStyle(headerStyle);
+                    ph.setCellValue("Plagiarism"); ph.setCellStyle(headerStyle);
                     outHeaders.add("Plagiarism");
 
                     Cell eh = row.createCell(cellIdx);
@@ -349,7 +335,6 @@ public class ScoreSheetExporter {
                     plagCell.setCellValue(plagNote);
                     plagCell.setCellStyle(plagNote.isEmpty() ? normal : redBold);
                 } else {
-                    // Missing submission
                     for (String ignored : questionOrder) row.createCell(colIdx++).setCellStyle(normal);
                     Cell remCell = row.createCell(colIdx++);
                     remCell.setCellValue("Missing submission - refer to Anomalies tab");
@@ -364,10 +349,7 @@ public class ScoreSheetExporter {
         }
     }
 
-    
-    // =========================================================================
-    // SHEET 2 — Anomalies
-    // =========================================================================
+    // ── SHEET 2: Anomalies ────────────────────────────────────────────────────
 
     private void buildAnomalySheet(
             XSSFWorkbook wb,
@@ -407,8 +389,7 @@ public class ScoreSheetExporter {
             Map<String, Double> qScores = perQ.getOrDefault(id, Collections.emptyMap());
             double total = qScores.values().stream().mapToDouble(Double::doubleValue).sum();
 
-            row.createCell(col++).setCellValue(
-                s.getRawFolderName() != null ? s.getRawFolderName() : id);
+            row.createCell(col++).setCellValue(s.getRawFolderName() != null ? s.getRawFolderName() : id);
             row.createCell(col++).setCellValue(total);
             row.createCell(col++).setCellValue(totalMaxScore);
 
@@ -430,69 +411,15 @@ public class ScoreSheetExporter {
         autoSizeColumns(sheet, headers.size());
     }
 
-        // =========================================================================
-    // Helper — data builders
-    // =========================================================================
+    // ── HELPERS ───────────────────────────────────────────────────────────────
 
     private List<String> buildQuestionOrder(Map<String, List<GradingResult>> resultsByStudent) {
         Set<String> ids = new LinkedHashSet<>();
-        for (List<GradingResult> results : resultsByStudent.values()) {
+        for (List<GradingResult> results : resultsByStudent.values())
             for (GradingResult r : results) ids.add(r.getQuestionId());
-        }
         List<String> sorted = new ArrayList<>(ids);
         sorted.sort(ScoreSheetExporter::naturalCompare);
         return sorted;
-    }
-
-    private Map<String, Double> buildTotalScoreMap(Map<String, List<GradingResult>> byStudent) {
-        Map<String, Double> map = new LinkedHashMap<>();
-        for (Map.Entry<String, List<GradingResult>> e : byStudent.entrySet()) {
-            double total = e.getValue().stream().mapToDouble(GradingResult::getScore).sum();
-            map.put(e.getKey(), total);
-        }
-        return map;
-    }
-
-    private Map<String, Map<String, Double>> buildPerQuestionMap(Map<String, List<GradingResult>> byStudent) {
-        Map<String, Map<String, Double>> map = new LinkedHashMap<>();
-        for (Map.Entry<String, List<GradingResult>> e : byStudent.entrySet()) {
-            Map<String, Double> qMap = new LinkedHashMap<>();
-            for (GradingResult r : e.getValue()) qMap.put(r.getQuestionId(), r.getScore());
-            map.put(e.getKey(), qMap);
-        }
-        return map;
-    }
-
-    private Map<String, Double> inferMaxScores(Map<String, List<GradingResult>> byStudent) {
-        Map<String, Double> maxScores = new LinkedHashMap<>();
-        for (List<GradingResult> results : byStudent.values()) {
-            for (GradingResult r : results) {
-                maxScores.merge(r.getQuestionId(), r.getMaxScore(), Math::max);
-            }
-        }
-        return maxScores;
-    }
-
-    private List<String[]> readScoreSheetCsv() throws IOException {
-        Path csv = PathConfig.CSV_SCORESHEET;
-        List<String[]> rows = new ArrayList<>();
-        if (!Files.exists(csv)) return rows;
-        for (String line : Files.readAllLines(csv)) {
-            rows.add(line.split(",", -1));
-        }
-        return rows;
-    }
-
-    private int findEolColumn(String[] headerRow) {
-        for (int i = 0; i < headerRow.length; i++) {
-            if (headerRow[i].trim().toLowerCase().contains("end-of-line")) return i;
-        }
-        return -1;
-    }
-
-
-    static String fmtNum(double v) {
-        return v == Math.floor(v) ? String.valueOf((int) v) : String.format("%.2f", v);
     }
 
     private void buildScoreMaps(Map<String, List<GradingResult>> resultsByStudent,
@@ -510,7 +437,11 @@ public class ScoreSheetExporter {
         }
     }
 
-        static int naturalCompare(String a, String b) {
+    static String fmtNum(double v) {
+        return v == Math.floor(v) ? String.valueOf((int) v) : String.format("%.2f", v);
+    }
+
+    static int naturalCompare(String a, String b) {
         int i = 0, j = 0;
         while (i < a.length() && j < b.length()) {
             char ca = a.charAt(i), cb = b.charAt(j);
@@ -526,9 +457,8 @@ public class ScoreSheetExporter {
         }
         return a.length() - b.length();
     }
-    // =========================================================================
-    // Helper — style factories
-    // =========================================================================
+
+    // ── STYLE FACTORIES ───────────────────────────────────────────────────────
 
     private XSSFCellStyle makeHeaderStyle(XSSFWorkbook wb) {
         XSSFCellStyle style = wb.createCellStyle();
@@ -536,7 +466,7 @@ public class ScoreSheetExporter {
         font.setBold(true);
         font.setColor(IndexedColors.WHITE.getIndex());
         style.setFont(font);
-        style.setFillForegroundColor(new XSSFColor(new byte[]{(byte)31,(byte)56,(byte)100}, null)); // navy
+        style.setFillForegroundColor(new XSSFColor(new byte[]{(byte)31,(byte)56,(byte)100}, null));
         style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
         style.setAlignment(HorizontalAlignment.CENTER);
         style.setBorderBottom(BorderStyle.THIN);
@@ -564,43 +494,9 @@ public class ScoreSheetExporter {
         return style;
     }
 
-    private XSSFCellStyle makeTitleStyle(XSSFWorkbook wb) {
-        XSSFCellStyle style = wb.createCellStyle();
-        XSSFFont font = wb.createFont();
-        font.setBold(true);
-        font.setFontHeightInPoints((short) 14);
-        font.setColor(new XSSFColor(new byte[]{(byte)31,(byte)56,(byte)100}, null));
-        style.setFont(font);
-        style.setAlignment(HorizontalAlignment.LEFT);
-        return style;
-    }
-
-    private XSSFCellStyle makeLabelStyle(XSSFWorkbook wb) {
-        XSSFCellStyle style = wb.createCellStyle();
-        XSSFFont font = wb.createFont();
-        font.setBold(true);
-        font.setFontName("Arial");
-        font.setFontHeightInPoints((short) 10);
-        style.setFont(font);
-        style.setFillForegroundColor(new XSSFColor(new byte[]{(byte)214,(byte)228,(byte)240}, null));
-        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-        return style;
-    }
-
-    private XSSFCellStyle makeValueStyle(XSSFWorkbook wb) {
-        XSSFCellStyle style = wb.createCellStyle();
-        XSSFFont font = wb.createFont();
-        font.setFontName("Arial");
-        font.setFontHeightInPoints((short) 10);
-        style.setFont(font);
-        return style;
-    }
-
     private void autoSizeColumns(XSSFSheet sheet, int count) {
         for (int i = 0; i < count; i++) {
             try { sheet.autoSizeColumn(i); } catch (Exception ignored) {}
         }
     }
-
-
 }
