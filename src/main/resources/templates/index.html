@@ -67,6 +67,26 @@
             font-family: 'Space Mono', monospace; word-break: break-all;
         }
         .file-drop.has-file .file-drop-hint { color: var(--green); font-weight: 700; }
+        .file-drop-clear {
+            margin-top: 10px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 6px 10px;
+            background: var(--black);
+            color: var(--yellow);
+            border: 2px solid var(--black);
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            cursor: pointer;
+            position: relative;
+            z-index: 2;
+        }
+        .file-drop.has-file .file-drop-clear { display: inline-flex; }
+        .file-drop-clear:hover { background: var(--red); color: var(--white); border-color: var(--red); }
 
         .empty-state {
             text-align: center; padding: 40px 20px;
@@ -81,6 +101,8 @@
         }
         .btn-add { background: var(--black); color: var(--yellow); border-color: var(--black); }
         .btn-add:hover { background: #333; color: var(--yellow); }
+        .btn-clear-all { background: var(--white); color: var(--black); border-color: var(--black); }
+        .btn-clear-all:hover { background: #ffe2e2; color: var(--red); border-color: var(--red); }
         .slot-limit-hint {
             font-size: 0.8rem; font-family: 'Space Mono', monospace; color: #888;
         }
@@ -233,6 +255,36 @@
         .spinner { font-size: 2.5rem; animation: spin 1.2s linear infinite; display: inline-block; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
+        /* ── Results stats ──────────────────────────────────────────────── */
+        .stats-container {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(220px, 1fr));
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        .stat-card {
+            background: var(--white);
+            border: 4px solid var(--black);
+            box-shadow: var(--shadow-small);
+            padding: 18px 20px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+        .stat-icon { font-size: 1.8rem; line-height: 1; }
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--black);
+            line-height: 1.1;
+        }
+        .stat-label {
+            font-size: 0.8rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: #666;
+        }
+
         /* ── Download area ─────────────────────────────────────────────── */
         .download-area-card {
             margin-top: 16px; background: var(--yellow); border: 4px solid var(--black);
@@ -261,6 +313,7 @@
             .section-actions .btn-secondary { width: 100%; justify-content: center; }
             .code-editor { min-height: 300px; font-size: 0.78rem; }
             .assess-tab { padding: 8px 14px; font-size: 0.78rem; }
+            .stats-container { grid-template-columns: 1fr; }
         }
         @media (max-width: 480px) {
             .slot-files { grid-template-columns: 1fr; }
@@ -299,7 +352,7 @@
 
     <div class="hero-section">
         <h2 class="hero-title">Grade your code<br><span class="highlight">automatically!</span></h2>
-        <p class="hero-subtitle">Upload 1–5 assessments → confirm marks → review testers → grade each one</p>
+        <p class="hero-subtitle">Upload 1–5 Assessments → Confirm Marks → Review Testers → Grade Each One</p>
     </div>
 
     <!-- ══════════════════════════════════════════════════════════════════ -->
@@ -322,6 +375,9 @@
         <div class="action-row">
             <button class="btn btn-add" id="addBtn" onclick="addSlot()">
                 <span class="btn-icon">＋</span> Add Assessment
+            </button>
+            <button class="btn btn-clear-all" id="clearAllBtn" onclick="clearAllSlots()">
+                <span class="btn-icon">✕</span> Clear All Assessments
             </button>
             <button class="btn btn-upload" id="uploadBtn" onclick="uploadAll()">
                 <span class="btn-icon">⬆</span> Upload All
@@ -388,9 +444,10 @@ function addSlot() {
     const el = document.createElement('div');
     el.className = 'assessment-slot';
     el.id = 'slot-' + id;
+    el.dataset.slotId = String(id);
     el.innerHTML = `
         <div class="slot-header">
-            <span class="slot-num">${id}</span>
+            <span class="slot-num"></span>
             <input class="slot-name-input" type="text"
                    placeholder="Assessment name, e.g. Midterm 25/26"
                    oninput="uploadSlots[${id}].name = this.value">
@@ -404,6 +461,7 @@ function addSlot() {
             ${fileDrop(id,'testers','🧪 Testers (opt)','testers.zip','.zip')}
         </div>`;
     document.getElementById('assessmentSlots').appendChild(el);
+    reindexSlots();
     updateSlotHint();
 }
 
@@ -412,6 +470,8 @@ function fileDrop(slotId, field, label, hint, accept) {
         <input type="file" accept="${accept}" onchange="handleSlotFile(${slotId},'${field}',this)">
         <div class="file-drop-label">${label}</div>
         <div class="file-drop-hint" id="hint-${slotId}-${field}">${hint}</div>
+        <button type="button" class="file-drop-clear" id="clear-${slotId}-${field}"
+                onclick="clearSlotFile(event, ${slotId}, '${field}', '${hint}')">Remove</button>
     </div>`;
 }
 
@@ -422,6 +482,23 @@ function handleSlotFile(slotId, field, input) {
     document.getElementById('drop-' + slotId + '-' + field).classList.add('has-file');
 }
 
+function clearSlotFile(event, slotId, field, defaultHint) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+
+    uploadSlots[slotId][field] = null;
+
+    const drop = document.getElementById('drop-' + slotId + '-' + field);
+    const hint = document.getElementById('hint-' + slotId + '-' + field);
+    const input = drop ? drop.querySelector('input[type=file]') : null;
+
+    if (hint) hint.textContent = defaultHint;
+    if (drop) drop.classList.remove('has-file');
+    if (input) input.value = '';
+}
+
 function removeSlot(id) {
     const el = document.getElementById('slot-' + id); if (el) el.remove();
     delete uploadSlots[id];
@@ -429,15 +506,46 @@ function removeSlot(id) {
         const empty = document.getElementById('emptyState');
         if (empty) empty.style.display = 'block';
     }
+    reindexSlots();
     updateSlotHint();
+}
+
+function clearAllSlots() {
+    document.querySelectorAll('#assessmentSlots .assessment-slot').forEach(slot => slot.remove());
+    Object.keys(uploadSlots).forEach(id => delete uploadSlots[id]);
+    const empty = document.getElementById('emptyState');
+    if (empty) empty.style.display = 'block';
+    updateSlotHint();
+}
+
+function reindexSlots() {
+    const slots = Array.from(document.querySelectorAll('#assessmentSlots .assessment-slot'));
+    slots.forEach((slot, index) => {
+        const label = slot.querySelector('.slot-num');
+        if (label) label.textContent = String(index + 1);
+    });
 }
 
 function updateSlotHint() {
     const n = Object.keys(uploadSlots).length;
     document.getElementById('slotLimitHint').textContent = n + ' / ' + MAX_SLOTS + ' assessments';
     const addBtn = document.getElementById('addBtn');
+    const clearBtn = document.getElementById('clearAllBtn');
     if (n >= MAX_SLOTS) { addBtn.disabled = true; addBtn.style.opacity = '0.4'; }
     else { addBtn.disabled = false; addBtn.style.opacity = '1'; }
+    if (clearBtn) {
+        clearBtn.disabled = n === 0;
+        clearBtn.style.opacity = n === 0 ? '0.4' : '1';
+    }
+}
+
+function resetAssessmentWizardState() {
+    Object.keys(assessments).forEach(key => delete assessments[key]);
+    activeAssessment = null;
+    const tabs = document.getElementById('assessTabs');
+    const panels = document.getElementById('assessPanels');
+    if (tabs) tabs.innerHTML = '';
+    if (panels) panels.innerHTML = '';
 }
 
 // ── Upload All ────────────────────────────────────────────────────────────────
@@ -470,11 +578,14 @@ async function uploadAll() {
             return;
         }
 
+        resetAssessmentWizardState();
+
         // Build assessment state from response
         for (const a of data.assessments) {
             assessments[a.sanitisedName] = {
                 displayName:    a.name,
                 sanitisedName:  a.sanitisedName,
+                hasExamPdf:     a.saved.includes('examPdf'),
                 currentStep:    1,
                 hasTesters:     a.saved.includes('testers'),
                 testerSources:  {},
@@ -488,6 +599,7 @@ async function uploadAll() {
         showAlert('success', data.assessments.length + ' assessment(s) uploaded ✓');
         setStatus('READY');
         showWizardPhase();
+        await autoScanUploadedExamPdfs(data.assessments);
 
     } catch (e) {
         showAlert('error', 'Upload error: ' + e.message);
@@ -510,9 +622,20 @@ function showWizardPhase() {
     if (first) switchAssessment(first);
 }
 
+async function autoScanUploadedExamPdfs(uploadedAssessments) {
+    const toScan = (uploadedAssessments || []).filter(a => Array.isArray(a.saved) && a.saved.includes('examPdf'));
+    if (!toScan.length) return;
+
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    for (const assessment of toScan) {
+        await scanMarks(assessment.sanitisedName, { silentNetworkError: true });
+    }
+}
+
 function backToUpload() {
     document.getElementById('wizardPhase').style.display = 'none';
     document.getElementById('uploadPhase').style.display = 'block';
+    activeAssessment = null;
 }
 
 function buildAssessmentTabs() {
@@ -564,7 +687,7 @@ function buildWizardHTML(key, a) {
             <h3>📋 Confirm Question Marks</h3>
             <p>AI scans the exam PDF and extracts question marks. Verify, edit, then generate testers.</p>
         </div>
-        <div id="${key}-marksHint" class="pdf-hint">Click "Scan Exam PDF" to begin.</div>
+        <div id="${key}-marksHint" class="pdf-hint">Exam PDF will be scanned automatically after upload. You can retry the scan if needed.</div>
 
         <table style="width:100%;border-collapse:collapse;margin:1rem 0;font-family:'Space Mono',monospace;font-size:.85rem;">
             <thead><tr>
@@ -642,7 +765,6 @@ function buildWizardHTML(key, a) {
         <div class="stats-container">
             <div class="stat-card"><div class="stat-icon">👥</div><div class="stat-value" id="${key}-statStudents">-</div><div class="stat-label">Students</div></div>
             <div class="stat-card"><div class="stat-icon">📝</div><div class="stat-value" id="${key}-statTasks">-</div><div class="stat-label">Tasks</div></div>
-            <div class="stat-card"><div class="stat-icon">📈</div><div class="stat-value" id="${key}-statAvg">-</div><div class="stat-label">Average</div></div>
         </div>
         <div class="download-area-card">
             <h4>Download Reports</h4>
@@ -685,6 +807,44 @@ function updateTabStatus(key, stepNum, label, cssClass) {
     }
 }
 
+function startRealGradingProgress(key) {
+    const fill = document.getElementById(key + '-progressFill');
+    const label = document.getElementById(key + '-progressLabel');
+    let stopped = false;
+
+    const poll = async () => {
+        if (stopped) return;
+        try {
+            const res = await fetch('/assessments/' + key + '/progress');
+            const data = await res.json();
+            const percent = Math.max(0, Math.min(100, Number(data.percent || 0)));
+            fill.style.width = percent + '%';
+            const stage = data.stage || 'Working';
+            const message = data.message ? ' • ' + data.message : '';
+            label.textContent = `${stage}... ${percent}%${message}`;
+        } catch (e) {
+            label.textContent = 'Updating progress...';
+        }
+    };
+
+    poll();
+    const interval = setInterval(poll, 1000);
+
+    return {
+        complete(finalLabel) {
+            stopped = true;
+            clearInterval(interval);
+            fill.style.width = '100%';
+            label.textContent = finalLabel || 'Completed... 100%';
+        },
+        fail(finalLabel) {
+            stopped = true;
+            clearInterval(interval);
+            label.textContent = finalLabel || 'Stopped before completion';
+        }
+    };
+}
+
 // ── Step navigation within an assessment ──────────────────────────────────────
 
 function wizardGotoStep(key, n) {
@@ -717,12 +877,14 @@ function wizardGoBack(key, toStep) {
 // STEP 1 — SCAN MARKS
 // ══════════════════════════════════════════════════════════════════════════════
 
-async function scanMarks(key) {
+async function scanMarks(key, options = {}) {
+    const { silentNetworkError = false } = options;
     const hint = document.getElementById(key + '-marksHint');
     const btn = document.getElementById(key + '-scanBtn');
     hint.textContent = '⏳ Scanning exam paper PDF with AI — this may take a moment...';
     hint.className = 'pdf-hint';
     btn.disabled = true;
+    btn.textContent = 'SCANNING EXAM PDF...';
 
     try {
         const res  = await fetch('/assessments/' + key + '/parse-exam-marks', { method:'POST' });
@@ -736,6 +898,7 @@ async function scanMarks(key) {
 
         hint.className = 'pdf-hint pdf-detected';
         hint.textContent = '✓ ' + (data.pdfName || 'PDF') + ' scanned — verify marks below.';
+        btn.textContent = 'RETRY SCAN EXAM PDF';
 
         const marks = data.marks || {};
         const tbody = document.getElementById(key + '-marksBody');
@@ -751,7 +914,13 @@ async function scanMarks(key) {
     } catch (e) {
         hint.textContent = '⚠️ Network error: ' + e.message;
         hint.style.borderColor = '#dc6f6f'; hint.style.color = '#dc6f6f';
+        if (!silentNetworkError) {
+            showAlert('error', 'Exam PDF scan failed for ' + (assessments[key]?.displayName || key) + ': ' + e.message);
+        }
     } finally {
+        if (btn.textContent === 'SCANNING EXAM PDF...') {
+            btn.textContent = 'SCAN EXAM PDF';
+        }
         btn.disabled = false;
     }
 }
@@ -1001,24 +1170,13 @@ async function doGrade(key) {
     document.getElementById(key + '-gradingSection').style.display = 'block';
     document.getElementById(key + '-gradingSection').scrollIntoView({ behavior:'smooth' });
 
-    const fill = document.getElementById(key + '-progressFill');
-    const label = document.getElementById(key + '-progressLabel');
-    const stages = ['Extracting...','Discovering...','Compiling...','Grading...','Analyzing...'];
-    let p = 0, si = 0;
-    const interval = setInterval(() => {
-        p += Math.random() * 10;
-        if (p > 95) p = 95;
-        fill.style.width = p + '%';
-        label.textContent = stages[Math.min(si, stages.length - 1)];
-        if (p > (si + 1) * 19) si++;
-    }, 600);
+    const progress = startRealGradingProgress(key);
 
     try {
         const res  = await fetch('/assessments/' + key + '/grade', { method:'POST' });
         const data = await res.json();
 
-        clearInterval(interval);
-        fill.style.width = '100%';
+        progress.complete('Completed... 100%');
 
         a.graded = true;
         a.gradeResult = data;
@@ -1029,7 +1187,6 @@ async function doGrade(key) {
 
         document.getElementById(key + '-statStudents').textContent = data.studentCount || '-';
         document.getElementById(key + '-statTasks').textContent = (data.logs || []).length;
-        document.getElementById(key + '-statAvg').textContent = data.averageScore || '-';
 
         const logEl = document.getElementById(key + '-logTerminal');
         logEl.innerHTML = '';
@@ -1048,7 +1205,7 @@ async function doGrade(key) {
         }
 
     } catch (e) {
-        clearInterval(interval);
+        progress.fail('Grading failed before completion');
         showAlert('error', 'Grading error: ' + e.message);
         updateTabStatus(key, 3, 'Error', 'error');
     }
@@ -1065,21 +1222,12 @@ async function skipToGrade(key) {
 
     updateTabStatus(key, 3, 'Grading...', 'step-2');
 
-    const fill = document.getElementById(key + '-progressFill');
-    const label = document.getElementById(key + '-progressLabel');
-    const stages = ['Extracting...','Discovering...','Compiling...','Grading...','Analyzing...'];
-    let p = 0, si = 0;
-    const interval = setInterval(() => {
-        p += Math.random() * 10; if (p > 95) p = 95;
-        fill.style.width = p + '%';
-        label.textContent = stages[Math.min(si, stages.length - 1)];
-        if (p > (si + 1) * 19) si++;
-    }, 600);
+    const progress = startRealGradingProgress(key);
 
     try {
         const res = await fetch('/assessments/' + key + '/grade', { method:'POST' });
         const data = await res.json();
-        clearInterval(interval); fill.style.width = '100%';
+        progress.complete('Completed... 100%');
 
         assessments[key].graded = true;
         assessments[key].gradeResult = data;
@@ -1090,7 +1238,6 @@ async function skipToGrade(key) {
 
         document.getElementById(key + '-statStudents').textContent = data.studentCount || '-';
         document.getElementById(key + '-statTasks').textContent = (data.logs || []).length;
-        document.getElementById(key + '-statAvg').textContent = data.averageScore || '-';
 
         const logEl = document.getElementById(key + '-logTerminal');
         logEl.innerHTML = '';
@@ -1108,7 +1255,7 @@ async function skipToGrade(key) {
             showAlert('error', assessments[key].displayName + ' — grading had errors');
         }
     } catch (e) {
-        clearInterval(interval);
+        progress.fail('Grading failed before completion');
         showAlert('error', 'Grading error: ' + e.message);
         updateTabStatus(key, 3, 'Error', 'error');
     }
