@@ -21,6 +21,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BiConsumer;
 import java.util.stream.Stream;
 
 public class ExecutionController {
@@ -94,6 +95,11 @@ public class ExecutionController {
     // ── Public: grade all students ────────────────────────────────────────────
 
     public List<GradingResult> gradeAllStudents(GradingPlan plan) throws IOException {
+        return gradeAllStudents(plan, null);
+    }
+
+    public List<GradingResult> gradeAllStudents(GradingPlan plan,
+                                                BiConsumer<Integer, Integer> progressCallback) throws IOException {
         List<Student> students = loadStudents(plan.getTasks());
         if (students.isEmpty()) {
             throw new IOException("No students found in: " + resolveOutputExtracted());
@@ -127,6 +133,8 @@ public class ExecutionController {
 
         List<GradingResult> allResults = new ArrayList<>();
         int idx = 0;
+        int totalUnits = students.size() * plan.getTasks().size();
+        int completedUnits = 0;
 
         for (Student student : students) {
             idx++;
@@ -141,6 +149,10 @@ public class ExecutionController {
                         "Unexpected error: " + e.getMessage(), "ERROR");
                 }
                 allResults.add(result);
+                completedUnits++;
+                if (progressCallback != null) {
+                    progressCallback.accept(completedUnits, totalUnits);
+                }
                 logTaskResult(task, result);
 
                 String status   = result.getStatus();

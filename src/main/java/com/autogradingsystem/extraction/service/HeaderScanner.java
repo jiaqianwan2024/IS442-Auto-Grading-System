@@ -24,10 +24,12 @@ import java.util.regex.*;
  */
 public class HeaderScanner {
 
+    private static final int HEADER_SCAN_LINES = 12;
+
     private static final Pattern NAME_PATTERN =
-        Pattern.compile("\\*\\s*Name:\\s*(.+)", Pattern.CASE_INSENSITIVE);
+        Pattern.compile("(?i)^\\s*(?:/\\*+\\s*)?(?:\\*+\\s*)?Name\\s*:\\s*(.+?)\\s*(?:\\*/)?\\s*$");
     private static final Pattern EMAIL_PATTERN =
-        Pattern.compile("\\*\\s*Email\\s*ID:\\s*(\\S+)", Pattern.CASE_INSENSITIVE);
+        Pattern.compile("(?i)^\\s*(?:/\\*+\\s*)?(?:\\*+\\s*)?(?:Email\\s*ID|Email|ID)\\s*:\\s*(\\S+)\\s*(?:\\*/)?\\s*$");
 
     public static class ScanResult {
         // Email found in any header (used for identity resolution + mismatch detection)
@@ -85,13 +87,13 @@ public class HeaderScanner {
     // ── Private helpers ────────────────────────────────────────────────────
 
     private String extractEmail(String content) {
-        String top = firstNLines(content, 20);
+        String top = firstNLines(content, HEADER_SCAN_LINES);
         Matcher m = EMAIL_PATTERN.matcher(top);
         return m.find() ? m.group(1).trim() : null;
     }
 
     private String extractName(String content) {
-        String top = firstNLines(content, 20);
+        String top = firstNLines(content, HEADER_SCAN_LINES);
         Matcher m = NAME_PATTERN.matcher(top);
         return m.find() ? m.group(1).trim() : null;
     }

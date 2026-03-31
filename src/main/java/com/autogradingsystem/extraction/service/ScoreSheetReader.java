@@ -3,7 +3,9 @@ package com.autogradingsystem.extraction.service;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -29,6 +31,7 @@ public class ScoreSheetReader {
     // HashSet provides O(1) "contains" checks
     // Stores clean usernames (without # prefix) for easy comparison
     private Set<String> validUsernames = new HashSet<>();
+    private Map<String, String> emailToUsername = new HashMap<>();
     
     /**
      * Reads the LMS CSV file and loads all valid student usernames
@@ -62,6 +65,7 @@ public class ScoreSheetReader {
         
         // Clear any previously loaded data
         validUsernames.clear();
+        emailToUsername.clear();
         
         // Open CSV file with try-with-resources (auto-closes file)
         try (var reader = Files.newBufferedReader(csvPath)) {
@@ -88,6 +92,13 @@ public class ScoreSheetReader {
                     
                     // Add to HashSet
                     validUsernames.add(cleanUsername);
+
+                    if (columns.length > 4) {
+                        String email = columns[4].trim().toLowerCase();
+                        if (!email.isBlank()) {
+                            emailToUsername.put(email, cleanUsername);
+                        }
+                    }
                 }
             }
         }
@@ -111,6 +122,30 @@ public class ScoreSheetReader {
      */
     public boolean isValid(String username) {
         return validUsernames.contains(username);
+    }
+
+    /**
+     * Resolves a student username from either:
+     * - a plain username/id such as "chee.teo.2022"
+     * - a full email such as "chee.teo.2022@computing.smu.edu.sg"
+     *
+     * Returns null if no match is found in the official scoresheet.
+     */
+    public String resolveUsernameFromIdentifier(String identifier) {
+        if (identifier == null) return null;
+
+        String cleaned = identifier.trim().replace("#", "");
+        if (cleaned.isBlank()) return null;
+
+        String lower = cleaned.toLowerCase();
+        if (validUsernames.contains(cleaned)) return cleaned;
+        if (validUsernames.contains(lower)) return lower;
+
+        if (lower.contains("@")) {
+            return emailToUsername.get(lower);
+        }
+
+        return null;
     }
     
     /**

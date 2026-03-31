@@ -1,55 +1,35 @@
 package com.autogradingsystem.web.service;
 
 import com.autogradingsystem.PathConfig;
-import com.autogradingsystem.extraction.controller.ExtractionController;
+import com.autogradingsystem.analysis.controller.AnalysisController;
 import com.autogradingsystem.discovery.controller.DiscoveryController;
 import com.autogradingsystem.execution.controller.ExecutionController;
-import com.autogradingsystem.analysis.controller.AnalysisController;
+import com.autogradingsystem.extraction.controller.ExtractionController;
 import com.autogradingsystem.model.GradingPlan;
 import com.autogradingsystem.model.GradingResult;
 import com.autogradingsystem.model.Student;
+import com.autogradingsystem.multiassessment.AssessmentPathConfig;
 import com.autogradingsystem.plagiarism.controller.PlagiarismController;
 import com.autogradingsystem.plagiarism.model.PlagiarismResult;
 import com.autogradingsystem.testcasegenerator.controller.TestCaseGeneratorController;
 import com.autogradingsystem.testcasegenerator.model.QuestionSpec;
 import com.autogradingsystem.testcasegenerator.service.TemplateTestSpecBuilder;
-import com.autogradingsystem.multiassessment.AssessmentPathConfig;
 
 import org.springframework.stereotype.Service;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Stream;
 
-/**
- * GradingService - Wraps the existing grading pipeline for Spring Boot web
- * layer
- *
- * PACKAGE: com.autogradingsystem.web.service
- * PURPOSE: Bridge between web controller and backend pipeline
- *
- * PIPELINE (7 phases):
- * 1. Validate — check required input files exist (testers NOT required)
- * 2. Extraction — unzip and resolve student identities
- * 3. Test Gen — SKIPPED when examiner-saved testers exist on disk.
- * Only runs when no *Tester.java files are present at all
- * (e.g. first run with no prior /save-testers call).
- * 4. Discovery — build grading plan from template + testers on disk
- * 5. Execution — compile and run each student's code against testers
- * 6. Plagiarism — fingerprint + flag suspicious pairs
- * 7. Analysis — export combined score sheet + statistics XLSX
- *
- * FIX: Phase 3 previously called TestCaseGeneratorController which deleted
- * all existing *Tester.java files before regenerating — wiping any edits
- * the examiner saved via /save-testers. Phase 3 is now fully skipped when
- * any *Tester.java file exists in resources/input/testers/.
- */
 @Service
 public class GradingService {
 
-    // ── Path-aware fields (null = fall back to global PathConfig) ──
     private Path csvScoresheet;
     private Path inputSubmissions;
     private Path inputTemplate;
@@ -58,12 +38,10 @@ public class GradingService {
     private Path outputExtracted;
     private Path outputReports;
 
-    /** No-arg: used by Spring for the existing single-assessment flow */
     public GradingService() {
     }
 
-    /** Path-aware: used by unified per-assessment flow */
-    public GradingService(com.autogradingsystem.multiassessment.AssessmentPathConfig paths) {
+    public GradingService(AssessmentPathConfig paths) {
         this.csvScoresheet = paths.CSV_SCORESHEET;
         this.inputSubmissions = paths.INPUT_SUBMISSIONS;
         this.inputTemplate = paths.INPUT_TEMPLATE;
@@ -73,7 +51,6 @@ public class GradingService {
         this.outputReports = paths.OUTPUT_REPORTS;
     }
 
-    // ── Resolve helpers ──
     private Path resolveInputTesters() {
         return inputTesters != null ? inputTesters : PathConfig.INPUT_TESTERS;
     }
@@ -87,88 +64,89 @@ public class GradingService {
     }
 
     public GradingReport runFullPipeline() {
+        return runFullPipeline(null);
+    }
+
+    public GradingReport runFullPipeline(String assessmentName) {
         List<String> logs = new ArrayList<>();
 
         try {
-            System.out.println("🚀 Pipeline starting...");
+            progress(assessmentName, 2, "Starting", "Preparing grading pipeline...");
 
-            // ── 1. Validate inputs ───────────────────────────────────────────
-            System.out.println("🚀 Phase 1: Validating inputs...");
+            progress(assessmentName, 8, "Validating", "Checking required files...");
             if (isPathAware()) {
-                // Per-assessment: directories already created by upload, just check they exist
                 if (!Files.exists(csvScoresheet) || !Files.isDirectory(inputSubmissions)) {
+                    progress(assessmentName, 100, "Failed", "Missing required assessment input files.");
                     return new GradingReport(false, 0, Collections.emptyList(),
-                            List.of("❌ Missing required input files for this assessment."));
+                            List.of("Missing required input files for this assessment."));
                 }
                 outputExtracted.toFile().mkdirs();
                 outputReports.toFile().mkdirs();
             } else {
                 if (!PathConfig.validateInputPaths()) {
+                    progress(assessmentName, 100, "Failed", "Missing required input files.");
                     return new GradingReport(false, 0, Collections.emptyList(),
-                            List.of("❌ Missing required input files. Check resources/input/."));
+                            List.of("Missing required input files. Check resources/input/."));
                 }
                 PathConfig.ensureOutputDirectories();
             }
-            System.out.println("✅ Phase 1 done.");
+            progress(assessmentName, 12, "Validated", "Required files are ready.");
 
-            // ── 2. Extraction ────────────────────────────────────────────────
-            System.out.println("🚀 Phase 2: Extracting submissions...");
+            progress(assessmentName, 18, "Extracting", "Unzipping submissions and resolving identities...");
             ExtractionController extractionController = isPathAware()
                     ? new ExtractionController(csvScoresheet, inputSubmissions, outputExtracted)
                     : new ExtractionController();
             int studentCount = extractionController.extractAndValidate();
-            logs.add("✅ Extracted " + studentCount + " submissions");
-            System.out.println("✅ Phase 2 done — " + studentCount + " submissions.");
+            logs.add("Extracted " + studentCount + " submissions");
+            progress(assessmentName, 28, "Extracted", "Extracted " + studentCount + " submission(s).");
 
-            // ── 3. Test Case Generation ──────────────────────────────────────
-            // Skip entirely when the examiner has already saved testers via
-            // /save-testers. Any *Tester.java file present in the testers
-            // directory means we must NOT regenerate — that would delete the
-            // examiner's edits.
-            System.out.println("🚀 Phase 3: Checking for saved testers...");
+            progress(assessmentName, 34, "Preparing Testers", "Checking saved testers and generation requirements...");
             if (savedTestersExist()) {
-                logs.add("📝 Using examiner-saved testers (AI generation skipped)");
-                System.out.println("✅ Phase 3 skipped — examiner-saved testers found on disk.");
+                logs.add("Using examiner-saved testers (AI generation skipped)");
+                progress(assessmentName, 40, "Using Saved Testers", "Using examiner-provided testers.");
             } else {
-                // No testers on disk at all — generate from scratch
                 Path templateZip = findTemplateZip();
                 if (templateZip != null) {
-                    System.out.println("   📄 No saved testers found — generating from template...");
                     TemplateTestSpecBuilder specBuilder = new TemplateTestSpecBuilder();
                     Map<String, QuestionSpec> specs = specBuilder.buildQuestionSpecs(templateZip);
-                    System.out.println("   📋 Questions found: " + specs.keySet());
                     Map<String, Integer> weights = specBuilder.readScoreWeights();
-                    System.out.println("   ⚖️  Weights: " + weights);
 
-                    TestCaseGeneratorController testGenController = new TestCaseGeneratorController();
+                    TestCaseGeneratorController testGenController = isPathAware()
+                            ? new TestCaseGeneratorController(inputTesters, inputExam)
+                            : new TestCaseGeneratorController();
                     testGenController.generateIfNeeded(specs, weights);
-                    logs.add("⚙️  Test cases generated from template ("
-                            + specs.size() + " question(s), weights: " + weights + ")");
-                    System.out.println("✅ Phase 3 done.");
+                    logs.add("Test cases generated from template (" + specs.size()
+                            + " question(s), weights: " + weights + ")");
+                    progress(assessmentName, 40, "Generated Testers",
+                            "Generated testers for " + specs.size() + " question(s).");
                 } else {
-                    logs.add("⚠️  No template ZIP found — skipping test generation");
-                    System.out.println("⚠️  Phase 3 skipped — no template ZIP.");
+                    logs.add("No template ZIP found - skipping test generation");
+                    progress(assessmentName, 40, "Skipped Test Generation", "No template ZIP found.");
                 }
             }
 
-            // ── 4. Discovery ─────────────────────────────────────────────────
+            progress(assessmentName, 45, "Discovering", "Building grading plan...");
             DiscoveryController discoveryController = isPathAware()
                     ? new DiscoveryController(inputTemplate, inputTesters)
                     : new DiscoveryController();
             GradingPlan gradingPlan = discoveryController.buildGradingPlan();
-            logs.add("✅ Grading plan: " + gradingPlan.getTaskCount() + " tasks");
+            logs.add("Grading plan: " + gradingPlan.getTaskCount() + " tasks");
+            progress(assessmentName, 55, "Discovered", "Found " + gradingPlan.getTaskCount() + " grading task(s).");
 
-            // ── 5. Execution ─────────────────────────────────────────────────
+            progress(assessmentName, 55, "Grading", "Running testers against student submissions...");
             ExecutionController executionController = isPathAware()
                     ? new ExecutionController(outputExtracted, csvScoresheet, inputTesters, inputTemplate)
                     : new ExecutionController();
-            List<GradingResult> results = executionController.gradeAllStudents(gradingPlan);
+            List<GradingResult> results = executionController.gradeAllStudents(
+                    gradingPlan,
+                    (completed, total) -> progressExecution(assessmentName, completed, total));
             Map<String, String> remarks = executionController.getRemarksByStudent();
-            Map<String, String> anomalyRmks = executionController.getAnomalyRemarksByStudent();
+            Map<String, String> anomalyRemarks = executionController.getAnomalyRemarksByStudent();
             List<Student> allStudents = executionController.getLastGradedStudents();
-            logs.add("✅ Graded " + results.size() + " results");
+            logs.add("Graded " + results.size() + " results");
+            progress(assessmentName, 86, "Graded", "Completed execution for " + results.size() + " result(s).");
 
-            // ── 6. Plagiarism detection ───────────────────────────────────────
+            progress(assessmentName, 90, "Analyzing Plagiarism", "Checking submissions for similarity...");
             PlagiarismController plagController = isPathAware()
                     ? new PlagiarismController(outputExtracted, outputReports)
                     : new PlagiarismController();
@@ -176,63 +154,73 @@ public class GradingService {
             Map<String, String> plagiarismNotes = buildPlagiarismNotes(plagSummary);
 
             if (plagSummary.hasSuspiciousPairs()) {
-                logs.add("🚨 Plagiarism: " + plagSummary.getFlaggedPairCount()
-                        + " suspicious pair(s) — see IS442-Plagiarism-Report.xlsx");
+                logs.add("Plagiarism: " + plagSummary.getFlaggedPairCount()
+                        + " suspicious pair(s) - see IS442-Plagiarism-Report.xlsx");
             } else {
-                logs.add("✅ Plagiarism: no suspicious pairs detected");
+                logs.add("Plagiarism: no suspicious pairs detected");
             }
+            progress(assessmentName, 94, "Plagiarism Complete", "Plagiarism analysis finished.");
 
-            // ── 7. Analysis & export ──────────────────────────────────────────
+            progress(assessmentName, 96, "Exporting Reports", "Generating score sheet and reports...");
             AnalysisController analysisController = isPathAware()
                     ? new AnalysisController(csvScoresheet, outputReports, inputTesters)
                     : new AnalysisController();
-            analysisController.analyzeAndDisplay(results, remarks, anomalyRmks, allStudents,
-                    plagiarismNotes);
-            logs.add("✅ Reports exported");
+            analysisController.analyzeAndDisplay(results, remarks, anomalyRemarks, allStudents, plagiarismNotes);
+            logs.add("Reports exported");
+            progress(assessmentName, 100, "Completed", "Reports exported.");
 
             return new GradingReport(true, studentCount, results, logs);
 
         } catch (Exception e) {
-            logs.add("❌ Pipeline failed: " + e.getMessage());
+            logs.add("Pipeline failed: " + e.getMessage());
+            progress(assessmentName, 100, "Failed", "Grading failed: " + e.getMessage());
             e.printStackTrace();
             return new GradingReport(false, 0, Collections.emptyList(), logs);
         }
     }
 
-    // ── Private: skip Phase 3 when testers are already on disk ────────────
+    private void progress(String assessmentName, int percent, String stage, String message) {
+        if (assessmentName == null || assessmentName.isBlank()) {
+            return;
+        }
+        AssessmentProgressRegistry.updatePercent(assessmentName, percent, stage, message);
+    }
+
+    private void progressExecution(String assessmentName, int completed, int total) {
+        if (assessmentName == null || assessmentName.isBlank()) {
+            return;
+        }
+        AssessmentProgressRegistry.updateProgress(
+                assessmentName,
+                "Grading",
+                55,
+                completed,
+                total,
+                "Processed " + completed + " of " + total + " grading task(s).");
+    }
 
     private boolean savedTestersExist() {
         Path testersDir = resolveInputTesters();
-        if (!Files.isDirectory(testersDir))
+        if (!Files.isDirectory(testersDir)) {
             return false;
+        }
         try (Stream<Path> files = Files.list(testersDir)) {
-            boolean found = files.anyMatch(p -> p.getFileName().toString().endsWith("Tester.java"));
-            if (found) {
-                System.out.println("   🔒 Testers already on disk — skipping AI generation.");
-            }
-            return found;
+            return files.anyMatch(p -> p.getFileName().toString().endsWith("Tester.java"));
         } catch (Exception e) {
             return false;
         }
     }
 
-    // ── Private: find template ZIP ─────────────────────────────────────────
-
     private Path findTemplateZip() {
         Path templateDir = resolveInputTemplate();
         try (var stream = Files.list(templateDir)) {
-            return stream.filter(p -> p.toString().endsWith(".zip"))
-                    .findFirst().orElse(null);
+            return stream.filter(p -> p.toString().endsWith(".zip")).findFirst().orElse(null);
         } catch (Exception e) {
             return null;
         }
     }
 
-    // ── Private: build per-student plagiarism notes ────────────────────────
-
-    private Map<String, String> buildPlagiarismNotes(
-            PlagiarismController.PlagiarismSummary plagSummary) {
-
+    private Map<String, String> buildPlagiarismNotes(PlagiarismController.PlagiarismSummary plagSummary) {
         Map<String, Map<String, List<String>>> perStudentPerQuestion = new LinkedHashMap<>();
 
         for (PlagiarismResult r : plagSummary.flaggedResults) {
@@ -256,15 +244,12 @@ public class GradingService {
         for (Map.Entry<String, Map<String, List<String>>> studentEntry : perStudentPerQuestion.entrySet()) {
             List<String> parts = new ArrayList<>();
             for (Map.Entry<String, List<String>> qEntry : studentEntry.getValue().entrySet()) {
-                parts.add(qEntry.getKey() + ": flagged "
-                        + String.join(", ", qEntry.getValue()));
+                parts.add(qEntry.getKey() + ": flagged " + String.join(", ", qEntry.getValue()));
             }
             notes.put(studentEntry.getKey(), String.join("; ", parts));
         }
         return notes;
     }
-
-    // ── Inner class: GradingReport ─────────────────────────────────────────
 
     public static class GradingReport {
         private boolean success;
@@ -276,7 +261,7 @@ public class GradingService {
         }
 
         public GradingReport(boolean success, int studentCount,
-                List<GradingResult> results, List<String> logs) {
+                             List<GradingResult> results, List<String> logs) {
             this.success = success;
             this.studentCount = studentCount;
             this.results = results != null ? results : new ArrayList<>();
@@ -307,8 +292,8 @@ public class GradingService {
             return results;
         }
 
-        public void setResults(List<GradingResult> r) {
-            this.results = r;
+        public void setResults(List<GradingResult> results) {
+            this.results = results;
         }
 
         public List<String> getLogs() {

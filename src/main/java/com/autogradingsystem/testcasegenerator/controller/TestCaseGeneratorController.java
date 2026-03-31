@@ -2,175 +2,175 @@ package com.autogradingsystem.testcasegenerator.controller;
 
 import com.autogradingsystem.PathConfig;
 import com.autogradingsystem.testcasegenerator.model.QuestionSpec;
+import com.autogradingsystem.testcasegenerator.service.ExamPaperParser;
+import com.autogradingsystem.testcasegenerator.service.ScriptTesterGenerator;
 import com.autogradingsystem.testcasegenerator.service.TesterGenerator;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
 
 /**
- * TestCaseGeneratorController — orchestrates *Tester.java generation.
- *
- * PACKAGE: com.autogradingsystem.testcasegenerator.controller
- *
- * Two entry points:
- *
- *   generateAll()       — ALWAYS clears and regenerates. Called by /generate-testers
- *                         (the Web UI "Generate" button). This is the intentional
- *                         "force-regenerate" path used when the examiner wants
- *                         fresh AI output before reviewing.
- *
- *   generateIfNeeded()  — SKIPS generation when saved testers already exist on disk.
- *                         Called by GradingService.runFullPipeline() during /grade.
- *                         If the examiner has already saved testers via /save-testers,
- *                         those files are used as-is and this method is a no-op.
- *
- * FIX (Bug 1 — saved testers overwritten):
- *   Previously generateIfNeeded() called generateAll() unconditionally, which
- *   cleared the testers folder before writing new AI-generated files — wiping
- *   any manual edits the examiner had saved.
- *
- *   Now generateIfNeeded() returns immediately when any *Tester.java file is
- *   found in resources/input/testers/. generateAll() is unchanged and still
- *   used for the explicit "Generate Testers" button in the Web UI.
+ * TestCaseGeneratorController - orchestrates tester generation when no saved
+ * tester files exist yet.
  */
 public class TestCaseGeneratorController {
 
     private final TesterGenerator testerGenerator;
+    private final ScriptTesterGenerator scriptTesterGenerator;
+    private final Path testersDir;
+    private final Path examDir;
+    private final Path templateDir;
 
     public TestCaseGeneratorController() {
-        this.testerGenerator = new TesterGenerator();
+        this(PathConfig.INPUT_TESTERS, ExamPaperParser.EXAM_DIR, PathConfig.INPUT_TEMPLATE);
     }
 
-    // -------------------------------------------------------------------------
-    // generateAll — always clears + regenerates (used by /generate-testers)
-    // -------------------------------------------------------------------------
+    public TestCaseGeneratorController(Path testersDir, Path examDir) {
+        this(testersDir, examDir, PathConfig.INPUT_TEMPLATE);
+    }
 
-    /**
-     * Clears all existing *Tester.java files from resources/input/testers/,
-     * then generates fresh ones from the LLM for every question in specs.
-     *
-     * Called by GradingController /generate-testers — the Web UI "Generate" button.
-     * This is the intentional force-regenerate path and always overwrites.
-     *
-     * @return true if at least one tester was written successfully
-     */
+    public TestCaseGeneratorController(Path testersDir, Path examDir, Path templateDir) {
+        this.testerGenerator = new TesterGenerator();
+        this.scriptTesterGenerator = new ScriptTesterGenerator();
+        this.testersDir = testersDir != null ? testersDir : PathConfig.INPUT_TESTERS;
+        this.examDir = examDir != null ? examDir : ExamPaperParser.EXAM_DIR;
+        this.templateDir = templateDir != null ? templateDir : PathConfig.INPUT_TEMPLATE;
+    }
+
     public boolean generateAll(Map<String, QuestionSpec> specs,
                                Map<String, Integer> weights) throws IOException {
-
-        Path testersDir = PathConfig.INPUT_TESTERS;
         Files.createDirectories(testersDir);
-
-        // Clear existing testers
         clearTestersDir(testersDir);
-
         return generateInto(specs, weights, testersDir);
     }
 
-    // -------------------------------------------------------------------------
-    // generateIfNeeded — skips when saved testers already exist (used by /grade)
-    // -------------------------------------------------------------------------
-
-    /**
-     * Generates *Tester.java files ONLY when none exist yet.
-     *
-     * If the examiner has already saved testers (via /save-testers or a prior
-     * generateAll run), this method is a no-op and returns true immediately.
-     * The saved files on disk — including any manual edits — are left untouched.
-     *
-     * Called by GradingService.runFullPipeline() during /grade.
-     *
-     * @return true always (either files already exist or generation succeeded)
-     */
     public boolean generateIfNeeded(Map<String, QuestionSpec> specs,
                                     Map<String, Integer> weights) throws IOException {
-
-        Path testersDir = PathConfig.INPUT_TESTERS;
         Files.createDirectories(testersDir);
-
-        // ── FIX: skip if examiner-saved testers are present ──────────────────
         if (savedTestersExist(testersDir)) {
-            System.out.println("⏭️  TestCaseGeneratorController.generateIfNeeded(): "
-                    + "examiner-saved testers found — skipping AI generation.");
+            System.out.println("[TestGen] Saved testers found on disk - skipping generation.");
             return true;
         }
-        // ── END FIX ──────────────────────────────────────────────────────────
 
-        System.out.println("⚙️  TestCaseGeneratorController.generateIfNeeded(): "
-                + "no testers found — generating from LLM...");
+        System.out.println("[TestGen] No testers found - generating from template + exam paper.");
         return generateInto(specs, weights, testersDir);
     }
 
-    // -------------------------------------------------------------------------
-    // Private helpers
-    // -------------------------------------------------------------------------
-
-    /**
-     * Returns true when at least one *Tester.java file is present in testersDir.
-     * This is the signal that the examiner has already reviewed and saved testers.
-     */
-    private boolean savedTestersExist(Path testersDir) {
-        if (!Files.isDirectory(testersDir)) return false;
-        try (Stream<Path> files = Files.list(testersDir)) {
+    private boolean savedTestersExist(Path dir) {
+        if (!Files.isDirectory(dir)) return false;
+        try (Stream<Path> files = Files.list(dir)) {
             return files.anyMatch(p -> p.getFileName().toString().endsWith("Tester.java"));
         } catch (IOException e) {
-            return false; // unreadable dir — fall through to generation
+            return false;
         }
     }
 
-    /**
-     * Deletes all *Tester.java files from the given directory.
-     */
-    private void clearTestersDir(Path testersDir) throws IOException {
-        if (!Files.isDirectory(testersDir)) return;
-        try (Stream<Path> files = Files.list(testersDir)) {
+    private void clearTestersDir(Path dir) throws IOException {
+        if (!Files.isDirectory(dir)) return;
+        try (Stream<Path> files = Files.list(dir)) {
             files.filter(p -> p.getFileName().toString().endsWith("Tester.java"))
-                 .forEach(p -> {
-                     try {
-                         Files.deleteIfExists(p);
-                     } catch (IOException e) {
-                         System.err.println("⚠️  Could not delete: " + p + " — " + e.getMessage());
-                     }
-                 });
+                    .forEach(p -> {
+                        try {
+                            Files.deleteIfExists(p);
+                        } catch (IOException e) {
+                            System.err.println("[TestGen] Could not delete " + p + ": " + e.getMessage());
+                        }
+                    });
         }
     }
 
-    /**
-     * Generates one *Tester.java per question in specs and writes it to testersDir.
-     *
-     * @return true if at least one file was written
-     */
     private boolean generateInto(Map<String, QuestionSpec> specs,
-                                  Map<String, Integer> weights,
-                                  Path testersDir) throws IOException {
+                                 Map<String, Integer> weights,
+                                 Path dir) throws IOException {
         if (specs == null || specs.isEmpty()) {
-            System.err.println("⚠️  TestCaseGeneratorController: no question specs provided.");
+            System.err.println("[TestGen] No question specs provided.");
             return false;
         }
 
+        Map<String, String> descriptions = loadDescriptions();
+        for (Map.Entry<String, QuestionSpec> entry : specs.entrySet()) {
+            String desc = descriptions.get(entry.getKey());
+            if (desc != null && !desc.isBlank()) {
+                entry.getValue().setDescription(desc);
+            }
+        }
+
+        Set<String> scriptQuestions = loadScriptQuestions();
+
         int written = 0;
+        Path templateZip = findTemplateZip();
         for (Map.Entry<String, QuestionSpec> entry : specs.entrySet()) {
             String questionId = entry.getKey();
             QuestionSpec spec = entry.getValue();
             int weight = weights != null ? weights.getOrDefault(questionId, 1) : 1;
 
             try {
-                String source   = testerGenerator.generate(questionId, spec, weight);
-                String filename = questionId + "Tester.java";
-                Path   dest     = testersDir.resolve(filename);
-                Files.writeString(dest, source);
-                System.out.println("   ✅ Written: " + filename);
+                String source = scriptQuestions.contains(questionId)
+                        ? scriptTesterGenerator.generate(questionId, weight, descriptions.get(questionId), templateZip)
+                        : testerGenerator.generate(questionId, spec, weight);
+                Files.writeString(dir.resolve(questionId + "Tester.java"), source);
                 written++;
+                System.out.println("[TestGen] Wrote " + questionId + "Tester.java");
             } catch (Exception e) {
-                System.err.println("⚠️  Failed to generate tester for "
-                        + questionId + ": " + e.getMessage());
+                System.err.println("[TestGen] Failed for " + questionId + ": " + e.getMessage());
             }
         }
 
-        System.out.println("⚙️  TestCaseGeneratorController: " + written
-                + "/" + specs.size() + " tester(s) written.");
+        for (String questionId : scriptQuestions) {
+            Path output = dir.resolve(questionId + "Tester.java");
+            if (Files.exists(output)) continue;
+
+            int weight = weights != null ? weights.getOrDefault(questionId, 1) : 1;
+            try {
+                String source = scriptTesterGenerator.generate(
+                        questionId,
+                        weight,
+                        descriptions.get(questionId),
+                        templateZip);
+                Files.writeString(output, source);
+                written++;
+                System.out.println("[TestGen] Wrote " + output.getFileName() + " (script folder task)");
+            } catch (Exception e) {
+                System.err.println("[TestGen] Failed for script question " + questionId + ": " + e.getMessage());
+            }
+        }
+
+        System.out.println("[TestGen] Total testers written: " + written);
         return written > 0;
+    }
+
+    private Map<String, String> loadDescriptions() {
+        try {
+            ExamPaperParser parser = ExamPaperParser.fromEnvironment(examDir);
+            return new LinkedHashMap<>(parser.extractQuestionDescriptions());
+        } catch (Exception e) {
+            return new LinkedHashMap<>();
+        }
+    }
+
+    private Set<String> loadScriptQuestions() {
+        try {
+            ExamPaperParser parser = ExamPaperParser.fromEnvironment(examDir);
+            return new LinkedHashSet<>(parser.extractScriptQuestions());
+        } catch (Exception e) {
+            return new LinkedHashSet<>();
+        }
+    }
+
+    private Path findTemplateZip() {
+        if (!Files.isDirectory(templateDir)) return null;
+        try (Stream<Path> files = Files.list(templateDir)) {
+            return files.filter(p -> p.getFileName().toString().toLowerCase().endsWith(".zip"))
+                    .findFirst()
+                    .orElse(null);
+        } catch (IOException e) {
+            return null;
+        }
     }
 }

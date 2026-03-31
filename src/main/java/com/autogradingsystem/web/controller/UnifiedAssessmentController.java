@@ -1,6 +1,7 @@
 package com.autogradingsystem.web.controller;
 
 import com.autogradingsystem.multiassessment.AssessmentPathConfig;
+import com.autogradingsystem.web.service.AssessmentProgressRegistry;
 import com.autogradingsystem.web.service.GradingService;
 
 import org.springframework.core.io.FileSystemResource;
@@ -218,7 +219,13 @@ public class UnifiedAssessmentController {
         try {
             AssessmentPathConfig paths = new AssessmentPathConfig(name);
             GradingService service = new GradingService(paths);
-            GradingService.GradingReport report = service.runFullPipeline();
+            AssessmentProgressRegistry.start(name);
+            GradingService.GradingReport report = service.runFullPipeline(name);
+            if (report.isSuccess()) {
+                AssessmentProgressRegistry.complete(name, "Grading completed successfully.");
+            } else {
+                AssessmentProgressRegistry.fail(name, "Grading completed with errors.");
+            }
 
             response.put("success",      report.isSuccess());
             response.put("studentCount", report.getStudentCount());
@@ -236,10 +243,20 @@ public class UnifiedAssessmentController {
 
         } catch (Exception e) {
             e.printStackTrace();
+            AssessmentProgressRegistry.fail(name, "Grading failed: " + e.getMessage());
             response.put("success", false);
             response.put("message", "Grading failed: " + e.getMessage());
             return ResponseEntity.internalServerError().body(response);
         }
+    }
+
+    @GetMapping("/assessments/{name}/progress")
+    public ResponseEntity<Map<String, Object>> progress(@PathVariable String name) {
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("success", true);
+        response.put("assessment", name);
+        response.putAll(AssessmentProgressRegistry.snapshot(name));
+        return ResponseEntity.ok(response);
     }
 
     // ── GET /assessments/{name}/download ──────────────────────────────────────
