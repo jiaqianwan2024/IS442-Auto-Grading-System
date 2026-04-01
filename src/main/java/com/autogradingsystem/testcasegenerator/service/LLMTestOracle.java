@@ -79,7 +79,7 @@ public class LLMTestOracle {
         if (mainCases.size() >= numTests) {
             System.out.println("   OK Using " + numTests + " main() examples for "
                     + questionId + "::" + method.getName());
-            return mainCases.subList(0, numTests);
+            return selectDiverseCases(mainCases, numTests);
         }
 
         int needed = numTests - mainCases.size();
@@ -573,6 +573,36 @@ public class LLMTestOracle {
     // =========================================================================
     // Helpers
     // =========================================================================
+
+    /**
+     * Selects n cases from a pool of main() examples, preferring diverse expected
+     * values over redundant ones. This ensures that edge-case tests (e.g. file-not-found
+     * returning -1.0, or exception tests) are not discarded in favour of a second happy-path
+     * test that happens to share the same expected output as an earlier one.
+     *
+     * Algorithm:
+     *  1. First pass: collect one representative per unique expected value, in order.
+     *  2. Second pass: append any remainder (duplicates) to fill up to n if needed.
+     */
+    private List<GeneratedTestCase> selectDiverseCases(List<GeneratedTestCase> all, int n) {
+        if (all.size() <= n) return new ArrayList<>(all);
+        LinkedHashMap<String, GeneratedTestCase> seenExpected = new LinkedHashMap<>();
+        List<GeneratedTestCase> duplicates = new ArrayList<>();
+        for (GeneratedTestCase tc : all) {
+            String key = tc.getEqualityStrategy() + "|" + tc.getExpected();
+            if (!seenExpected.containsKey(key)) {
+                seenExpected.put(key, tc);
+            } else {
+                duplicates.add(tc);
+            }
+        }
+        List<GeneratedTestCase> result = new ArrayList<>(seenExpected.values());
+        for (GeneratedTestCase tc : duplicates) {
+            if (result.size() >= n) break;
+            result.add(tc);
+        }
+        return result.subList(0, Math.min(n, result.size()));
+    }
 
     private List<GeneratedTestCase> smokeTestsForInputs(List<List<String>> inputSets) {
         List<GeneratedTestCase> r = new ArrayList<>();
