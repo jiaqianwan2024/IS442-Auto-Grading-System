@@ -1,6 +1,5 @@
 package com.autogradingsystem.analysis.controller;
 
-import com.autogradingsystem.PathConfig;
 import com.autogradingsystem.analysis.service.ScoreAnalyzer;
 import com.autogradingsystem.analysis.service.ScoreSheetExporter;
 import com.autogradingsystem.analysis.service.StatisticsReportExporter;
@@ -31,12 +30,6 @@ public class AnalysisController {
     private final Path               inputTesters;
 
     // ── CONSTRUCTORS ─────────────────────────────────────────────────────────
-
-    /** Default — uses global PathConfig (single-assessment flow). */
-    public AnalysisController() {
-        this.scoreSheetExporter = new ScoreSheetExporter();
-        this.inputTesters       = null;
-    }
 
     /**
      * Path-aware — multi-assessment support.
@@ -73,7 +66,7 @@ public class AnalysisController {
                                   List<Student> allStudents,
                                   Map<String, String> plagiarismNotes) {
 
-        Path testersDir = inputTesters != null ? inputTesters : PathConfig.INPUT_TESTERS;
+        Path testersDir = inputTesters;
 
         Map<String, Double>              maxScores      = ScoreAnalyzer.inferMaxScores(results, testersDir);
         List<GradingResult>              updatedResults = ScoreAnalyzer.updateWithMaxScores(results, testersDir);

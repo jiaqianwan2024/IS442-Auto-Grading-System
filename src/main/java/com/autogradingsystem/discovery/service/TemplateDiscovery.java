@@ -48,7 +48,7 @@ public class TemplateDiscovery {
         if (Files.size(templateZip) > MAX_ZIP_BYTES) {
             throw new IOException(
                 "Template ZIP is too large (> 50 MB): " + templateZip.getFileName() + "\n" +
-                "Please verify you placed the correct file in resources/input/template/"
+                "Please verify you placed the correct file in the assessment template directory."
             );
         }
 

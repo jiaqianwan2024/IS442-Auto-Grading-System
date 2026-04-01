@@ -1,6 +1,5 @@
 package com.autogradingsystem.testcasegenerator.controller;
 
-import com.autogradingsystem.PathConfig;
 import com.autogradingsystem.testcasegenerator.model.QuestionSpec;
 import com.autogradingsystem.testcasegenerator.service.ExamPaperParser;
 import com.autogradingsystem.testcasegenerator.service.ScriptTesterGenerator;
@@ -27,20 +26,12 @@ public class TestCaseGeneratorController {
     private final Path examDir;
     private final Path templateDir;
 
-    public TestCaseGeneratorController() {
-        this(PathConfig.INPUT_TESTERS, ExamPaperParser.EXAM_DIR, PathConfig.INPUT_TEMPLATE);
-    }
-
-    public TestCaseGeneratorController(Path testersDir, Path examDir) {
-        this(testersDir, examDir, PathConfig.INPUT_TEMPLATE);
-    }
-
     public TestCaseGeneratorController(Path testersDir, Path examDir, Path templateDir) {
         this.testerGenerator = new TesterGenerator();
         this.scriptTesterGenerator = new ScriptTesterGenerator();
-        this.testersDir = testersDir != null ? testersDir : PathConfig.INPUT_TESTERS;
-        this.examDir = examDir != null ? examDir : ExamPaperParser.EXAM_DIR;
-        this.templateDir = templateDir != null ? templateDir : PathConfig.INPUT_TEMPLATE;
+        this.testersDir = testersDir;
+        this.examDir = examDir;
+        this.templateDir = templateDir;
     }
 
     public boolean generateAll(Map<String, QuestionSpec> specs,

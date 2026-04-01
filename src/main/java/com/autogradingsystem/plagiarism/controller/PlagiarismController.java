@@ -1,6 +1,5 @@
 package com.autogradingsystem.plagiarism.controller;
 
-import com.autogradingsystem.PathConfig;
 import com.autogradingsystem.model.GradingPlan;
 import com.autogradingsystem.plagiarism.model.PlagiarismConfig;
 import com.autogradingsystem.plagiarism.model.PlagiarismResult;
@@ -25,21 +24,6 @@ public class PlagiarismController {
 
     // ── Constructors ──────────────────────────────────────────────────────────
 
-    /** Single-assessment: uses global PathConfig */
-    public PlagiarismController() {
-        this(new PlagiarismConfig(), null, null);
-    }
-
-    /** Custom config, global PathConfig paths */
-    public PlagiarismController(PlagiarismConfig config) {
-        this(config, null, null);
-    }
-
-    /** Path-aware: extracted only (legacy multi-assessment constructor) */
-    public PlagiarismController(Path outputExtracted) {
-        this(new PlagiarismConfig(), outputExtracted, null);
-    }
-
     /** Path-aware: extracted + reports (used by GradingService) */
     public PlagiarismController(Path outputExtracted, Path outputReports) {
         this(new PlagiarismConfig(), outputExtracted, outputReports);
@@ -56,13 +40,8 @@ public class PlagiarismController {
 
     // ── Path resolution ───────────────────────────────────────────────────────
 
-    private Path resolveOutputExtracted() {
-        return outputExtracted != null ? outputExtracted : PathConfig.OUTPUT_EXTRACTED;
-    }
-
-    private Path resolveOutputReports() {
-        return outputReports != null ? outputReports : PathConfig.OUTPUT_REPORTS;
-    }
+    private Path resolveOutputExtracted() { return outputExtracted; }
+    private Path resolveOutputReports() { return outputReports; }
 
     // ── Public API ────────────────────────────────────────────────────────────
 

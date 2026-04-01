@@ -1,7 +1,5 @@
 package com.autogradingsystem.model;
 
-import com.autogradingsystem.PathConfig;
-
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -72,7 +70,7 @@ public class Student {
      * @return Path to student's question folder
      */
     public Path getQuestionPath(String questionFolder) {
-        return PathConfig.getStudentQuestionFolder(this.id, questionFolder);
+        return rootPath.resolve(questionFolder);
     }
 
     // ── Identity / header flags ───────────────────────────────────────────────

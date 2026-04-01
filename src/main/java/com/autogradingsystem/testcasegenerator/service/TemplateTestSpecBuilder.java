@@ -21,7 +21,15 @@ import java.util.zip.*;
 public class TemplateTestSpecBuilder {
 
     private final QuestionSpecParser specParser = new QuestionSpecParser();
-    private final ExamPaperParser    examParser = ExamPaperParser.fromEnvironment();
+    private final ExamPaperParser    examParser;
+
+    public TemplateTestSpecBuilder(Path examDir) {
+        this.examParser = ExamPaperParser.fromEnvironment(examDir);
+    }
+
+    public TemplateTestSpecBuilder() {
+        this.examParser = ExamPaperParser.fromEnvironment();
+    }
 
     // Pattern matching question file names: Q1a.java, Q2b.java, Q3.java
     private static final Pattern QUESTION_FILE = Pattern.compile(

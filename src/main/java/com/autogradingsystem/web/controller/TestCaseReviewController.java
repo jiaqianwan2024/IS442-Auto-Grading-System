@@ -1,6 +1,5 @@
 package com.autogradingsystem.web.controller;
 
-import com.autogradingsystem.PathConfig;
 import com.autogradingsystem.testcasegenerator.model.QuestionSpec;
 import com.autogradingsystem.testcasegenerator.service.ExamPaperParser;
 import com.autogradingsystem.testcasegenerator.service.LLMTestOracle;
@@ -8,7 +7,7 @@ import com.autogradingsystem.testcasegenerator.service.ScriptTesterGenerator;
 import com.autogradingsystem.testcasegenerator.service.TemplateTestSpecBuilder;
 import com.autogradingsystem.testcasegenerator.service.TesterGenerator;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.RequestBody;
 
 import java.nio.file.*;
 import java.util.*;
@@ -16,14 +15,11 @@ import java.util.*;
 /**
  * TestCaseReviewController - Handles the examiner review workflow.
  */
-@RestController
 public class TestCaseReviewController {
 
     private Path inputTesters;
     private Path inputTemplate;
     private Path inputExam;
-
-    public TestCaseReviewController() {}
 
     public TestCaseReviewController(Path inputTesters, Path inputTemplate, Path inputExam) {
         this.inputTesters = inputTesters;
@@ -32,18 +28,17 @@ public class TestCaseReviewController {
     }
 
     private Path resolveInputTesters() {
-        return inputTesters != null ? inputTesters : PathConfig.INPUT_TESTERS;
+        return inputTesters;
     }
 
     private Path resolveInputTemplate() {
-        return inputTemplate != null ? inputTemplate : PathConfig.INPUT_TEMPLATE;
+        return inputTemplate;
     }
 
     private Path resolveInputExam() {
-        return inputExam != null ? inputExam : ExamPaperParser.EXAM_DIR;
+        return inputExam;
     }
 
-    @PostMapping("/parse-exam-marks")
     public ResponseEntity<Map<String, Object>> parseExamMarks() {
         Map<String, Object> response = new LinkedHashMap<>();
         try {
@@ -55,9 +50,7 @@ public class TestCaseReviewController {
                 return ResponseEntity.badRequest().body(response);
             }
 
-            ExamPaperParser parser = (inputExam != null)
-                    ? ExamPaperParser.fromEnvironment(inputExam)
-                    : ExamPaperParser.fromEnvironment();
+            ExamPaperParser parser = ExamPaperParser.fromEnvironment(inputExam);
 
             Map<String, Integer> marks = parser.extractMarkWeights();
             if (marks.isEmpty()) {
@@ -84,7 +77,6 @@ public class TestCaseReviewController {
         }
     }
 
-    @PostMapping("/generate-testers")
     public ResponseEntity<Map<String, Object>> generateTesters(
             @RequestBody Map<String, Object> body) {
 
@@ -114,7 +106,7 @@ public class TestCaseReviewController {
                 return ResponseEntity.badRequest().body(response);
             }
 
-            TemplateTestSpecBuilder specBuilder = new TemplateTestSpecBuilder();
+            TemplateTestSpecBuilder specBuilder = new TemplateTestSpecBuilder(inputExam);
             Map<String, QuestionSpec> specs = specBuilder.buildQuestionSpecs(templateZip);
             if (specs.isEmpty()) {
                 response.put("success", false);
@@ -124,9 +116,7 @@ public class TestCaseReviewController {
 
             Map<String, String> descriptions = new LinkedHashMap<>();
             try {
-                ExamPaperParser descParser = (inputExam != null)
-                        ? ExamPaperParser.fromEnvironment(inputExam)
-                        : ExamPaperParser.fromEnvironment();
+                ExamPaperParser descParser = ExamPaperParser.fromEnvironment(inputExam);
                 descriptions = new LinkedHashMap<>(descParser.extractQuestionDescriptions());
 
                 for (Map.Entry<String, QuestionSpec> entry : specs.entrySet()) {
@@ -142,9 +132,7 @@ public class TestCaseReviewController {
 
             Set<String> scriptQuestions = new LinkedHashSet<>();
             try {
-                ExamPaperParser scriptParser = (inputExam != null)
-                        ? ExamPaperParser.fromEnvironment(inputExam)
-                        : ExamPaperParser.fromEnvironment();
+                ExamPaperParser scriptParser = ExamPaperParser.fromEnvironment(inputExam);
                 scriptQuestions = scriptParser.extractScriptQuestions();
                 if (!scriptQuestions.isEmpty()) {
                     System.out.println("  [SCRIPT] Detected script/classpath questions: " + scriptQuestions);
@@ -240,7 +228,6 @@ public class TestCaseReviewController {
         }
     }
 
-    @PostMapping("/save-testers")
     public ResponseEntity<Map<String, Object>> saveTesters(
             @RequestBody Map<String, Object> body) {
 

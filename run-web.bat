@@ -15,6 +15,14 @@
 
 setlocal enabledelayedexpansion
 
+if exist "resources\assessments" (
+    echo Clearing resources\assessments...
+    for /d %%D in ("resources\assessments\*") do rd /s /q "%%~fD"
+    del /f /q "resources\assessments\*" >nul 2>&1
+    echo Assessment folder cleared.
+    echo.
+)
+
 :: ── Load .env if present ─────────────────────────────────────────────────────
 if exist .env (
     echo Loading .env...
@@ -37,27 +45,29 @@ if "%COHERE_API_KEY%"=="" (
 )
 
 :: ── Find or build jar ─────────────────────────────────────────────────────────
-set "JAR="
-for /f "delims=" %%f in ('dir /b target\*.jar 2^>nul ^| findstr /v sources ^| findstr /v javadoc') do set "JAR=target\%%f"
-
-if "!JAR!"=="" (
-    echo Building project ^(this may take a minute^)...
+echo Running Maven clean install ^(skip tests^)...
+call mvn clean install -DskipTests -q
+if errorlevel 1 (
+    echo.
+    echo WARNING: Maven install failed. Retrying with clean package...
     call mvn clean package -DskipTests -q
     if errorlevel 1 (
         echo.
         echo ERROR: Maven build failed.
-        echo Run manually: mvn clean package -DskipTests
+        echo Run manually: mvn clean install -DskipTests or mvn clean package -DskipTests
         pause
         exit /b 1
     )
-    echo Build complete.
-    echo.
-    for /f "delims=" %%f in ('dir /b target\*.jar 2^>nul ^| findstr /v sources ^| findstr /v javadoc') do set "JAR=target\%%f"
 )
+echo Build complete.
+echo.
+
+set "JAR="
+for /f "delims=" %%f in ('dir /b target\*.jar 2^>nul ^| findstr /v sources ^| findstr /v javadoc') do set "JAR=target\%%f"
 
 if "!JAR!"=="" (
     echo ERROR: No jar found in target\ after build.
-    echo Run manually: mvn clean package -DskipTests
+    echo Run manually: mvn clean install -DskipTests or mvn clean package -DskipTests
     pause
     exit /b 1
 )

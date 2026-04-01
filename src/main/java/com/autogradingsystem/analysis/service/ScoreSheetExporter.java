@@ -2,7 +2,6 @@ package com.autogradingsystem.analysis.service;
 
 import com.autogradingsystem.model.GradingResult;
 import com.autogradingsystem.model.Student;
-import com.autogradingsystem.PathConfig;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.*;
@@ -44,20 +43,6 @@ public class ScoreSheetExporter {
 
     // ── CONSTRUCTORS ─────────────────────────────────────────────────────────
 
-    /** Default — uses global PathConfig (single-assessment flow). */
-    public ScoreSheetExporter() {
-        this.csvScoresheet = null;
-        this.outputReports = null;
-        this.inputTesters  = null;
-    }
-
-    /** Path-aware — multi-assessment support (no inputTesters). */
-    public ScoreSheetExporter(Path csvScoresheet, Path outputReports) {
-        this.csvScoresheet = csvScoresheet;
-        this.outputReports = outputReports;
-        this.inputTesters  = null;
-    }
-
     /** Path-aware — multi-assessment support (full). */
     public ScoreSheetExporter(Path csvScoresheet, Path outputReports, Path inputTesters) {
         this.csvScoresheet = csvScoresheet;
@@ -68,21 +53,15 @@ public class ScoreSheetExporter {
     // ── PATH RESOLUTION ──────────────────────────────────────────────────────
 
     private Path resolveCsvScoresheet() {
-        return csvScoresheet != null
-            ? csvScoresheet.toAbsolutePath()
-            : PathConfig.CSV_SCORESHEET.toAbsolutePath();
+        return csvScoresheet.toAbsolutePath();
     }
 
     private Path resolveInputTesters() {
-        return inputTesters != null
-            ? inputTesters.toAbsolutePath()
-            : PathConfig.INPUT_TESTERS.toAbsolutePath();
+        return inputTesters.toAbsolutePath();
     }
 
     private Path resolveOutputDir() {
-        return outputReports != null
-            ? outputReports.toAbsolutePath()
-            : PathConfig.OUTPUT_BASE.resolve("reports").toAbsolutePath();
+        return outputReports.toAbsolutePath();
     }
 
     // ── PUBLIC API ────────────────────────────────────────────────────────────

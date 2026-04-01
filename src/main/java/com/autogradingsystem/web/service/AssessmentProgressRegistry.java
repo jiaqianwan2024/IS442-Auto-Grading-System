@@ -103,6 +103,17 @@ public final class AssessmentProgressRegistry {
         return out;
     }
 
+    public static void clear(String assessment) {
+        if (assessment == null || assessment.isBlank()) {
+            return;
+        }
+        STATES.remove(assessment);
+    }
+
+    public static void clearAll() {
+        STATES.clear();
+    }
+
     private static long estimateEtaSeconds(ProgressState state) {
         if (state.done || state.percent <= 0 || state.percent >= 100) {
             return 0;

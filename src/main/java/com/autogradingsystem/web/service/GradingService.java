@@ -1,6 +1,5 @@
 package com.autogradingsystem.web.service;
 
-import com.autogradingsystem.PathConfig;
 import com.autogradingsystem.analysis.controller.AnalysisController;
 import com.autogradingsystem.discovery.controller.DiscoveryController;
 import com.autogradingsystem.execution.controller.ExecutionController;
@@ -15,11 +14,8 @@ import com.autogradingsystem.testcasegenerator.controller.TestCaseGeneratorContr
 import com.autogradingsystem.testcasegenerator.model.QuestionSpec;
 import com.autogradingsystem.testcasegenerator.service.TemplateTestSpecBuilder;
 
-import org.springframework.stereotype.Service;
-
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -27,7 +23,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
-@Service
 public class GradingService {
 
     private Path csvScoresheet;
@@ -37,9 +32,6 @@ public class GradingService {
     private Path inputExam;
     private Path outputExtracted;
     private Path outputReports;
-
-    public GradingService() {
-    }
 
     public GradingService(AssessmentPathConfig paths) {
         this.csvScoresheet = paths.CSV_SCORESHEET;
@@ -51,22 +43,6 @@ public class GradingService {
         this.outputReports = paths.OUTPUT_REPORTS;
     }
 
-    private Path resolveInputTesters() {
-        return inputTesters != null ? inputTesters : PathConfig.INPUT_TESTERS;
-    }
-
-    private Path resolveInputTemplate() {
-        return inputTemplate != null ? inputTemplate : Paths.get("resources/input/template");
-    }
-
-    private boolean isPathAware() {
-        return csvScoresheet != null;
-    }
-
-    public GradingReport runFullPipeline() {
-        return runFullPipeline(null);
-    }
-
     public GradingReport runFullPipeline(String assessmentName) {
         List<String> logs = new ArrayList<>();
 
@@ -74,28 +50,18 @@ public class GradingService {
             progress(assessmentName, 2, "Starting", "Preparing grading pipeline...");
 
             progress(assessmentName, 8, "Validating", "Checking required files...");
-            if (isPathAware()) {
-                if (!Files.exists(csvScoresheet) || !Files.isDirectory(inputSubmissions)) {
-                    progress(assessmentName, 100, "Failed", "Missing required assessment input files.");
-                    return new GradingReport(false, 0, Collections.emptyList(),
-                            List.of("Missing required input files for this assessment."));
-                }
-                outputExtracted.toFile().mkdirs();
-                outputReports.toFile().mkdirs();
-            } else {
-                if (!PathConfig.validateInputPaths()) {
-                    progress(assessmentName, 100, "Failed", "Missing required input files.");
-                    return new GradingReport(false, 0, Collections.emptyList(),
-                            List.of("Missing required input files. Check resources/input/."));
-                }
-                PathConfig.ensureOutputDirectories();
+            if (!Files.exists(csvScoresheet) || !Files.isDirectory(inputSubmissions)) {
+                progress(assessmentName, 100, "Failed", "Missing required assessment input files.");
+                return new GradingReport(false, 0, Collections.emptyList(),
+                        List.of("Missing required input files for this assessment."));
             }
+            outputExtracted.toFile().mkdirs();
+            outputReports.toFile().mkdirs();
             progress(assessmentName, 12, "Validated", "Required files are ready.");
 
             progress(assessmentName, 18, "Extracting", "Unzipping submissions and resolving identities...");
-            ExtractionController extractionController = isPathAware()
-                    ? new ExtractionController(csvScoresheet, inputSubmissions, outputExtracted)
-                    : new ExtractionController();
+            ExtractionController extractionController =
+                    new ExtractionController(csvScoresheet, inputSubmissions, outputExtracted);
             int studentCount = extractionController.extractAndValidate();
             logs.add("Extracted " + studentCount + " submissions");
             progress(assessmentName, 28, "Extracted", "Extracted " + studentCount + " submission(s).");
@@ -107,13 +73,12 @@ public class GradingService {
             } else {
                 Path templateZip = findTemplateZip();
                 if (templateZip != null) {
-                    TemplateTestSpecBuilder specBuilder = new TemplateTestSpecBuilder();
+                    TemplateTestSpecBuilder specBuilder = new TemplateTestSpecBuilder(inputExam);
                     Map<String, QuestionSpec> specs = specBuilder.buildQuestionSpecs(templateZip);
                     Map<String, Integer> weights = specBuilder.readScoreWeights();
 
-                    TestCaseGeneratorController testGenController = isPathAware()
-                            ? new TestCaseGeneratorController(inputTesters, inputExam)
-                            : new TestCaseGeneratorController();
+                    TestCaseGeneratorController testGenController =
+                            new TestCaseGeneratorController(inputTesters, inputExam, inputTemplate);
                     testGenController.generateIfNeeded(specs, weights);
                     logs.add("Test cases generated from template (" + specs.size()
                             + " question(s), weights: " + weights + ")");
@@ -126,17 +91,15 @@ public class GradingService {
             }
 
             progress(assessmentName, 45, "Discovering", "Building grading plan...");
-            DiscoveryController discoveryController = isPathAware()
-                    ? new DiscoveryController(inputTemplate, inputTesters)
-                    : new DiscoveryController();
+            DiscoveryController discoveryController =
+                    new DiscoveryController(inputTemplate, inputTesters);
             GradingPlan gradingPlan = discoveryController.buildGradingPlan();
             logs.add("Grading plan: " + gradingPlan.getTaskCount() + " tasks");
             progress(assessmentName, 55, "Discovered", "Found " + gradingPlan.getTaskCount() + " grading task(s).");
 
             progress(assessmentName, 55, "Grading", "Running testers against student submissions...");
-            ExecutionController executionController = isPathAware()
-                    ? new ExecutionController(outputExtracted, csvScoresheet, inputTesters, inputTemplate)
-                    : new ExecutionController();
+            ExecutionController executionController =
+                    new ExecutionController(outputExtracted, csvScoresheet, inputTesters, inputTemplate);
             List<GradingResult> results = executionController.gradeAllStudents(
                     gradingPlan,
                     (completed, total) -> progressExecution(assessmentName, completed, total));
@@ -147,9 +110,8 @@ public class GradingService {
             progress(assessmentName, 86, "Graded", "Completed execution for " + results.size() + " result(s).");
 
             progress(assessmentName, 90, "Analyzing Plagiarism", "Checking submissions for similarity...");
-            PlagiarismController plagController = isPathAware()
-                    ? new PlagiarismController(outputExtracted, outputReports)
-                    : new PlagiarismController();
+            PlagiarismController plagController =
+                    new PlagiarismController(outputExtracted, outputReports);
             PlagiarismController.PlagiarismSummary plagSummary = plagController.runPlagiarismCheck(gradingPlan);
             Map<String, String> plagiarismNotes = buildPlagiarismNotes(plagSummary);
 
@@ -162,9 +124,8 @@ public class GradingService {
             progress(assessmentName, 94, "Plagiarism Complete", "Plagiarism analysis finished.");
 
             progress(assessmentName, 96, "Exporting Reports", "Generating score sheet and reports...");
-            AnalysisController analysisController = isPathAware()
-                    ? new AnalysisController(csvScoresheet, outputReports, inputTesters)
-                    : new AnalysisController();
+            AnalysisController analysisController =
+                    new AnalysisController(csvScoresheet, outputReports, inputTesters);
             analysisController.analyzeAndDisplay(results, remarks, anomalyRemarks, allStudents, plagiarismNotes);
             logs.add("Reports exported");
             progress(assessmentName, 100, "Completed", "Reports exported.");
@@ -200,11 +161,10 @@ public class GradingService {
     }
 
     private boolean savedTestersExist() {
-        Path testersDir = resolveInputTesters();
-        if (!Files.isDirectory(testersDir)) {
+        if (!Files.isDirectory(inputTesters)) {
             return false;
         }
-        try (Stream<Path> files = Files.list(testersDir)) {
+        try (Stream<Path> files = Files.list(inputTesters)) {
             return files.anyMatch(p -> p.getFileName().toString().endsWith("Tester.java"));
         } catch (Exception e) {
             return false;
@@ -212,8 +172,7 @@ public class GradingService {
     }
 
     private Path findTemplateZip() {
-        Path templateDir = resolveInputTemplate();
-        try (var stream = Files.list(templateDir)) {
+        try (var stream = Files.list(inputTemplate)) {
             return stream.filter(p -> p.toString().endsWith(".zip")).findFirst().orElse(null);
         } catch (Exception e) {
             return null;

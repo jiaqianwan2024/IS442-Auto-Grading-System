@@ -1,6 +1,4 @@
 package com.autogradingsystem.extraction.controller;
-
-import com.autogradingsystem.PathConfig;
 import com.autogradingsystem.extraction.service.UnzipService;
 import com.autogradingsystem.extraction.service.ScoreSheetReader;
 import com.autogradingsystem.extraction.model.ValidationResult;
@@ -31,8 +29,7 @@ public class ExtractionController {
     private final UnzipService unzipService;
 
     // ================================================================
-    // PATH FIELDS — null means "use global PathConfig" (single-assessment)
-    // Set by the path-aware constructor for multi-assessment runs
+    // Assessment-scoped paths for this grading run
     // ================================================================
 
     private final Path csvScoresheet;
@@ -42,19 +39,6 @@ public class ExtractionController {
     // ================================================================
     // CONSTRUCTORS
     // ================================================================
-
-    /**
-     * Default constructor — uses global PathConfig static paths.
-     * Called by GradingService for the standard single-assessment flow.
-     * Behaviour is identical to the original constructor.
-     */
-    public ExtractionController() {
-        this.scoreReader      = new ScoreSheetReader();
-        this.unzipService     = new UnzipService();
-        this.csvScoresheet    = null;
-        this.inputSubmissions = null;
-        this.outputExtracted  = null;
-    }
 
     /**
      * Path-aware constructor for multi-assessment support.
@@ -75,13 +59,9 @@ public class ExtractionController {
         this.outputExtracted  = outputExtracted;
     }
 
-    // ================================================================
-    // PATH RESOLUTION — picks instance path if set, falls back to PathConfig
-    // ================================================================
-
-    private Path resolveCsvScoresheet()    { return csvScoresheet    != null ? csvScoresheet    : PathConfig.CSV_SCORESHEET;    }
-    private Path resolveInputSubmissions() { return inputSubmissions != null ? inputSubmissions : PathConfig.INPUT_SUBMISSIONS; }
-    private Path resolveOutputExtracted()  { return outputExtracted  != null ? outputExtracted  : PathConfig.OUTPUT_EXTRACTED;  }
+    private Path resolveCsvScoresheet()    { return csvScoresheet;    }
+    private Path resolveInputSubmissions() { return inputSubmissions; }
+    private Path resolveOutputExtracted()  { return outputExtracted;  }
 
     // ================================================================
     // PUBLIC API

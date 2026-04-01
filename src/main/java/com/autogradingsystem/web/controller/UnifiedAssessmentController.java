@@ -70,6 +70,7 @@ public class UnifiedAssessmentController {
             }
 
             List<Map<String, Object>> assessmentResults = new ArrayList<>();
+            Set<String> seenAssessmentNames = new HashSet<>();
 
             for (int i = 0; i < names.size(); i++) {
                 String name = names.get(i).trim();
@@ -77,8 +78,18 @@ public class UnifiedAssessmentController {
                 result.put("name", name);
 
                 AssessmentPathConfig paths = AssessmentPathConfig.forName(name);
+                String sanitisedName = paths.getAssessmentName();
+                if (!seenAssessmentNames.add(sanitisedName)) {
+                    response.put("success", false);
+                    response.put("message", "Duplicate assessment name after sanitisation: " + name);
+                    return ResponseEntity.badRequest().body(response);
+                }
+
+                if (Files.isDirectory(paths.getAssessmentRoot())) {
+                    deleteRecursive(paths.getAssessmentRoot());
+                }
                 paths.ensureDirectories();
-                result.put("sanitisedName", paths.getAssessmentName());
+                result.put("sanitisedName", sanitisedName);
 
                 List<String> saved   = new ArrayList<>();
                 List<String> missing = new ArrayList<>();
@@ -313,12 +324,14 @@ public class UnifiedAssessmentController {
             Path root = Paths.get("resources", "assessments");
 
             if (assessment != null && !assessment.isBlank()) {
-                Path target = root.resolve(assessment);
+                String sanitised = AssessmentPathConfig.forName(assessment).getAssessmentName();
+                Path target = root.resolve(sanitised);
                 if (Files.isDirectory(target)) {
                     deleteRecursive(target);
-                    response.put("message", "Cleared assessment: " + assessment);
+                    AssessmentProgressRegistry.clear(sanitised);
+                    response.put("message", "Cleared assessment: " + sanitised);
                 } else {
-                    response.put("message", "Assessment not found: " + assessment);
+                    response.put("message", "Assessment not found: " + sanitised);
                 }
             } else {
                 if (Files.isDirectory(root)) {
@@ -326,6 +339,7 @@ public class UnifiedAssessmentController {
                         dirs.filter(Files::isDirectory).forEach(this::deleteRecursive);
                     }
                 }
+                AssessmentProgressRegistry.clearAll();
                 response.put("message", "All assessments cleared.");
             }
 

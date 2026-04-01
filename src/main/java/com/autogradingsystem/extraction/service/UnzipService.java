@@ -1,6 +1,5 @@
 package com.autogradingsystem.extraction.service;
 
-import com.autogradingsystem.PathConfig;
 import com.autogradingsystem.extraction.model.ValidationResult;
 
 import java.nio.file.*;

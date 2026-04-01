@@ -1,6 +1,4 @@
 package com.autogradingsystem.execution.controller;
-
-import com.autogradingsystem.PathConfig;
 import com.autogradingsystem.execution.service.TesterInjector;
 import com.autogradingsystem.extraction.service.HeaderScanner;
 import com.autogradingsystem.execution.service.CompilerService;
@@ -35,7 +33,7 @@ public class ExecutionController {
     private List<Student> lastGradedStudents = new ArrayList<>();
 
     // ================================================================
-    // PATH FIELDS — null means "use global PathConfig" (single-assessment)
+    // Assessment-scoped paths for this grading run
     // ================================================================
 
     private final Path outputExtracted;
@@ -46,22 +44,6 @@ public class ExecutionController {
     // ================================================================
     // CONSTRUCTORS
     // ================================================================
-
-    /**
-     * Default constructor — uses global PathConfig static paths.
-     * Called by GradingService for the standard single-assessment flow.
-     * Behaviour is identical to the original constructor.
-     */
-    public ExecutionController() {
-        this.testerInjector  = new TesterInjector();
-        this.compilerService = new CompilerService();
-        this.processRunner   = new ProcessRunner();
-        this.outputParser    = new OutputParser();
-        this.outputExtracted = null;
-        this.csvScoresheet   = null;
-        this.inputTesters    = null;
-        this.inputTemplate   = null;
-    }
 
     /**
      * Path-aware constructor for multi-assessment support.
@@ -88,9 +70,9 @@ public class ExecutionController {
     // PATH RESOLUTION
     // ================================================================
 
-    private Path resolveOutputExtracted() { return outputExtracted != null ? outputExtracted : PathConfig.OUTPUT_EXTRACTED; }
-    private Path resolveCsvScoresheet()   { return csvScoresheet   != null ? csvScoresheet   : PathConfig.CSV_SCORESHEET;   }
-    private Path resolveInputTesters()    { return inputTesters    != null ? inputTesters    : PathConfig.INPUT_TESTERS;    }
+    private Path resolveOutputExtracted() { return outputExtracted; }
+    private Path resolveCsvScoresheet()   { return csvScoresheet;   }
+    private Path resolveInputTesters()    { return inputTesters;    }
 
     // ── Public: grade all students ────────────────────────────────────────────
 

@@ -1,7 +1,5 @@
 package com.autogradingsystem.execution.service;
 
-import com.autogradingsystem.PathConfig;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.DirectoryStream;
@@ -15,7 +13,7 @@ import java.nio.file.StandardCopyOption;
 public class TesterInjector {
 
     // ================================================================
-    // PATH FIELDS — null means "use global PathConfig" (single-assessment)
+    // Assessment-scoped paths for this grading run
     // ================================================================
 
     private final Path inputTesters;
@@ -24,15 +22,6 @@ public class TesterInjector {
     // ================================================================
     // CONSTRUCTORS
     // ================================================================
-
-    /**
-     * Default constructor — uses global PathConfig static paths.
-     * Called by ExecutionController for the standard single-assessment flow.
-     */
-    public TesterInjector() {
-        this.inputTesters = null;
-        this.inputTemplate = null;
-    }
 
     /**
      * Path-aware constructor for multi-assessment support.
@@ -50,13 +39,8 @@ public class TesterInjector {
     // PATH RESOLUTION
     // ================================================================
 
-    private Path resolveInputTesters() {
-        return inputTesters != null ? inputTesters : PathConfig.INPUT_TESTERS;
-    }
-
-    private Path resolveInputTemplate() {
-        return inputTemplate != null ? inputTemplate : PathConfig.INPUT_TEMPLATE;
-    }
+    private Path resolveInputTesters() { return inputTesters; }
+    private Path resolveInputTemplate() { return inputTemplate; }
 
     // ================================================================
     // PUBLIC API

@@ -1,6 +1,4 @@
 package com.autogradingsystem.analysis.service;
-
-import com.autogradingsystem.PathConfig;
 import com.autogradingsystem.model.GradingResult;
 
 import org.apache.poi.ss.usermodel.*;
@@ -48,20 +46,13 @@ public class StatisticsReportExporter {
     private final Path outputReports;
     private final Path inputTesters;
 
-    public StatisticsReportExporter() {
-        this.outputReports = null;
-        this.inputTesters  = null;
-    }
-
     public StatisticsReportExporter(Path outputReports, Path inputTesters) {
         this.outputReports = outputReports;
         this.inputTesters  = inputTesters;
     }
 
     private Path resolveInputTesters() {
-        return inputTesters != null
-            ? inputTesters.toAbsolutePath()
-            : PathConfig.INPUT_TESTERS.toAbsolutePath();
+        return inputTesters.toAbsolutePath();
     }
 
     // Shared styles — initialised by initStyles() before any build* call

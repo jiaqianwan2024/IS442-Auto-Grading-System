@@ -17,7 +17,7 @@ import java.util.List;
  * - Keep orchestration logic out of calculator/strategy classes
  */
 public class PenaltyController {
-    public static final String DEFAULT_PENALTIES_CSV = "resources/input/penalties.csv";
+    public static final String DEFAULT_PENALTIES_CSV = "config/penalties.csv";
 
     private final PenaltyService penaltyService;
 

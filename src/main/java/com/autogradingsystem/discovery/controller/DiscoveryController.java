@@ -1,6 +1,4 @@
 package com.autogradingsystem.discovery.controller;
-
-import com.autogradingsystem.PathConfig;
 import com.autogradingsystem.discovery.service.TemplateDiscovery;
 import com.autogradingsystem.discovery.service.TesterDiscovery;
 import com.autogradingsystem.discovery.service.GradingPlanBuilder;
@@ -39,7 +37,6 @@ import java.util.Set;
  *
  * CHANGES IN v2.8 (multi-assessment):
  * - Added path-aware constructor accepting inputTemplate + inputTesters paths.
- * - resolve*() helpers fall back to PathConfig when paths are null (single-assessment).
  *
  * @author IS442 Team
  * @version 2.8
@@ -51,7 +48,7 @@ public class DiscoveryController {
     private final GradingPlanBuilder planBuilder;
 
     // ================================================================
-    // PATH FIELDS — null means "use global PathConfig" (single-assessment)
+    // Assessment-scoped paths for this grading run
     // ================================================================
 
     private final Path inputTemplate;
@@ -60,19 +57,6 @@ public class DiscoveryController {
     // ================================================================
     // CONSTRUCTORS
     // ================================================================
-
-    /**
-     * Default constructor — uses global PathConfig static paths.
-     * Called by GradingService for the standard single-assessment flow.
-     * Behaviour is identical to the original constructor.
-     */
-    public DiscoveryController() {
-        this.templateDiscovery = new TemplateDiscovery();
-        this.testerDiscovery   = new TesterDiscovery();
-        this.planBuilder       = new GradingPlanBuilder();
-        this.inputTemplate     = null;
-        this.inputTesters      = null;
-    }
 
     /**
      * Path-aware constructor for multi-assessment support.
@@ -93,8 +77,8 @@ public class DiscoveryController {
     // PATH RESOLUTION
     // ================================================================
 
-    private Path resolveInputTemplate() { return inputTemplate != null ? inputTemplate : PathConfig.INPUT_TEMPLATE; }
-    private Path resolveInputTesters()  { return inputTesters  != null ? inputTesters  : PathConfig.INPUT_TESTERS;  }
+    private Path resolveInputTemplate() { return inputTemplate; }
+    private Path resolveInputTesters()  { return inputTesters;  }
 
     // ================================================================
     // PUBLIC API

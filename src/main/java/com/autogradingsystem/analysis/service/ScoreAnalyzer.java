@@ -48,7 +48,7 @@ public class ScoreAnalyzer {
     }
 
     public static Map<String, Double> inferMaxScores(List<GradingResult> results) {
-        return inferMaxScores(results, PathConfig.INPUT_TESTERS);
+        throw new UnsupportedOperationException("Use inferMaxScores(results, testersDir) in assessment-scoped flow.");
     }
 
     // original kept for backward compatibility — delegates above
@@ -137,7 +137,7 @@ public class ScoreAnalyzer {
     }
 
     public static double getMaxScoreFromTester(String questionId) {
-        return getMaxScoreFromTester(questionId, PathConfig.INPUT_TESTERS);
+        throw new UnsupportedOperationException("Use getMaxScoreFromTester(questionId, testersDir) in assessment-scoped flow.");
     }
 
     // kept for internal use — delegates to overload above
@@ -208,7 +208,7 @@ public class ScoreAnalyzer {
     }
 
     public static List<GradingResult> updateWithMaxScores(List<GradingResult> results) {
-        return updateWithMaxScores(results, PathConfig.INPUT_TESTERS);
+        throw new UnsupportedOperationException("Use updateWithMaxScores(results, testersDir) in assessment-scoped flow.");
     }
 
     // original kept for backward compat

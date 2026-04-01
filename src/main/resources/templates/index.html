@@ -417,7 +417,7 @@
 // STATE
 // ══════════════════════════════════════════════════════════════════════════════
 const MAX_SLOTS = 5;
-let slotCount = 0;
+const usedSlotIds = new Set();
 const uploadSlots = {}; // { id: { name, submission, template, scoresheet, examPdf, testers } }
 
 // After upload — one state object per assessment (keyed by sanitised name)
@@ -425,6 +425,7 @@ const assessments = {};
 // { sanitisedName: { displayName, sanitisedName, currentStep, testerSources, savedState, activeTab } }
 
 let activeAssessment = null; // currently visible assessment sanitised name
+let hasWizardChanges = false;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // PHASE 1 — UPLOAD SLOTS
@@ -435,8 +436,12 @@ function addSlot() {
         showAlert('error', 'Maximum ' + MAX_SLOTS + ' assessments allowed.');
         return;
     }
-    slotCount++;
-    const id = slotCount;
+    const id = getLowestAvailableSlotId();
+    if (!id) {
+        showAlert('error', 'No available assessment slots.');
+        return;
+    }
+    usedSlotIds.add(id);
     uploadSlots[id] = { name:'', submission:null, template:null, scoresheet:null, examPdf:null, testers:null };
     const empty = document.getElementById('emptyState');
     if (empty) empty.style.display = 'none';
@@ -461,8 +466,15 @@ function addSlot() {
             ${fileDrop(id,'testers','🧪 Testers (opt)','testers.zip','.zip')}
         </div>`;
     document.getElementById('assessmentSlots').appendChild(el);
-    reindexSlots();
+    refreshSlotLabels();
     updateSlotHint();
+}
+
+function getLowestAvailableSlotId() {
+    for (let i = 1; i <= MAX_SLOTS; i++) {
+        if (!usedSlotIds.has(i)) return i;
+    }
+    return null;
 }
 
 function fileDrop(slotId, field, label, hint, accept) {
@@ -499,31 +511,64 @@ function clearSlotFile(event, slotId, field, defaultHint) {
     if (input) input.value = '';
 }
 
-function removeSlot(id) {
+async function removeSlot(id) {
+    const slot = uploadSlots[id] || {};
+    const nameEl = document.querySelector('#slot-' + id + ' .slot-name-input');
+    const typedName = (nameEl && nameEl.value || '').trim();
+    const candidates = [];
+    if (slot.sanitisedName) candidates.push(slot.sanitisedName);
+    if (typedName) candidates.push(typedName);
+    candidates.push('Assessment ' + id);
+
+    for (const candidate of candidates) {
+        const ok = await clearAssessmentOnServer(candidate);
+        if (ok) break;
+    }
+
     const el = document.getElementById('slot-' + id); if (el) el.remove();
+    usedSlotIds.delete(id);
     delete uploadSlots[id];
     if (Object.keys(uploadSlots).length === 0) {
         const empty = document.getElementById('emptyState');
         if (empty) empty.style.display = 'block';
     }
-    reindexSlots();
+    refreshSlotLabels();
     updateSlotHint();
 }
 
 function clearAllSlots() {
     document.querySelectorAll('#assessmentSlots .assessment-slot').forEach(slot => slot.remove());
+    usedSlotIds.clear();
     Object.keys(uploadSlots).forEach(id => delete uploadSlots[id]);
     const empty = document.getElementById('emptyState');
     if (empty) empty.style.display = 'block';
     updateSlotHint();
 }
 
-function reindexSlots() {
+function refreshSlotLabels() {
     const slots = Array.from(document.querySelectorAll('#assessmentSlots .assessment-slot'));
-    slots.forEach((slot, index) => {
+    slots.forEach((slot) => {
+        const slotId = Number(slot.dataset.slotId);
         const label = slot.querySelector('.slot-num');
-        if (label) label.textContent = String(index + 1);
+        if (label) label.textContent = Number.isFinite(slotId) ? String(slotId) : '';
     });
+}
+
+async function clearAssessmentOnServer(assessmentNameOrSanitised) {
+    if (!assessmentNameOrSanitised) return true;
+    try {
+        const res = await fetch('/assessments/clear?assessment=' + encodeURIComponent(assessmentNameOrSanitised), {
+            method: 'POST'
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.success === false) {
+            throw new Error(data.message || ('HTTP ' + res.status));
+        }
+        return true;
+    } catch (e) {
+        showAlert('error', 'Failed to clear assessment folder: ' + e.message);
+        return false;
+    }
 }
 
 function updateSlotHint() {
@@ -551,7 +596,9 @@ function resetAssessmentWizardState() {
 // ── Upload All ────────────────────────────────────────────────────────────────
 
 async function uploadAll() {
-    const ids = Object.keys(uploadSlots).filter(id => document.getElementById('slot-' + id));
+    const ids = Object.keys(uploadSlots)
+        .filter(id => document.getElementById('slot-' + id))
+        .sort((a, b) => Number(a) - Number(b));
     if (!ids.length) { showAlert('error', 'Add at least one assessment.'); return; }
 
     const btn = document.getElementById('uploadBtn');
@@ -559,16 +606,16 @@ async function uploadAll() {
     setStatus('UPLOADING');
 
     const fd = new FormData();
-    for (const id of ids) {
+    ids.forEach((id, index) => {
         const s = uploadSlots[id];
         const nameEl = document.querySelector('#slot-' + id + ' .slot-name-input');
-        fd.append('name', (nameEl && nameEl.value.trim()) || ('Assessment ' + id));
+        fd.append('name', (nameEl && nameEl.value.trim()) || ('Assessment ' + (index + 1)));
         if (s.submission)  fd.append('submission',  s.submission);
         if (s.template)    fd.append('template',    s.template);
         if (s.scoresheet)  fd.append('scoresheet',  s.scoresheet);
         if (s.examPdf)     fd.append('examPdf',     s.examPdf);
         if (s.testers)     fd.append('testers',     s.testers);
-    }
+    });
 
     try {
         const res  = await fetch('/assessments/upload', { method:'POST', body: fd });
@@ -580,8 +627,12 @@ async function uploadAll() {
 
         resetAssessmentWizardState();
 
-        // Build assessment state from response
-        for (const a of data.assessments) {
+        // Build assessment state from response and map it back to slots.
+        data.assessments.forEach((a, index) => {
+            const slotId = ids[index];
+            if (slotId && uploadSlots[slotId]) {
+                uploadSlots[slotId].sanitisedName = a.sanitisedName;
+            }
             assessments[a.sanitisedName] = {
                 displayName:    a.name,
                 sanitisedName:  a.sanitisedName,
@@ -594,10 +645,11 @@ async function uploadAll() {
                 graded:         false,
                 gradeResult:    null,
             };
-        }
+        });
 
         showAlert('success', data.assessments.length + ' assessment(s) uploaded ✓');
         setStatus('READY');
+        hasWizardChanges = true;
         showWizardPhase();
         await autoScanUploadedExamPdfs(data.assessments);
 
@@ -633,9 +685,55 @@ async function autoScanUploadedExamPdfs(uploadedAssessments) {
 }
 
 function backToUpload() {
+    confirmAndResetToUpload();
+}
+
+function hasUnsavedAssessmentChanges() {
+    for (const key of Object.keys(assessments)) {
+        const a = assessments[key];
+        if (!a || !a.savedState) continue;
+        if (Object.values(a.savedState).some(saved => !saved)) return true;
+    }
+    return false;
+}
+
+async function clearServerAssessments() {
+    try {
+        const res = await fetch('/assessments/clear', { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.success === false) {
+            throw new Error(data.message || ('HTTP ' + res.status));
+        }
+        return true;
+    } catch (e) {
+        showAlert('error', 'Failed to clear server session: ' + e.message);
+        return false;
+    }
+}
+
+function resetUiToUploadState() {
+    resetAssessmentWizardState();
+    clearAllSlots();
     document.getElementById('wizardPhase').style.display = 'none';
     document.getElementById('uploadPhase').style.display = 'block';
     activeAssessment = null;
+    hasWizardChanges = false;
+}
+
+async function confirmAndResetToUpload() {
+    const hasSessionData = Object.keys(assessments).length > 0;
+    const hasUnsaved = hasSessionData || hasWizardChanges || hasUnsavedAssessmentChanges();
+    if (hasUnsaved) {
+        const ok = window.confirm(
+            'You have unsaved assessment progress. Going back will clear all uploaded assessments and session data. Continue?'
+        );
+        if (!ok) return;
+    }
+
+    const cleared = await clearServerAssessments();
+    if (!cleared) return;
+    resetUiToUploadState();
+    showAlert('success', 'Assessment session cleared.');
 }
 
 function buildAssessmentTabs() {
@@ -644,13 +742,18 @@ function buildAssessmentTabs() {
     tabBar.innerHTML = '';
     panels.innerHTML = '';
 
-    for (const key of Object.keys(assessments)) {
+    const keys = Object.keys(assessments);
+    keys.forEach((key, index) => {
         const a = assessments[key];
+        const displayName = (a.displayName || '').trim();
+        const displayLabel = /^assessment[\s-]*\d+$/i.test(displayName)
+            ? ('Assessment ' + (index + 1))
+            : displayName;
 
         const tab = document.createElement('div');
         tab.className = 'assess-tab';
         tab.id = 'atab-' + key;
-        tab.innerHTML = escHtml(a.displayName) + ' <span class="tab-status step-1">● Upload</span>';
+        tab.innerHTML = escHtml(displayLabel) + ' <span class="tab-status step-1">● Upload</span>';
         tab.onclick = () => switchAssessment(key);
         tabBar.appendChild(tab);
 
@@ -659,7 +762,7 @@ function buildAssessmentTabs() {
         panel.id = 'apanel-' + key;
         panel.innerHTML = buildWizardHTML(key, a);
         panels.appendChild(panel);
-    }
+    });
 }
 
 function buildWizardHTML(key, a) {
@@ -1091,6 +1194,7 @@ function markUnsaved(key) {
     ind.className = 'save-indicator unsaved'; ind.textContent = '● unsaved';
     const tab = document.getElementById(key + '-qtab-' + a.activeTab);
     if (tab) { tab.classList.remove('saved'); tab.classList.add('unsaved'); }
+    hasWizardChanges = true;
 }
 
 function handleTabKey(e) {
@@ -1129,6 +1233,7 @@ async function saveCurrentFile(key) {
         const tab = document.getElementById(key + '-qtab-' + a.activeTab);
         if (tab) { tab.classList.remove('unsaved'); tab.classList.add('saved'); }
         showAlert('success', a.activeTab + 'Tester.java saved ✓');
+        hasWizardChanges = hasUnsavedAssessmentChanges();
     }
 }
 
@@ -1147,6 +1252,7 @@ async function saveAllFiles(key) {
             ind.className = 'save-indicator saved'; ind.textContent = '✓ saved';
         }
         showAlert('success', 'All files saved ✓');
+        hasWizardChanges = hasUnsavedAssessmentChanges();
     }
 }
 
