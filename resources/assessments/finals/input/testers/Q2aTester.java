@@ -47,9 +47,9 @@ public class Q2aTester extends Q2a {
 
         {
             try {
-                System.out.printf("Test %d: getAverageAge(%s)%n", tcNum++, "persons.txt" + ", " + "Lee");
-                double expected1 = 36.0;
-                double result1 = runWithTimeout(() -> Q2a.getAverageAge("persons.txt", "Lee"));
+                System.out.printf("Test %d: getAverageAge(%s)%n", tcNum++, "nosuchfile.txt" + ", " + "Lee");
+                double expected1 = -1.0;
+                double result1 = runWithTimeout(() -> Q2a.getAverageAge("nosuchfile.txt", "Lee"));
                 System.out.printf("Expected  :|%s|%n", expected1);
                 System.out.printf("Actual    :|%s|%n", result1);
                 if (eq(result1, expected1)) {
