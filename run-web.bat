@@ -5,11 +5,11 @@
 :: WHAT THIS DOES:
 ::   1. Loads COHERE_API_KEY from .env (if present)
 ::   2. Builds the project if the jar is missing
-::   3. Starts the Spring Boot web server on http://localhost:8080
+::   3. Starts the Spring Boot web server on http://localhost:9090
 ::
 :: USAGE:
 ::   run-web.bat
-::   Open http://localhost:8080 in your browser
+::   Open http://localhost:9090 in your browser
 ::   Press Ctrl+C to stop
 :: ============================================================================
 
@@ -45,16 +45,16 @@ if "%COHERE_API_KEY%"=="" (
 )
 
 :: ── Find or build jar ─────────────────────────────────────────────────────────
-echo Running Maven clean install ^(skip tests^)...
-call mvn clean install -DskipTests -q
+echo Running Maven clean install...
+call mvn clean install -q
 if errorlevel 1 (
     echo.
     echo WARNING: Maven install failed. Retrying with clean package...
-    call mvn clean package -DskipTests -q
+    call mvn clean package -q
     if errorlevel 1 (
         echo.
         echo ERROR: Maven build failed.
-        echo Run manually: mvn clean install -DskipTests or mvn clean package -DskipTests
+        echo Run manually: mvn clean install or mvn clean package
         pause
         exit /b 1
     )
@@ -67,7 +67,7 @@ for /f "delims=" %%f in ('dir /b target\*.jar 2^>nul ^| findstr /v sources ^| fi
 
 if "!JAR!"=="" (
     echo ERROR: No jar found in target\ after build.
-    echo Run manually: mvn clean install -DskipTests or mvn clean package -DskipTests
+    echo Run manually: mvn clean install or mvn clean package
     pause
     exit /b 1
 )
@@ -79,7 +79,7 @@ echo ============================================
 echo.
 echo JAR: !JAR!
 echo Starting web server...
-echo Open browser at: http://localhost:8080
+echo Open browser at: http://localhost:9090
 echo Press Ctrl+C to stop.
 echo.
 

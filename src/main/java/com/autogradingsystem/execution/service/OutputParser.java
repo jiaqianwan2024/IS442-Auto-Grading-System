@@ -43,7 +43,7 @@ public class OutputParser {
      * Examples: "Score: 3.0", "Total: 3.0", "Points: 3.0", "Result: 3.0"
      */
     private static final Pattern SCORE_LABEL_PATTERN =
-            Pattern.compile("(?i)(?:score|total|points?|result)\\s*[=:]\\s*(-?\\d+(\\.\\d+)?)");
+            Pattern.compile("(?i)(?:final_score|score|total|points?|result)\\s*[=:]\\s*(-?\\d+(\\.\\d+)?)");
 
     /**
      * Parses the numeric score from tester output.
@@ -107,6 +107,26 @@ public class OutputParser {
         }
 
         return 0.0;
+    }
+
+    /**
+     * Highest {@code PARTIAL_SCORE:} value from injected tester lines, or 0.0 if none.
+     * Used for TIMEOUT recovery — must not use full {@link #parseScore} there, because lines like
+     * {@code Test 5: getAverageAge(...)} would be misread as score 5.0 (last number on the line).
+     */
+    public double parseHighestPartialScore(String output) {
+        if (output == null || output.isBlank()) return 0.0;
+        String normalised = output.replace("\r\n", "\n").replace("\r", "\n");
+        double highest = -1.0;
+        for (String line : normalised.split("\n")) {
+            if (line.trim().startsWith("PARTIAL_SCORE:")) {
+                try {
+                    double v = Double.parseDouble(line.split(":", 2)[1].trim());
+                    highest = Math.max(highest, v);
+                } catch (Exception ignored) { }
+            }
+        }
+        return highest >= 0.0 ? highest : 0.0;
     }
 
     /**

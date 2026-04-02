@@ -8,6 +8,8 @@ import com.autogradingsystem.model.GradingPlan;
 import com.autogradingsystem.model.GradingResult;
 import com.autogradingsystem.model.Student;
 import com.autogradingsystem.multiassessment.AssessmentPathConfig;
+import com.autogradingsystem.penalty.controller.PenaltyController;
+import com.autogradingsystem.penalty.service.PenaltyRemarksParser;
 import com.autogradingsystem.plagiarism.controller.PlagiarismController;
 import com.autogradingsystem.plagiarism.model.PlagiarismResult;
 import com.autogradingsystem.testcasegenerator.controller.TestCaseGeneratorController;
@@ -66,10 +68,9 @@ public class GradingService {
             logs.add("Extracted " + studentCount + " submissions");
             progress(assessmentName, 28, "Extracted", "Extracted " + studentCount + " submission(s).");
 
-            progress(assessmentName, 34, "Preparing Testers", "Checking saved testers and generation requirements...");
+            progress(assessmentName, 34, "Preparing Testers", "Checking testers folder and generation requirements...");
             if (savedTestersExist()) {
-                logs.add("Using examiner-saved testers (AI generation skipped)");
-                progress(assessmentName, 40, "Using Saved Testers", "Using examiner-provided testers.");
+                progress(assessmentName, 40, "Testers Ready", "Testers loaded from input/testers/.");
             } else {
                 Path templateZip = findTemplateZip();
                 if (templateZip != null) {
@@ -94,8 +95,9 @@ public class GradingService {
             DiscoveryController discoveryController =
                     new DiscoveryController(inputTemplate, inputTesters);
             GradingPlan gradingPlan = discoveryController.buildGradingPlan();
-            logs.add("Grading plan: " + gradingPlan.getTaskCount() + " tasks");
-            progress(assessmentName, 55, "Discovered", "Found " + gradingPlan.getTaskCount() + " grading task(s).");
+            int parts = gradingPlan.getTaskCount();
+            logs.add("Grading plan: " + parts + " question part" + (parts == 1 ? "" : "s"));
+            progress(assessmentName, 55, "Discovered", "Found " + parts + " question part(s).");
 
             progress(assessmentName, 55, "Grading", "Running testers against student submissions...");
             ExecutionController executionController =
@@ -106,8 +108,20 @@ public class GradingService {
             Map<String, String> remarks = executionController.getRemarksByStudent();
             Map<String, String> anomalyRemarks = executionController.getAnomalyRemarksByStudent();
             List<Student> allStudents = executionController.getLastGradedStudents();
-            logs.add("Graded " + results.size() + " results");
-            progress(assessmentName, 86, "Graded", "Completed execution for " + results.size() + " result(s).");
+            int nMarks = results.size();
+            logs.add("Graded " + studentCount + " submission" + (studentCount == 1 ? "" : "s"));
+            progress(assessmentName, 86, "Graded",
+                    "Completed " + nMarks + " question-part mark(s) for " + studentCount + " submission(s).");
+
+            // ── Phase 4.5: Penalties ──────────────────────────────────────
+            progress(assessmentName, 87, "Applying Penalties", "Computing penalty deductions...");
+            Map<String, String> penaltyRemarks = new LinkedHashMap<>();
+            Map<String, Map<String, Double>> penaltyQScores = new LinkedHashMap<>();
+            Map<String, Double> penaltyTotals = applyPenalties(results, remarks, penaltyRemarks, penaltyQScores);
+            if (!penaltyTotals.isEmpty()) {
+                logs.add("Penalties applied for " + penaltyTotals.size() + " student(s)");
+            }
+            progress(assessmentName, 89, "Penalties Applied", "Penalty deductions computed.");
 
             progress(assessmentName, 90, "Analyzing Plagiarism", "Checking submissions for similarity...");
             PlagiarismController plagController =
@@ -126,7 +140,7 @@ public class GradingService {
             progress(assessmentName, 96, "Exporting Reports", "Generating score sheet and reports...");
             AnalysisController analysisController =
                     new AnalysisController(csvScoresheet, outputReports, inputTesters);
-            analysisController.analyzeAndDisplay(results, remarks, anomalyRemarks, allStudents, plagiarismNotes);
+            analysisController.analyzeAndDisplay(results, remarks, anomalyRemarks, allStudents, plagiarismNotes, penaltyTotals, penaltyRemarks, penaltyQScores);
             logs.add("Reports exported");
             progress(assessmentName, 100, "Completed", "Reports exported.");
 
@@ -177,6 +191,54 @@ public class GradingService {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /**
+     * Phase 4.5 — delegates to the penalty microservice ({@link PenaltyController}).
+     *
+     * {@link PenaltyRemarksParser} parses the execution-phase remark string
+     * and applies rules 1, 3, and 4.  Rule 2 is reserved until extraction-phase
+     * folder-placement data is propagated into grading remarks.
+     *
+     * @param results      execution grading results
+     * @param gradeRemarks remarks produced by ExecutionController per student
+     * @param remarksDest  receives human-readable penalty description per student
+     * @return studentId → penalty-adjusted total score
+     */
+    private Map<String, Double> applyPenalties(List<GradingResult> results,
+                                               Map<String, String> gradeRemarks,
+                                               Map<String, String> remarksDest,
+                                               Map<String, Map<String, Double>> penaltyQScoresDest) {
+        PenaltyController penaltyController = new PenaltyController();
+
+        Map<String, List<GradingResult>> byStudent = new LinkedHashMap<>();
+        for (GradingResult r : results) {
+            byStudent.computeIfAbsent(r.getStudent().getUsername(), k -> new ArrayList<>()).add(r);
+        }
+
+        Map<String, Double> penaltyTotals = new LinkedHashMap<>();
+        for (Map.Entry<String, List<GradingResult>> entry : byStudent.entrySet()) {
+            String studentId = entry.getKey();
+            Map<String, Double> qScores    = new LinkedHashMap<>();
+            Map<String, Double> qMaxScores = new LinkedHashMap<>();
+            double rawTotal        = 0.0;
+            double totalDenominator = 0.0;
+            for (GradingResult r : entry.getValue()) {
+                String qId = r.getTask().getQuestionId();
+                qScores.put(qId, r.getScore());
+                qMaxScores.put(qId, r.getMaxScore());
+                rawTotal         += r.getScore();
+                totalDenominator += r.getMaxScore();
+            }
+            String remark = gradeRemarks.getOrDefault(studentId, "");
+            PenaltyRemarksParser.PenaltyResult pr =
+                    penaltyController.processWithRemarks(studentId, qScores, qMaxScores,
+                                                         totalDenominator, rawTotal, remark);
+            penaltyTotals.put(studentId, pr.adjustedTotal);
+            remarksDest.put(studentId, pr.remarks);
+            penaltyQScoresDest.put(studentId, pr.adjustedQScores);
+        }
+        return penaltyTotals;
     }
 
     private Map<String, String> buildPlagiarismNotes(PlagiarismController.PlagiarismSummary plagSummary) {

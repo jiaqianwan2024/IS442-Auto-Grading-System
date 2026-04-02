@@ -74,6 +74,11 @@ public class UnifiedAssessmentController {
 
             for (int i = 0; i < names.size(); i++) {
                 String name = names.get(i).trim();
+                if (name.isEmpty()) {
+                    response.put("success", false);
+                    response.put("message", "Each assessment must have a name.");
+                    return ResponseEntity.badRequest().body(response);
+                }
                 Map<String, Object> result = new LinkedHashMap<>();
                 result.put("name", name);
 
@@ -335,10 +340,9 @@ public class UnifiedAssessmentController {
                 }
             } else {
                 if (Files.isDirectory(root)) {
-                    try (Stream<Path> dirs = Files.list(root)) {
-                        dirs.filter(Files::isDirectory).forEach(this::deleteRecursive);
-                    }
+                    deleteRecursive(root);
                 }
+                Files.createDirectories(root);
                 AssessmentProgressRegistry.clearAll();
                 response.put("message", "All assessments cleared.");
             }

@@ -114,10 +114,11 @@ public class TestCaseReviewController {
                 return ResponseEntity.badRequest().body(response);
             }
 
+            ExamPaperParser parser = ExamPaperParser.fromEnvironment(inputExam);
+
             Map<String, String> descriptions = new LinkedHashMap<>();
             try {
-                ExamPaperParser descParser = ExamPaperParser.fromEnvironment(inputExam);
-                descriptions = new LinkedHashMap<>(descParser.extractQuestionDescriptions());
+                descriptions = new LinkedHashMap<>(parser.extractQuestionDescriptions());
 
                 for (Map.Entry<String, QuestionSpec> entry : specs.entrySet()) {
                     String desc = descriptions.get(entry.getKey());
@@ -132,8 +133,7 @@ public class TestCaseReviewController {
 
             Set<String> scriptQuestions = new LinkedHashSet<>();
             try {
-                ExamPaperParser scriptParser = ExamPaperParser.fromEnvironment(inputExam);
-                scriptQuestions = scriptParser.extractScriptQuestions();
+                scriptQuestions = parser.extractScriptQuestions();
                 if (!scriptQuestions.isEmpty()) {
                     System.out.println("  [SCRIPT] Detected script/classpath questions: " + scriptQuestions);
                 }

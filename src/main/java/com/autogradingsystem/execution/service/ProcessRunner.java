@@ -21,17 +21,18 @@ import java.util.concurrent.TimeoutException;
  * 1. Build java command to run tester class
  * 2. Execute java process
  * 3. Capture all output (stdout + stderr merged)
- * 4. Wait for completion (max 5 seconds)
+ * 4. Wait for completion (wall-clock limit, see TIMEOUT_SECONDS)
  * 5. Return captured output
  * * TIMEOUT PROTECTION & PARTIAL CREDIT RESCUE:
- * - 10-second timeout prevents infinite loops
+ * - Wall-clock timeout prevents infinite loops (see TIMEOUT_SECONDS)
  * - Uses thread-safe StringBuffer to rescue flushed output before process death
  * - Bypasses Windows "cmd /c" to ensure JVM is strictly
  */
 public class ProcessRunner {
 
     /** Timeout in seconds before killing student process */
-    private static final int TIMEOUT_SECONDS = 10;
+    /** Long enough for testers with several inner 2s timeouts (e.g. 5×2s) plus JVM overhead. */
+    private static final int TIMEOUT_SECONDS = 5;
 
     /** Max output lines captured — prevents memory issues from print-heavy code */
     private static final int MAX_OUTPUT_LINES = 500;

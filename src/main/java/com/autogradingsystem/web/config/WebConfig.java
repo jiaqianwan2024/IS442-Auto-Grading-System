@@ -17,7 +17,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  * - This config tells Spring to look in frontend/ instead
  * 
  * MAPPINGS:
- * - http://localhost:8080/css/style.css → frontend/static/css/style.css
+ * - http://localhost:9090/css/style.css → frontend/static/css/style.css
  * - index.html view → frontend/templates/index.html
  * 
  * @author IS442 Team

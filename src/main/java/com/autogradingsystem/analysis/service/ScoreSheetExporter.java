@@ -3,19 +3,16 @@ package com.autogradingsystem.analysis.service;
 import com.autogradingsystem.model.GradingResult;
 import com.autogradingsystem.model.Student;
 import org.apache.poi.ss.usermodel.*;
-import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.*;
 
 import java.io.BufferedReader;
 import java.io.OutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * Exports a single combined XLSX report containing:
@@ -77,11 +74,8 @@ public class ScoreSheetExporter {
     }
 
     /**
-     * Full overload — includes plagiarism notes (v3.3+).
-     *
-     * Produces IS442-ScoreSheet-Updated.xlsx with 7 sheets:
-     *   1 Score Sheet  2 Anomalies  3 Dashboard  4 Grade Distribution
-     *   5 Question Analysis  6 Student Ranking  7 Performance Matrix
+     * Overload — includes plagiarism notes (v3.3+) but no penalty totals.
+     * Delegates to the full 7-param overload with empty penalty maps.
      */
     public Path export(
             Map<String, List<GradingResult>> resultsByStudent,
@@ -89,6 +83,37 @@ public class ScoreSheetExporter {
             Map<String, String> anomalyRemarks,
             List<Student> allStudents,
             Map<String, String> plagiarismNotes) throws IOException {
+        return export(resultsByStudent, remarksByStudent, anomalyRemarks, allStudents,
+                      plagiarismNotes, Collections.emptyMap(), Collections.emptyMap());
+    }
+
+    /**
+     * Full overload — includes plagiarism notes, penalty-adjusted totals, and penalty remarks (v3.5+).
+     *
+     * @param penaltyTotals  studentId → final score after all penalty deductions
+     * @param penaltyRemarks studentId → human-readable breakdown (e.g. "Q1: Compilation failure (zero marks)")
+     */
+    public Path export(
+            Map<String, List<GradingResult>> resultsByStudent,
+            Map<String, String> remarksByStudent,
+            Map<String, String> anomalyRemarks,
+            List<Student> allStudents,
+            Map<String, String> plagiarismNotes,
+            Map<String, Double> penaltyTotals,
+            Map<String, String> penaltyRemarks) throws IOException {
+        return export(resultsByStudent, remarksByStudent, anomalyRemarks, allStudents,
+                      plagiarismNotes, penaltyTotals, penaltyRemarks, Collections.emptyMap());
+    }
+
+    public Path export(
+            Map<String, List<GradingResult>> resultsByStudent,
+            Map<String, String> remarksByStudent,
+            Map<String, String> anomalyRemarks,
+            List<Student> allStudents,
+            Map<String, String> plagiarismNotes,
+            Map<String, Double> penaltyTotals,
+            Map<String, String> penaltyRemarks,
+            Map<String, Map<String, Double>> penaltyQScores) throws IOException {
 
         Path outputDir  = resolveOutputDir();
         Files.createDirectories(outputDir);
@@ -97,8 +122,9 @@ public class ScoreSheetExporter {
         List<String> questionOrder = buildQuestionOrder(resultsByStudent);
 
         Map<String, Double>              totals    = new LinkedHashMap<>();
+        Map<String, Double>              rawTotals = new LinkedHashMap<>();
         Map<String, Map<String, Double>> qScoreMap = new LinkedHashMap<>();
-        buildScoreMaps(resultsByStudent, totals, qScoreMap);
+        buildScoreMaps(resultsByStudent, totals, rawTotals, qScoreMap, penaltyTotals);
 
         Map<String, Double> maxScores = new LinkedHashMap<>();
         for (Map.Entry<String, List<GradingResult>> entry : resultsByStudent.entrySet())
@@ -113,7 +139,8 @@ public class ScoreSheetExporter {
 
             // ── Sheets 1 & 2: Score Sheet + Anomalies ────────────────────────
             buildMainSheet(workbook, resultsByStudent, remarksByStudent, allStudents,
-                           plagiarismNotes, questionOrder, totals, qScoreMap, totalMaxScore);
+                           plagiarismNotes, questionOrder, totals, rawTotals, qScoreMap,
+                           penaltyRemarks, totalMaxScore, penaltyQScores);
 
             buildAnomalySheet(workbook, resultsByStudent, anomalyRemarks, allStudents,
                               questionOrder, qScoreMap, totalMaxScore);
@@ -129,8 +156,8 @@ public class ScoreSheetExporter {
         }
 
         // CSV sidecar (used by status checks and legacy download routes)
-        exportCsv(outputDir, questionOrder, totals, qScoreMap, remarksByStudent,
-                  plagiarismNotes, gradedUsernames);
+        exportCsv(outputDir, questionOrder, totals, rawTotals, qScoreMap, remarksByStudent,
+                  plagiarismNotes, penaltyRemarks, gradedUsernames, penaltyQScores);
 
         return outputFile;
     }
@@ -140,10 +167,13 @@ public class ScoreSheetExporter {
     private void exportCsv(Path outputDir,
                             List<String> questionOrder,
                             Map<String, Double> totals,
+                            Map<String, Double> rawTotals,
                             Map<String, Map<String, Double>> qScoreMap,
                             Map<String, String> remarksByStudent,
                             Map<String, String> plagiarismNotes,
-                            Set<String> gradedUsernames) throws IOException {
+                            Map<String, String> penaltyRemarks,
+                            Set<String> gradedUsernames,
+                            Map<String, Map<String, Double>> penaltyQScores) throws IOException {
 
         Path csvOut = outputDir.resolve("IS442-ScoreSheet-Updated.csv");
         StringBuilder sb = new StringBuilder();
@@ -165,10 +195,17 @@ public class ScoreSheetExporter {
                         if (headerRow.length() > 0) headerRow.append(",");
                         headerRow.append(escapeCsv(cols[c].trim()));
                     }
+                    // Section 1 — raw per-question scores + grading remarks
                     for (String qid : questionOrder) {
                         headerRow.append(",").append(escapeCsv(qid));
                     }
-                    headerRow.append(",Remarks,Plagiarism");
+                    headerRow.append(",Remarks");
+                    // Section 2 — penalty-adjusted scores + penalty remarks
+                    headerRow.append(",Calculated Final Grade Numerator,Calculated Final Grade Denominator");
+                    for (String qid : questionOrder) {
+                        headerRow.append(",").append(escapeCsv(qid));
+                    }
+                    headerRow.append(",Penalty Remarks,Plagiarism");
                     headerRow.append(",").append(cols.length > COL_EOL ? escapeCsv(cols[COL_EOL].trim()) : "#");
                     sb.append(headerRow).append("\n");
                     isHeader = false;
@@ -176,11 +213,13 @@ public class ScoreSheetExporter {
                 }
 
                 String eolValue = cols.length > COL_EOL ? cols[COL_EOL].trim() : "#";
-                String raw      = cols.length > COL_USERNAME ? cols[COL_USERNAME].trim() : "";
-                String username = (raw.startsWith("#") ? raw.substring(1) : raw).trim();
+                String rawCol   = cols.length > COL_USERNAME ? cols[COL_USERNAME].trim() : "";
+                String username = (rawCol.startsWith("#") ? rawCol.substring(1) : rawCol).trim();
+                String denominatorValue = cols.length > COL_DENOMINATOR ? cols[COL_DENOMINATOR].trim() : "";
 
-                if (totals.containsKey(username)) {
-                    cols[COL_NUMERATOR] = fmtNum(totals.get(username));
+                // Section 1: show raw score in the Numerator column
+                if (rawTotals.containsKey(username)) {
+                    cols[COL_NUMERATOR] = fmtNum(rawTotals.get(username));
                 }
 
                 StringBuilder dataRow = new StringBuilder();
@@ -191,14 +230,26 @@ public class ScoreSheetExporter {
                 }
 
                 Map<String, Double> qScores = qScoreMap.getOrDefault(username, Collections.emptyMap());
+                // Section 1: raw per-Q scores
                 for (String qid : questionOrder) {
                     dataRow.append(",").append(fmtNum(qScores.getOrDefault(qid, 0.0)));
                 }
-
                 String remarks = gradedUsernames.contains(username)
                         ? remarksByStudent.getOrDefault(username, "")
                         : "Missing submission";
                 dataRow.append(",").append(escapeCsv(remarks));
+
+                // Section 2: penalty-adjusted numerator + same denominator
+                dataRow.append(",").append(fmtNum(totals.getOrDefault(username, 0.0)));
+                dataRow.append(",").append(escapeCsv(denominatorValue));
+                // Section 2: penalty-adjusted per-Q scores
+                Map<String, Double> penaltyQs = penaltyQScores.getOrDefault(username, Collections.emptyMap());
+                for (String qid : questionOrder) {
+                    double qVal = penaltyQs.containsKey(qid) ? penaltyQs.get(qid) : qScores.getOrDefault(qid, 0.0);
+                    dataRow.append(",").append(fmtNum(qVal));
+                }
+                String penaltyNote = penaltyRemarks.getOrDefault(username, "No penalty");
+                dataRow.append(",").append(escapeCsv(penaltyNote));
                 dataRow.append(",").append(escapeCsv(plagiarismNotes.getOrDefault(username, "")));
                 dataRow.append(",").append(escapeCsv(eolValue));
                 sb.append(dataRow).append("\n");
@@ -218,9 +269,10 @@ public class ScoreSheetExporter {
 
     // ── SHEET 1: Score Sheet ──────────────────────────────────────────────────
 
-    private static final int COL_USERNAME  = 1;
-    private static final int COL_NUMERATOR = 5;
-    private static final int COL_EOL       = 7;
+    private static final int COL_USERNAME    = 1;
+    private static final int COL_NUMERATOR   = 5;
+    private static final int COL_DENOMINATOR = 6;
+    private static final int COL_EOL         = 7;
 
     private void buildMainSheet(
             XSSFWorkbook wb,
@@ -230,8 +282,11 @@ public class ScoreSheetExporter {
             Map<String, String> plagiarismNotes,
             List<String> questionOrder,
             Map<String, Double> totals,
+            Map<String, Double> rawTotals,
             Map<String, Map<String, Double>> perQ,
-            double totalMaxScore) throws IOException {
+            Map<String, String> penaltyRemarks,
+            double totalMaxScore,
+            Map<String, Map<String, Double>> penaltyQScores) throws IOException {
 
         XSSFSheet sheet = wb.createSheet("Score Sheet");
         Set<String> gradedUsernames = resultsByStudent.keySet();
@@ -264,15 +319,32 @@ public class ScoreSheetExporter {
                         cell.setCellStyle(headerStyle);
                         outHeaders.add(h);
                     }
+                    // Section 1 — raw per-question scores + grading remarks
                     for (String qid : questionOrder) {
                         Cell cell = row.createCell(cellIdx++);
-                        cell.setCellValue(qid);
-                        cell.setCellStyle(headerStyle);
+                        cell.setCellValue(qid); cell.setCellStyle(headerStyle);
                         outHeaders.add(qid);
                     }
                     Cell rh = row.createCell(cellIdx++);
                     rh.setCellValue("Remarks"); rh.setCellStyle(headerStyle);
                     outHeaders.add("Remarks");
+
+                    // Section 2 — penalty-adjusted numerator + denominator
+                    Cell numH = row.createCell(cellIdx++);
+                    numH.setCellValue("Calculated Final Grade Numerator"); numH.setCellStyle(headerStyle);
+                    outHeaders.add("Calculated Final Grade Numerator");
+                    Cell denH = row.createCell(cellIdx++);
+                    denH.setCellValue("Calculated Final Grade Denominator"); denH.setCellStyle(headerStyle);
+                    outHeaders.add("Calculated Final Grade Denominator");
+                    // Section 2 — per-question scores (penalty-adjusted per Q when implemented)
+                    for (String qid : questionOrder) {
+                        Cell cell = row.createCell(cellIdx++);
+                        cell.setCellValue(qid); cell.setCellStyle(headerStyle);
+                        outHeaders.add(qid);
+                    }
+                    Cell prH = row.createCell(cellIdx++);
+                    prH.setCellValue("Penalty Remarks"); prH.setCellStyle(headerStyle);
+                    outHeaders.add("Penalty Remarks");
 
                     Cell ph = row.createCell(cellIdx++);
                     ph.setCellValue("Plagiarism"); ph.setCellStyle(headerStyle);
@@ -286,12 +358,14 @@ public class ScoreSheetExporter {
                     continue;
                 }
 
-                String eolValue = cols.length > COL_EOL ? cols[COL_EOL].trim() : "#";
-                String raw      = cols.length > COL_USERNAME ? cols[COL_USERNAME].trim() : "";
-                String username = (raw.startsWith("#") ? raw.substring(1) : raw).trim();
+                String eolValue      = cols.length > COL_EOL         ? cols[COL_EOL].trim()         : "#";
+                String rawCol        = cols.length > COL_USERNAME     ? cols[COL_USERNAME].trim()    : "";
+                String username      = (rawCol.startsWith("#") ? rawCol.substring(1) : rawCol).trim();
+                String denomValue    = cols.length > COL_DENOMINATOR  ? cols[COL_DENOMINATOR].trim() : "";
 
-                if (totals.containsKey(username)) {
-                    cols[COL_NUMERATOR] = fmtNum(totals.get(username));
+                // Section 1: show raw score in the Numerator column
+                if (rawTotals.containsKey(username)) {
+                    cols[COL_NUMERATOR] = fmtNum(rawTotals.get(username));
                 }
 
                 int colIdx = 0;
@@ -302,6 +376,8 @@ public class ScoreSheetExporter {
 
                 if (gradedUsernames.contains(username)) {
                     Map<String, Double> qScores = perQ.getOrDefault(username, Collections.emptyMap());
+
+                    // Section 1: raw per-Q scores
                     for (String qid : questionOrder) {
                         row.createCell(colIdx++).setCellValue(qScores.getOrDefault(qid, 0.0));
                     }
@@ -309,16 +385,36 @@ public class ScoreSheetExporter {
                     remCell.setCellValue(remarksByStudent.getOrDefault(username, ""));
                     remCell.setCellStyle(normal);
 
+                    // Section 2: penalty-adjusted numerator + original denominator
+                    row.createCell(colIdx++).setCellValue(totals.getOrDefault(username, 0.0));
+                    row.createCell(colIdx++).setCellValue(denomValue);
+                    // Section 2: penalty-adjusted per-Q scores
+                    Map<String, Double> penaltyQs = penaltyQScores.getOrDefault(username, Collections.emptyMap());
+                    for (String qid : questionOrder) {
+                        double qVal = penaltyQs.containsKey(qid) ? penaltyQs.get(qid) : qScores.getOrDefault(qid, 0.0);
+                        row.createCell(colIdx++).setCellValue(qVal);
+                    }
+                    Cell prCell = row.createCell(colIdx++);
+                    String penaltyNote = penaltyRemarks.getOrDefault(username, "No penalty");
+                    prCell.setCellValue(penaltyNote);
+                    prCell.setCellStyle("No penalty".equals(penaltyNote) ? normal : redBold);
+
                     Cell plagCell = row.createCell(colIdx++);
                     String plagNote = plagiarismNotes.getOrDefault(username, "");
                     plagCell.setCellValue(plagNote);
                     plagCell.setCellStyle(plagNote.isEmpty() ? normal : redBold);
                 } else {
+                    // Missing submission
                     for (String ignored : questionOrder) row.createCell(colIdx++).setCellStyle(normal);
                     Cell remCell = row.createCell(colIdx++);
                     remCell.setCellValue("Missing submission - refer to Anomalies tab");
                     remCell.setCellStyle(normal);
-                    row.createCell(colIdx++).setCellStyle(normal);
+                    row.createCell(colIdx++).setCellStyle(normal); // Section 2: Numerator
+                    row.createCell(colIdx++).setCellStyle(normal); // Section 2: Denominator
+                    for (String ignored : questionOrder) row.createCell(colIdx++).setCellStyle(normal);
+                    Cell prCell = row.createCell(colIdx++);
+                    prCell.setCellValue("No penalty"); prCell.setCellStyle(normal);
+                    row.createCell(colIdx++).setCellStyle(normal); // Plagiarism
                 }
 
                 row.createCell(colIdx).setCellValue(eolValue);
@@ -401,18 +497,29 @@ public class ScoreSheetExporter {
         return sorted;
     }
 
+    /**
+     * Populates {@code totals} and {@code qScoreMap} from raw grading results.
+     * When {@code penaltyTotals} contains an entry for a student the penalty-adjusted
+     * final score is used as that student's total instead of the raw question sum.
+     */
     private void buildScoreMaps(Map<String, List<GradingResult>> resultsByStudent,
                                 Map<String, Double> totals,
-                                Map<String, Map<String, Double>> qScoreMap) {
+                                Map<String, Double> rawTotals,
+                                Map<String, Map<String, Double>> qScoreMap,
+                                Map<String, Double> penaltyTotals) {
         for (Map.Entry<String, List<GradingResult>> entry : resultsByStudent.entrySet()) {
-            double total = 0.0;
+            String student = entry.getKey();
+            double rawTotal = 0.0;
             Map<String, Double> qScores = new LinkedHashMap<>();
             for (GradingResult r : entry.getValue()) {
-                total += r.getScore();
+                rawTotal += r.getScore();
                 qScores.put(r.getTask().getQuestionId(), r.getScore());
             }
-            totals.put(entry.getKey(), total);
-            qScoreMap.put(entry.getKey(), qScores);
+            rawTotals.put(student, rawTotal);
+            // Prefer penalty-adjusted total when provided
+            totals.put(student, penaltyTotals.containsKey(student)
+                    ? penaltyTotals.get(student) : rawTotal);
+            qScoreMap.put(student, qScores);
         }
     }
 

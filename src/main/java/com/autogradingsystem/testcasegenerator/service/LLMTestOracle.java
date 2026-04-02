@@ -15,6 +15,8 @@ import java.net.http.HttpResponse;
 import java.nio.file.*;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.regex.*;
 
 public class LLMTestOracle {
@@ -22,7 +24,7 @@ public class LLMTestOracle {
     private final String apiKey;
     private final HttpClient http;
     private final ObjectMapper mapper;
-    private final Map<String, List<GeneratedTestCase>> cache = new HashMap<>();
+    private final ConcurrentMap<String, List<GeneratedTestCase>> cache = new ConcurrentHashMap<>();
 
     private static final Set<String> SAFE_EQUALS_TYPES = Set.of(
             "String","Integer","Long","Double","Float","Boolean","Character",
@@ -204,22 +206,25 @@ public class LLMTestOracle {
         } else if (params.size() == 2
                 && "String".equals(params.get(0).getType())
                 && "String".equals(params.get(1).getType())) {
-            // Try method call with inline string literals first: method("val1", "val2")
-            Pattern callPat = Pattern.compile(
-                    method.getName() + "\\s*\\(\\s*\"([^\"]+)\"\\s*,\\s*\"([^\"]+)\"\\s*\\)");
-            Matcher m = callPat.matcher(block);
-            if (m.find()) {
-                args.add("\"" + m.group(1) + "\"");
-                args.add("\"" + m.group(2) + "\"");
-            } else {
-                // Fallback: printf pattern with inline literals
-                Pattern pfPat = Pattern.compile(
-                        "printf[^,]+,\\s*\"([^\"]+)\"\\s*,\\s*\"([^\"]+)\"");
-                Matcher m2 = pfPat.matcher(block);
-                if (m2.find()) {
-                    args.add("\"" + m2.group(1) + "\"");
-                    args.add("\"" + m2.group(2) + "\"");
+            Pattern callPat = Pattern.compile(method.getName() + "\\s*\\(([^)]*)\\)");
+            String[] argExprs = null;
+            for (String line : block.split("\\n")) {
+                String trimmed = line.trim();
+                if (trimmed.contains("printf") || trimmed.contains("println") || trimmed.contains("print(")) {
+                    continue;
                 }
+                Matcher callM = callPat.matcher(trimmed);
+                if (callM.find()) {
+                    List<String> raw = splitCallArgs(callM.group(1));
+                    if (raw.size() >= 2) {
+                        argExprs = new String[] { raw.get(0).trim(), raw.get(1).trim() };
+                        break;
+                    }
+                }
+            }
+            if (argExprs != null) {
+                args.add(resolveStringArgument(block, argExprs[0]));
+                args.add(resolveStringArgument(block, argExprs[1]));
             }
         } else if (params.size() == 1 && "String".equals(params.get(0).getType())) {
             // ── FIX: Single-String parameter (e.g. reorderWordsInSentence, stringToDouble) ──
@@ -297,7 +302,7 @@ public class LLMTestOracle {
                     .POST(HttpRequest.BodyPublishers.ofString(payload)).build();
             HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
             if (res.statusCode() != 200) return Collections.emptyList();
-            return parseInputsResponse(LLMConfig.extractText(res.body(), mapper), method, numTests);
+            return parseInputsResponse(LLMConfig.extractText(res.body(), mapper), method, numTests, spec);
         } catch (Exception e) {
             System.err.println("LLM input generation failed: " + e.getMessage());
             return Collections.emptyList();
@@ -317,7 +322,8 @@ public class LLMTestOracle {
         .append(" sets of REAL, CONCRETE INPUT ARGUMENTS for this Java method. Do NOT include expected values.\n\n");
 
         // UPDATE: Strict warning against placeholders to fix the "%s" issue
-        p.append("CRITICAL: Do NOT use placeholders like \"%s\", \"arg1\", or \"value\". Provide actual data strings or numbers.\n");
+        p.append("CRITICAL: Do NOT use placeholders like \"%s\", \"arg1\", \"value\", \"hello\", or \"world\" unless they are explicitly required by the source.\n");
+        p.append("If SOURCE main() already contains concrete example method calls, copy those concrete arguments exactly.\n");
         p.append("Return ONLY a JSON array:\n[{\"args\":[\"arg1\",\"arg2\"],\"rationale\":\"...\"}]\n\n");
 
         // --- NEW DYNAMIC SECTION: This fixes Q1a/Q1b ---
@@ -556,18 +562,114 @@ public class LLMTestOracle {
     // Parse LLM inputs response
     // =========================================================================
 
-    private List<List<String>> parseInputsResponse(String llmText, MethodSpec method, int numTests) {
+    private List<List<String>> parseInputsResponse(
+            String llmText, MethodSpec method, int numTests, QuestionSpec spec) {
         List<List<String>> result = new ArrayList<>();
         try {
             String c = llmText.trim().replaceAll("```[a-zA-Z]*\\n?","").trim();
             int as = c.lastIndexOf('['), ae = c.lastIndexOf(']');
             if (as >= 0 && ae > as) c = c.substring(as, ae + 1);
             List<Map<String, Object>> raw = mapper.readValue(c, new TypeReference<>() {});
-            for (Map<String, Object> e : raw) result.add(castToStringList(e.get("args")));
+            for (Map<String, Object> e : raw) {
+                List<String> args = castToStringList(e.get("args"));
+                if (args.size() != method.getParams().size()) continue;
+                boolean bad = false;
+                for (int i = 0; i < args.size(); i++) {
+                    String type = method.getParams().get(i).getType();
+                    if (!"String".equals(type)) continue;
+                    if (isPlaceholderStringArg(args.get(i))) {
+                        bad = true;
+                        break;
+                    }
+                }
+                if (!bad) result.add(args);
+            }
         } catch (Exception e) {
             System.err.println("Could not parse LLM inputs: " + e.getMessage());
         }
+        if (result.isEmpty() && spec != null && spec.hasDataFiles() && method.getParams().size() == 2
+                && "String".equals(method.getParams().get(0).getType())
+                && "String".equals(method.getParams().get(1).getType())) {
+            result.addAll(buildDataFileFallbackInputs(spec, numTests));
+        }
         return result;
+    }
+
+    private boolean isPlaceholderStringArg(String rawArg) {
+        String normalized = rawArg == null ? "" : rawArg.trim();
+        if (normalized.startsWith("\"") && normalized.endsWith("\"") && normalized.length() >= 2) {
+            normalized = normalized.substring(1, normalized.length() - 1).trim();
+        }
+        String lower = normalized.toLowerCase(Locale.ROOT);
+        return lower.isBlank()
+                || lower.equals("%s")
+                || lower.equals("arg1")
+                || lower.equals("arg2")
+                || lower.equals("value")
+                || lower.equals("hello")
+                || lower.equals("world")
+                || lower.startsWith("placeholder");
+    }
+
+    private List<List<String>> buildDataFileFallbackInputs(QuestionSpec spec, int numTests) {
+        List<List<String>> fallbacks = new ArrayList<>();
+        Map.Entry<String, String> first = spec.getDataFiles().entrySet().stream().findFirst().orElse(null);
+        if (first == null) return fallbacks;
+
+        String filename = first.getKey();
+        Set<String> tokens = new LinkedHashSet<>();
+        String[] lines = first.getValue().split("\\R");
+        for (String line : lines) {
+            for (String token : line.split("[,;\\t ]+")) {
+                String t = token.trim();
+                if (t.matches("[A-Za-z][A-Za-z0-9_-]{1,}")) tokens.add(t);
+                if (tokens.size() >= Math.max(3, numTests)) break;
+            }
+            if (tokens.size() >= Math.max(3, numTests)) break;
+        }
+
+        if (tokens.isEmpty()) tokens.add("UNKNOWN");
+        for (String t : tokens) {
+            fallbacks.add(List.of("\"" + filename + "\"", "\"" + t + "\""));
+            if (fallbacks.size() >= Math.max(1, numTests - 1)) break;
+        }
+        fallbacks.add(List.of("\"nosuchfile.txt\"", "\"" + tokens.iterator().next() + "\""));
+        return fallbacks;
+    }
+
+    private String resolveStringArgument(String block, String argExpr) {
+        String expr = argExpr == null ? "" : argExpr.trim();
+        if (expr.startsWith("\"")) return expr;
+        Pattern varPat = Pattern.compile("String\\s+" + Pattern.quote(expr) + "\\s*=\\s*\"([^\"]*)\";");
+        Matcher varM = varPat.matcher(block);
+        if (varM.find()) return "\"" + varM.group(1) + "\"";
+        return "\"" + expr.replace("\"", "") + "\"";
+    }
+
+    private List<String> splitCallArgs(String raw) {
+        List<String> parts = new ArrayList<>();
+        if (raw == null || raw.isBlank()) return parts;
+        int depth = 0;
+        boolean inQuote = false;
+        StringBuilder cur = new StringBuilder();
+        for (int i = 0; i < raw.length(); i++) {
+            char ch = raw.charAt(i);
+            if (ch == '"' && (i == 0 || raw.charAt(i - 1) != '\\')) {
+                inQuote = !inQuote;
+            }
+            if (!inQuote) {
+                if (ch == '(') depth++;
+                if (ch == ')') depth = Math.max(0, depth - 1);
+                if (ch == ',' && depth == 0) {
+                    parts.add(cur.toString());
+                    cur.setLength(0);
+                    continue;
+                }
+            }
+            cur.append(ch);
+        }
+        if (!cur.isEmpty()) parts.add(cur.toString());
+        return parts;
     }
 
     // =========================================================================

@@ -5,8 +5,8 @@
 # WHAT THIS DOES:
 #   1. Clears resources/assessments on startup
 #   2. Loads COHERE_API_KEY from .env
-#   3. Runs mvn clean install -DskipTests
-#   4. Starts the Spring Boot web server on http://localhost:8080
+#   3. Runs mvn clean install
+#   4. Starts the Spring Boot web server on http://localhost:9090
 # ============================================================================
 
 set -e
@@ -37,11 +37,11 @@ fi
 echo "API key found."
 echo ""
 
-echo "Running Maven clean install (skip tests)..."
-mvn clean install -DskipTests -q || {
+echo "Running Maven clean install..."
+mvn clean install -q || {
     echo ""
     echo "WARNING: Maven install failed. Retrying with clean package..."
-    mvn clean package -DskipTests -q
+    mvn clean package -q
 }
 echo "Build complete."
 echo ""
@@ -50,7 +50,7 @@ JAR=$(ls target/*.jar 2>/dev/null | grep -v sources | grep -v javadoc | head -1)
 
 if [ -z "$JAR" ]; then
     echo "Build failed - no jar found in target/."
-    echo "Run manually: mvn clean install -DskipTests or mvn clean package -DskipTests"
+    echo "Run manually: mvn clean install or mvn clean package"
     exit 1
 fi
 
@@ -59,7 +59,7 @@ echo " IS442 AUTO-GRADING SYSTEM - WEB UI MODE"
 echo "============================================"
 echo ""
 echo "Starting web server..."
-echo "Open browser at: http://localhost:8080"
+echo "Open browser at: http://localhost:9090"
 echo "Press Ctrl+C to stop."
 echo ""
 

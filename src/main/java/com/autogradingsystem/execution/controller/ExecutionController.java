@@ -264,9 +264,11 @@ public class ExecutionController {
             String out = processRunner.runTester(testerClass, scriptFolder, scriptFolder.toAbsolutePath().toString());
             double maxAllowed = com.autogradingsystem.analysis.service.ScoreAnalyzer.getMaxScoreFromTester(task.getQuestionId(), resolveInputTesters());
 
-            if (out != null && out.toUpperCase().contains("TIMEOUT")) {
-                long passed = out.lines().map(String::trim).filter(l -> l.equals("Passed")).count();
-                return new GradingResult(student, task, roundScore(Math.min((double) passed, maxAllowed)), out, "TIMEOUT");
+            if (isGlobalProcessTimeout(out)) {
+                double rescued = scoreAfterTimeout(out);
+                return new GradingResult(student, task,
+                        roundScore(maxAllowed > 0 ? Math.min(rescued, maxAllowed) : rescued),
+                        out, "TIMEOUT");
             }
             if (out != null && out.startsWith("ERROR:"))
                 return new GradingResult(student, task, 0.0, out, "RUNTIME_ERROR");
@@ -334,10 +336,10 @@ public class ExecutionController {
         String output = processRunner.runTester(testerClass, questionFolder);
         double maxAllowed = com.autogradingsystem.analysis.service.ScoreAnalyzer.getMaxScoreFromTester(task.getQuestionId(), resolveInputTesters());
 
-        if (output != null && output.toUpperCase().contains("TIMEOUT")) {
-            long passed = output.lines().map(String::trim).filter(l -> l.equals("Passed")).count();
+        if (isGlobalProcessTimeout(output)) {
+            double rescued = scoreAfterTimeout(output);
             return new GradingResult(student, task,
-                roundScore(maxAllowed > 0 ? Math.min((double) passed, maxAllowed) : (double) passed),
+                roundScore(maxAllowed > 0 ? Math.min(rescued, maxAllowed) : rescued),
                 output, "TIMEOUT");
         }
         if (output != null && output.startsWith("ERROR:"))
@@ -554,6 +556,31 @@ public class ExecutionController {
             System.out.println(result.getOutput());
             System.out.println("      ---------------------");
         }
+    }
+
+    /**
+     * True only when {@link com.autogradingsystem.execution.service.ProcessRunner} killed the JVM
+     * for exceeding the wall-clock limit. Inner per-test messages like
+     * {@code Timeout (Infinite Loop)} must <em>not</em> match — those use normal scoring via
+     * {@link OutputParser#parseScore} (e.g. {@code FINAL_SCORE}, {@code PARTIAL_SCORE}).
+     */
+    private static boolean isGlobalProcessTimeout(String output) {
+        return output != null && output.contains("[SYSTEM] TIMEOUT");
+    }
+
+    /**
+     * When a tester hits the global execution TIMEOUT (e.g. infinite loop), recover partial credit
+     * only from real signals: injected {@code PARTIAL_SCORE:} lines, legacy {@code Passed} lines,
+     * and lines like {@code Test N: PASS}. Do not call {@link OutputParser#parseScore} here:
+     * it misreads {@code Test 5: ...} as score 5.0.
+     */
+    private double scoreAfterTimeout(String output) {
+        double partial = outputParser.parseHighestPartialScore(output);
+        long passedLines = output.lines().map(String::trim).filter(l -> l.equals("Passed")).count();
+        long testPassLines = output.lines().map(String::trim)
+                .filter(l -> l.matches("(?i)Test\\s+\\d+:\\s*PASS.*"))
+                .count();
+        return Math.max(partial, Math.max((double) passedLines, (double) testPassLines));
     }
 
     private double roundScore(double score) {

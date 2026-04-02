@@ -10,8 +10,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
 /**
@@ -84,7 +91,8 @@ public class TestCaseGeneratorController {
             return false;
         }
 
-        Map<String, String> descriptions = loadDescriptions();
+        ExamPaperParser parser = ExamPaperParser.fromEnvironment(examDir);
+        Map<String, String> descriptions = loadDescriptions(parser);
         for (Map.Entry<String, QuestionSpec> entry : specs.entrySet()) {
             String desc = descriptions.get(entry.getKey());
             if (desc != null && !desc.isBlank()) {
@@ -92,25 +100,47 @@ public class TestCaseGeneratorController {
             }
         }
 
-        Set<String> scriptQuestions = loadScriptQuestions();
+        Set<String> scriptQuestions = loadScriptQuestions(parser);
 
-        int written = 0;
+        AtomicInteger written = new AtomicInteger();
         Path templateZip = findTemplateZip();
-        for (Map.Entry<String, QuestionSpec> entry : specs.entrySet()) {
-            String questionId = entry.getKey();
-            QuestionSpec spec = entry.getValue();
-            int weight = weights != null ? weights.getOrDefault(questionId, 1) : 1;
+        int workerCount = resolveGenerationThreads(specs.size());
+        System.out.println("[TestGen] Generating testers with " + workerCount + " worker(s).");
 
-            try {
-                String source = scriptQuestions.contains(questionId)
-                        ? scriptTesterGenerator.generate(questionId, weight, descriptions.get(questionId), templateZip)
-                        : testerGenerator.generate(questionId, spec, weight);
-                Files.writeString(dir.resolve(questionId + "Tester.java"), source);
-                written++;
-                System.out.println("[TestGen] Wrote " + questionId + "Tester.java");
-            } catch (Exception e) {
-                System.err.println("[TestGen] Failed for " + questionId + ": " + e.getMessage());
+        ExecutorService pool = Executors.newFixedThreadPool(workerCount);
+        List<Future<?>> futures = new ArrayList<>();
+        try {
+            for (Map.Entry<String, QuestionSpec> entry : specs.entrySet()) {
+                String questionId = entry.getKey();
+                QuestionSpec spec = entry.getValue();
+                int weight = weights != null ? weights.getOrDefault(questionId, 1) : 1;
+
+                futures.add(pool.submit(() -> {
+                    try {
+                        String source = scriptQuestions.contains(questionId)
+                                ? scriptTesterGenerator.generate(questionId, weight, descriptions.get(questionId), templateZip)
+                                : testerGenerator.generate(questionId, spec, weight);
+                        Files.writeString(dir.resolve(questionId + "Tester.java"), source);
+                        written.incrementAndGet();
+                        System.out.println("[TestGen] Wrote " + questionId + "Tester.java");
+                    } catch (Exception e) {
+                        System.err.println("[TestGen] Failed for " + questionId + ": " + e.getMessage());
+                    }
+                }));
             }
+
+            for (Future<?> future : futures) {
+                try {
+                    future.get();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                } catch (ExecutionException e) {
+                    System.err.println("[TestGen] Worker failure: " + e.getMessage());
+                }
+            }
+        } finally {
+            pool.shutdown();
         }
 
         for (String questionId : scriptQuestions) {
@@ -125,33 +155,48 @@ public class TestCaseGeneratorController {
                         descriptions.get(questionId),
                         templateZip);
                 Files.writeString(output, source);
-                written++;
+                written.incrementAndGet();
                 System.out.println("[TestGen] Wrote " + output.getFileName() + " (script folder task)");
             } catch (Exception e) {
                 System.err.println("[TestGen] Failed for script question " + questionId + ": " + e.getMessage());
             }
         }
 
-        System.out.println("[TestGen] Total testers written: " + written);
-        return written > 0;
+        System.out.println("[TestGen] Total testers written: " + written.get());
+        return written.get() > 0;
     }
 
-    private Map<String, String> loadDescriptions() {
+    private Map<String, String> loadDescriptions(ExamPaperParser parser) {
         try {
-            ExamPaperParser parser = ExamPaperParser.fromEnvironment(examDir);
             return new LinkedHashMap<>(parser.extractQuestionDescriptions());
         } catch (Exception e) {
             return new LinkedHashMap<>();
         }
     }
 
-    private Set<String> loadScriptQuestions() {
+    private Set<String> loadScriptQuestions(ExamPaperParser parser) {
         try {
-            ExamPaperParser parser = ExamPaperParser.fromEnvironment(examDir);
             return new LinkedHashSet<>(parser.extractScriptQuestions());
         } catch (Exception e) {
             return new LinkedHashSet<>();
         }
+    }
+
+    private int resolveGenerationThreads(int totalQuestions) {
+        int defaultThreads = Math.min(4, Math.max(1, Runtime.getRuntime().availableProcessors()));
+        String configured = System.getProperty("autograder.testgen.threads", "").trim();
+        int threads = defaultThreads;
+
+        if (!configured.isEmpty()) {
+            try {
+                threads = Integer.parseInt(configured);
+            } catch (NumberFormatException ignored) {
+                threads = defaultThreads;
+            }
+        }
+
+        threads = Math.max(1, threads);
+        return Math.min(Math.max(1, totalQuestions), threads);
     }
 
     private Path findTemplateZip() {

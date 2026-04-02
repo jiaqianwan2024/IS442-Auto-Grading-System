@@ -2,7 +2,6 @@ package com.autogradingsystem.analysis.controller;
 
 import com.autogradingsystem.analysis.service.ScoreAnalyzer;
 import com.autogradingsystem.analysis.service.ScoreSheetExporter;
-import com.autogradingsystem.analysis.service.StatisticsReportExporter;
 import com.autogradingsystem.model.GradingResult;
 import com.autogradingsystem.model.Student;
 
@@ -65,6 +64,36 @@ public class AnalysisController {
                                   Map<String, String> anomalyRemarks,
                                   List<Student> allStudents,
                                   Map<String, String> plagiarismNotes) {
+        analyzeAndDisplay(results, remarksByStudent, anomalyRemarks, allStudents,
+                          plagiarismNotes, Collections.emptyMap(), Collections.emptyMap());
+    }
+
+    /**
+     * Full overload including penalty-adjusted totals and per-student penalty remarks.
+     *
+     * @param penaltyTotals  studentId → final score after all penalty deductions
+     * @param penaltyRemarks studentId → human-readable breakdown of deductions applied
+     */
+    public void analyzeAndDisplay(List<GradingResult> results,
+                                  Map<String, String> remarksByStudent,
+                                  Map<String, String> anomalyRemarks,
+                                  List<Student> allStudents,
+                                  Map<String, String> plagiarismNotes,
+                                  Map<String, Double> penaltyTotals,
+                                  Map<String, String> penaltyRemarks) {
+        analyzeAndDisplay(results, remarksByStudent, anomalyRemarks, allStudents,
+                          plagiarismNotes, penaltyTotals, penaltyRemarks,
+                          Collections.emptyMap());
+    }
+
+    public void analyzeAndDisplay(List<GradingResult> results,
+                                  Map<String, String> remarksByStudent,
+                                  Map<String, String> anomalyRemarks,
+                                  List<Student> allStudents,
+                                  Map<String, String> plagiarismNotes,
+                                  Map<String, Double> penaltyTotals,
+                                  Map<String, String> penaltyRemarks,
+                                  Map<String, Map<String, Double>> penaltyQScores) {
 
         Path testersDir = inputTesters;
 
@@ -79,7 +108,8 @@ public class AnalysisController {
         displayCompactView(byStudent, maxScores);
         displayOverallStatistics(byStudent, maxScores);
 
-        exportReport(byStudent, remarksByStudent, anomalyRemarks, allStudents, plagiarismNotes);
+        exportReport(byStudent, remarksByStudent, anomalyRemarks, allStudents,
+                     plagiarismNotes, penaltyTotals, penaltyRemarks, penaltyQScores);
     }
 
     // ── PRIVATE: EXPORT ───────────────────────────────────────────────────────
@@ -88,7 +118,10 @@ public class AnalysisController {
                               Map<String, String> remarksByStudent,
                               Map<String, String> anomalyRemarks,
                               List<Student> allStudents,
-                              Map<String, String> plagiarismNotes) {
+                              Map<String, String> plagiarismNotes,
+                              Map<String, Double> penaltyTotals,
+                              Map<String, String> penaltyRemarks,
+                              Map<String, Map<String, Double>> penaltyQScores) {
         System.out.println("\n" + "=".repeat(70));
         System.out.println("📄 EXPORTING REPORTS");
         System.out.println("=".repeat(70));
@@ -96,7 +129,8 @@ public class AnalysisController {
         try {
             Path scoreSheet = scoreSheetExporter.export(byStudent, remarksByStudent,
                                                         anomalyRemarks, allStudents,
-                                                        plagiarismNotes);
+                                                        plagiarismNotes, penaltyTotals,
+                                                        penaltyRemarks, penaltyQScores);
             System.out.println("✅ Score Sheet + Statistics → " + scoreSheet.toAbsolutePath());
             System.out.println("   Tabs: Score Sheet | Anomalies | Dashboard | Grade Distribution");
             System.out.println("         Question Analysis | Student Ranking | Performance Matrix");
