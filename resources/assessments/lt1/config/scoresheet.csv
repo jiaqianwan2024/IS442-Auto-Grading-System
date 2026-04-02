@@ -1,0 +1,15 @@
+OrgDefinedId,Username,Last Name,First Name,Email,Calculated Final Grade Numerator,Calculated Final Grade Denominator,End-of-Line Indicator
+#01400001,#missingquestionfolderq1.2023,_,MISSING QUESTION FOLDER,missingquestionfolderq1.2023@computing.smu.edu.sg,,20,#
+#01400002,#extraqnfolderq4.2023,_,EXTRA Q4,extraqnfolderq4.2023@computing.smu.edu.sg,,20,#
+#01400003,#missingfileq2a.2023,_,MISSING FILE,missingfileq2a.2023@computing.smu.edu.sg,,20,#
+#01400004,#onlycontainsclassfiles.2023,_,ONLY CLASS FILES,onlycontainsclassfiles.2023@computing.smu.edu.sg,,20,#
+#01400005,#nestedfolderq2insideq1.2023,_,NESTED FOLDER,nestedfolderq2insideq1.2023@computing.smu.edu.sg,,20,#
+#01400006,#wrongfoldernameq1a.2023,_,WRONG FOLDER NAME,wrongfoldernameq1a.2023@computing.smu.edu.sg,,20,#
+#01400007,#wrongfilenameq1aa.2023,_,WRONG FILE NAME,wrongfilenameq1aa.2023@computing.smu.edu.sg,,20,#
+#01400008,#sean.yeo.2024,_,SEAN YEO,sean.yeo.2024@computing.smu.edu.sg,,20,#
+#01400009,#matthew.2024,_,MATTHEW,matthew.2024@computing.smu.edu.sg,,20,#
+#01400010,#jia.qian.2024,_,JIA QIAN,jia.qian.2024@computing.smu.edu.sg,,20,#
+#01400011,#infiniteloop.2023,_,INFINITE LOOP,infiniteloop.2023@computing.smu.edu.sg,,20,#
+#01400012,#wrongpackage.2023,_,WRONG PACKAGE,wrongpackage.2023@computing.smu.edu.sg,,20,#
+#01400013,#hongyao.2024,_,HONG YAO,hongyao.2024@computing.smu.edu.sg,,20,#
+#01400014,#hongyee.2024,_,HONG YEE,hongyee.2024@computing.smu.edu.sg,,20,#

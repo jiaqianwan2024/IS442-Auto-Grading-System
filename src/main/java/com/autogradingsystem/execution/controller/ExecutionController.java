@@ -102,10 +102,8 @@ public class ExecutionController {
                     + " (ZIP belongs to " + student.getId() + ")");
             }
 
-            if (!student.isFolderRenamed()) {
-                for (String missingFile : student.getMissingHeaderFiles()) {
-                    preRemarks.add("NoHeader:" + missingFile);
-                }
+            for (String missingFile : student.getMissingHeaderFiles()) {
+                preRemarks.add("NoHeader:" + missingFile);
             }
 
             if (!student.isFolderRenamed() && !student.isAnomaly()) {
@@ -281,9 +279,11 @@ public class ExecutionController {
         }
 
         // ── NORMAL JAVA TASK ─────────────────────────────────────────────────
-        Path questionFolder = studentRoot.resolve(task.getStudentFolder());
+        Path expectedQuestionFolder = studentRoot.resolve(task.getStudentFolder());
+        Path questionFolder = expectedQuestionFolder;
         Path javaFile       = questionFolder.resolve(expectedFile);
         Path classFile      = questionFolder.resolve(expectedClass);
+        boolean improperHierarchyDetected = false;
 
         boolean hasJava  = Files.exists(javaFile);
         boolean hasClass = Files.exists(classFile);
@@ -297,8 +297,12 @@ public class ExecutionController {
                 Path foundClass = findFileRecursive(foundQFolder, expectedClass);
                 if (foundJava != null) {
                     javaFile = foundJava; questionFolder = foundJava.getParent(); hasJava = true;
+                    improperHierarchyDetected = !questionFolder.normalize()
+                            .equals(expectedQuestionFolder.normalize());
                 } else if (foundClass != null) {
                     classFile = foundClass; questionFolder = foundClass.getParent(); hasClass = true;
+                    improperHierarchyDetected = !questionFolder.normalize()
+                            .equals(expectedQuestionFolder.normalize());
                 }
             }
         }
@@ -317,6 +321,12 @@ public class ExecutionController {
             testerInjector.copyTester(task.getTesterFile(), questionFolder, task.getStudentFolder());
         } catch (IOException e) {
             return new GradingResult(student, task, 0.0, "Tester copy failed.", "TESTER_COPY_FAILED");
+        }
+
+        if (improperHierarchyDetected && !student.isAnomaly()) {
+            remarksAccumulator
+                .computeIfAbsent(student.getId(), k -> new ArrayList<>())
+                .add(task.getQuestionId() + ":ImproperHierarchy");
         }
 
         if (hasJava) {
