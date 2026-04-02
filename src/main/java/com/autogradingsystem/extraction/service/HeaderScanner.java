@@ -3,6 +3,8 @@ package com.autogradingsystem.extraction.service;
 import com.autogradingsystem.model.GradingTask;
 
 import java.io.IOException;
+import java.nio.charset.MalformedInputException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
 import java.util.regex.*;
@@ -27,9 +29,9 @@ public class HeaderScanner {
     private static final int HEADER_SCAN_LINES = 12;
 
     private static final Pattern NAME_PATTERN =
-        Pattern.compile("(?i)^\\s*(?:/\\*+\\s*)?(?:\\*+\\s*)?Name\\s*:\\s*(.+?)\\s*(?:\\*/)?\\s*$");
+        Pattern.compile("(?i)^\\s*(?:/\\*+\\s*)?(?:\\*+\\s*)?Name\\s*:\\s*([^\\r\\n]*?)\\s*(?:\\*/)?\\s*$");
     private static final Pattern EMAIL_PATTERN =
-        Pattern.compile("(?i)^\\s*(?:/\\*+\\s*)?(?:\\*+\\s*)?(?:Email\\s*ID|Email|ID)\\s*:\\s*(\\S+)\\s*(?:\\*/)?\\s*$");
+        Pattern.compile("(?i)^\\s*(?:/\\*+\\s*)?(?:\\*+\\s*)?(?:Email\\s*ID|Email|ID)\\s*:\\s*([^\\r\\n]*?)\\s*(?:\\*/)?\\s*$");
 
     public static class ScanResult {
         // Email found in any header (used for identity resolution + mismatch detection)
@@ -63,16 +65,17 @@ public class HeaderScanner {
             }
 
             try {
-                String content = Files.readString(javaFile);
-                String email = extractEmail(content);
+                List<String> topLines = readTopLinesLenient(javaFile, HEADER_SCAN_LINES);
+                String email = extractEmail(topLines);
+                String name  = extractName(topLines);
 
-                if (email == null) {
+                if (!isValidHeader(name) || !isValidHeader(email)) {
                     result.missingHeaders.add(expectedFile);
                 } else {
                     // Use first found email + name for identity resolution
                     if (result.resolvedEmail == null) {
                         result.resolvedEmail = email.trim().toLowerCase();
-                        result.resolvedName  = extractName(content); // may be null if name line missing
+                        result.resolvedName  = name;
                         result.resolvedFromFile = expectedFile;
                     }
                 }
@@ -86,29 +89,40 @@ public class HeaderScanner {
 
     // ── Private helpers ────────────────────────────────────────────────────
 
-    private String extractEmail(String content) {
-        String top = firstNLines(content, HEADER_SCAN_LINES);
-        Matcher m = EMAIL_PATTERN.matcher(top);
-        return m.find() ? m.group(1).trim() : null;
-    }
-
-    private String extractName(String content) {
-        String top = firstNLines(content, HEADER_SCAN_LINES);
-        Matcher m = NAME_PATTERN.matcher(top);
-        return m.find() ? m.group(1).trim() : null;
-    }
-
-    /**
-     * Returns the first n lines of content joined back as a single string.
-     * Used to restrict header scanning to the top of each file.
-     */
-    private String firstNLines(String content, int n) {
-        String[] lines = content.split("\n", n + 1);
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < Math.min(n, lines.length); i++) {
-            sb.append(lines[i]).append("\n");
+    private String extractEmail(List<String> lines) {
+        for (String line : lines) {
+            Matcher m = EMAIL_PATTERN.matcher(line);
+            if (m.find()) return cleanHeaderValue(m.group(1));
         }
-        return sb.toString();
+        return null;
+    }
+
+    private String extractName(List<String> lines) {
+        for (String line : lines) {
+            Matcher m = NAME_PATTERN.matcher(line);
+            if (m.find()) return cleanHeaderValue(m.group(1));
+        }
+        return null;
+    }
+
+    private String cleanHeaderValue(String value) {
+        if (value == null) return null;
+        String cleaned = value.trim();
+        return cleaned.isEmpty() ? null : cleaned;
+    }
+
+    private boolean isValidHeader(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private List<String> readTopLinesLenient(Path javaFile, int n) throws IOException {
+        List<String> lines;
+        try {
+            lines = Files.readAllLines(javaFile, StandardCharsets.UTF_8);
+        } catch (MalformedInputException e) {
+            lines = Files.readAllLines(javaFile, StandardCharsets.ISO_8859_1);
+        }
+        return lines.subList(0, Math.min(n, lines.size()));
     }
 
     private Path findFileRecursive(Path root, String filename) {

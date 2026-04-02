@@ -19,8 +19,10 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.function.BiConsumer;
 import java.util.stream.Stream;
+import java.util.zip.ZipFile;
 
 public class ExecutionController {
 
@@ -73,6 +75,7 @@ public class ExecutionController {
     private Path resolveOutputExtracted() { return outputExtracted; }
     private Path resolveCsvScoresheet()   { return csvScoresheet;   }
     private Path resolveInputTesters()    { return inputTesters;    }
+    private Path resolveInputTemplate()   { return inputTemplate;   }
 
     // ── Public: grade all students ────────────────────────────────────────────
 
@@ -93,18 +96,20 @@ public class ExecutionController {
         for (Student student : students) {
             List<String> preRemarks = new ArrayList<>();
 
-            if (!student.isFolderRenamed()) {
-                preRemarks.add("NoFolderRename");
-            }
-
             if (student.isHeaderMismatch()) {
                 preRemarks.add("HeaderMismatch: " + student.getHeaderClaimedUsername()
                     + " header found in " + student.getHeaderMismatchFile()
                     + " (ZIP belongs to " + student.getId() + ")");
             }
 
-            for (String missingFile : student.getMissingHeaderFiles()) {
-                preRemarks.add("NoHeader:" + missingFile);
+            if (!student.isFolderRenamed()) {
+                for (String missingFile : student.getMissingHeaderFiles()) {
+                    preRemarks.add("NoHeader:" + missingFile);
+                }
+            }
+
+            if (!student.isFolderRenamed() && !student.isAnomaly()) {
+                preRemarks.add("NoFolderRename");
             }
 
             if (!preRemarks.isEmpty()) {
@@ -156,7 +161,7 @@ public class ExecutionController {
                         break;
                 }
 
-                if (remarkLabel != null) {
+                if (remarkLabel != null && !student.isAnomaly()) {
                     remarksAccumulator
                         .computeIfAbsent(student.getId(), k -> new ArrayList<>())
                         .add(task.getQuestionId() + ":" + remarkLabel);
@@ -320,13 +325,32 @@ public class ExecutionController {
             CompilerService.CompileResult compileResult =
                 compilerService.compileTargetedWithDetails(questionFolder, expectedFile);
 
-            if (!compileResult.success)
-                return new GradingResult(student, task, 0.0, "Compilation failed.", "COMPILATION_FAILED");
+            addWrongPackageRemarks(student, task, compileResult);
 
-            for (String strippedFile : compileResult.strippedPackageFiles) {
-                remarksAccumulator
-                    .computeIfAbsent(student.getId(), k -> new ArrayList<>())
-                    .add(task.getQuestionId() + ":WrongPackage:" + strippedFile);
+            if (!compileResult.success) {
+                String fallbackRunner = writeTemplateFallbackRunner(task.getStudentFolder(), expectedFile, questionFolder);
+                if (fallbackRunner != null) {
+                    CompilerService.CompileResult fallbackCompile =
+                        compilerService.compileStudentSourcesWithDetails(questionFolder, fallbackRunner + ".java");
+
+                    addWrongPackageRemarks(student, task, fallbackCompile);
+
+                    if (fallbackCompile.success) {
+                        return runCompiledClass(student, task, questionFolder, fallbackRunner);
+                    }
+                }
+
+                if (hasRunnableMain(javaFile)) {
+                    CompilerService.CompileResult selfTestCompile =
+                        compilerService.compileStudentSourcesWithDetails(questionFolder, expectedFile);
+
+                    addWrongPackageRemarks(student, task, selfTestCompile);
+
+                    if (selfTestCompile.success) {
+                        return runCompiledClass(student, task, questionFolder, expectedFile.replace(".java", ""));
+                    }
+                }
+                return new GradingResult(student, task, 0.0, "Compilation failed.", "COMPILATION_FAILED");
             }
         }
 
@@ -343,7 +367,7 @@ public class ExecutionController {
         if (output != null && output.startsWith("ERROR:"))
             return new GradingResult(student, task, 0.0, output, "RUNTIME_ERROR");
 
-        double rawScore = outputParser.parseScore(output);
+        double rawScore = deriveScore(output, maxAllowed);
         return new GradingResult(student, task,
             roundScore(maxAllowed > 0 ? Math.min(rawScore, maxAllowed) : rawScore),
             output, "COMPLETED");
@@ -365,6 +389,7 @@ public class ExecutionController {
                 String folderName = dir.getFileName().toString();
                 if (folderName.startsWith("__") || folderName.startsWith(".")) continue;
 
+                ExtractionMetadata metadata = readExtractionMetadata(dir);
                 String strippedName = stripDatePrefix(folderName);
                 Path   actualRoot   = findActualStudentRoot(dir);
 
@@ -372,6 +397,10 @@ public class ExecutionController {
 
                 boolean folderRenamed    = isValidUsername(strippedName, emailToUsername);
                 String  resolvedUsername;
+
+                if (metadata != null && !"MATCHED".equals(metadata.status)) {
+                    folderRenamed = false;
+                }
 
                 if (folderRenamed) {
                     resolvedUsername = strippedName;
@@ -387,7 +416,7 @@ public class ExecutionController {
                 Student student = new Student(resolvedUsername, actualRoot);
                 student.setFolderRenamed(folderRenamed);
                 student.setMissingHeaderFiles(headerScan.missingHeaders);
-                student.setRawFolderName(folderName);
+                student.setRawFolderName(metadata != null ? metadata.rawFolderName : folderName);
 
                 boolean isAnomaly = !folderRenamed &&
                     (headerScan.resolvedEmail == null ||
@@ -411,6 +440,26 @@ public class ExecutionController {
 
     private boolean isValidUsername(String name, Map<String, String> emailToUsername) {
         return emailToUsername.containsValue(name);
+    }
+
+    private ExtractionMetadata readExtractionMetadata(Path dir) {
+        Path metaFile = dir.resolve(".autograder-meta.properties");
+        if (!Files.exists(metaFile)) {
+            return null;
+        }
+
+        Properties props = new Properties();
+        try (var reader = Files.newBufferedReader(metaFile)) {
+            props.load(reader);
+            String originalFilename = props.getProperty("originalFilename", "").trim();
+            String status = props.getProperty("status", "").trim();
+            String rawFolderName = originalFilename.endsWith(".zip")
+                ? originalFilename.substring(0, originalFilename.length() - 4)
+                : originalFilename;
+            return new ExtractionMetadata(status, rawFolderName.isBlank() ? dir.getFileName().toString() : rawFolderName);
+        } catch (IOException e) {
+            return null;
+        }
     }
 
     private Map<String, String> loadEmailToUsernameMap() {
@@ -558,5 +607,169 @@ public class ExecutionController {
 
     private double roundScore(double score) {
         return Math.round(score * 100.0) / 100.0;
+    }
+
+    private void addWrongPackageRemarks(Student student, GradingTask task,
+                                        CompilerService.CompileResult compileResult) {
+        for (String strippedFile : compileResult.strippedPackageFiles) {
+            remarksAccumulator
+                .computeIfAbsent(student.getId(), k -> new ArrayList<>())
+                .add(task.getQuestionId() + ":WrongPackage:" + strippedFile);
+        }
+    }
+
+    private boolean hasRunnableMain(Path javaFile) {
+        try {
+            String source = Files.readString(javaFile);
+            return source.contains("public static void main(");
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    private GradingResult runCompiledClass(Student student, GradingTask task,
+                                           Path questionFolder, String className) throws IOException {
+        String output = processRunner.runTester(className, questionFolder);
+        double maxAllowed = com.autogradingsystem.analysis.service.ScoreAnalyzer
+            .getMaxScoreFromTester(task.getQuestionId(), resolveInputTesters());
+
+        if (output != null && output.toUpperCase().contains("TIMEOUT")) {
+            long passed = output.lines().map(String::trim).filter(l -> l.equals("Passed")).count();
+            return new GradingResult(student, task,
+                roundScore(maxAllowed > 0 ? Math.min((double) passed, maxAllowed) : (double) passed),
+                output, "TIMEOUT");
+        }
+        if (output != null && output.startsWith("ERROR:")) {
+            return new GradingResult(student, task, 0.0, output, "RUNTIME_ERROR");
+        }
+
+        double rawScore = deriveScore(output, maxAllowed);
+        return new GradingResult(student, task,
+            roundScore(maxAllowed > 0 ? Math.min(rawScore, maxAllowed) : rawScore),
+            output, "COMPLETED");
+    }
+
+    private double deriveScore(String output, double maxAllowed) {
+        double parsed = outputParser.parseScore(output);
+        if (parsed > 0.0 || outputParser.hasValidScore(output)) {
+            return parsed;
+        }
+
+        if (output == null || output.isBlank()) {
+            return 0.0;
+        }
+
+        long passed = output.lines().map(String::trim).filter(l -> l.equals("Passed")).count();
+        double fallback = (double) passed;
+        return maxAllowed > 0 ? Math.min(fallback, maxAllowed) : fallback;
+    }
+
+    private static class ExtractionMetadata {
+        private final String status;
+        private final String rawFolderName;
+
+        private ExtractionMetadata(String status, String rawFolderName) {
+            this.status = status;
+            this.rawFolderName = rawFolderName;
+        }
+    }
+
+    private String writeTemplateFallbackRunner(String questionFolder, String expectedFile, Path destinationFolder) {
+        try {
+            String templateSource = readTemplateSource(questionFolder, expectedFile);
+            if (templateSource == null) {
+                return null;
+            }
+
+            String mainMethod = extractMainMethod(templateSource);
+            if (mainMethod == null) {
+                return null;
+            }
+
+            String className = expectedFile.replace(".java", "") + "FallbackRunner";
+            StringBuilder generated = new StringBuilder();
+            for (String line : templateSource.split("\\R")) {
+                String trimmed = line.trim();
+                if (trimmed.startsWith("import ")) {
+                    generated.append(line).append(System.lineSeparator());
+                }
+            }
+            if (generated.length() > 0) {
+                generated.append(System.lineSeparator());
+            }
+            generated.append("public class ").append(className)
+                .append(" extends ").append(expectedFile.replace(".java", "")).append(" {")
+                .append(System.lineSeparator())
+                .append(mainMethod)
+                .append(System.lineSeparator())
+                .append("}")
+                .append(System.lineSeparator());
+
+            Files.writeString(destinationFolder.resolve(className + ".java"), generated.toString());
+            return className;
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private String readTemplateSource(String questionFolder, String expectedFile) throws IOException {
+        Path templateZip = findTemplateZip();
+        if (templateZip == null) {
+            return null;
+        }
+
+        try (ZipFile zip = new ZipFile(templateZip.toFile())) {
+            return zip.stream()
+                .filter(entry -> !entry.isDirectory())
+                .filter(entry -> entry.getName().endsWith("/" + questionFolder + "/" + expectedFile))
+                .findFirst()
+                .map(entry -> {
+                    try {
+                        return new String(zip.getInputStream(entry).readAllBytes());
+                    } catch (IOException e) {
+                        return null;
+                    }
+                })
+                .orElse(null);
+        }
+    }
+
+    private Path findTemplateZip() throws IOException {
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(resolveInputTemplate(), "*.zip")) {
+            for (Path entry : stream) {
+                if (Files.isRegularFile(entry)) {
+                    return entry;
+                }
+            }
+        }
+        return null;
+    }
+
+    private String extractMainMethod(String source) {
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+            .compile("public\\s+static\\s+void\\s+main\\s*\\(\\s*String\\s*\\[\\s*]\\s*\\w+\\s*\\)")
+            .matcher(source);
+
+        if (!matcher.find()) {
+            return null;
+        }
+
+        int signatureStart = matcher.start();
+        int braceStart = source.indexOf('{', matcher.end());
+        if (braceStart == -1) {
+            return null;
+        }
+
+        int depth = 0;
+        for (int i = braceStart; i < source.length(); i++) {
+            char c = source.charAt(i);
+            if (c == '{') depth++;
+            else if (c == '}') depth--;
+
+            if (depth == 0) {
+                return source.substring(signatureStart, i + 1);
+            }
+        }
+        return null;
     }
 }

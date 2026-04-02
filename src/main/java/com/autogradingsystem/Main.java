@@ -8,7 +8,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * Main - Spring Boot Entry Point
  *
  * MODE:
- *   Web UI only → run-web.bat / ./run-web.sh → http://localhost:8080
+ *   Web UI only → run-web.bat / ./run-web.sh → http://localhost:9090
  */
 @SpringBootApplication
 public class Main {
