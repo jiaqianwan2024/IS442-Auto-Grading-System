@@ -25,9 +25,14 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 public class GradingService {
+    private static final Pattern QUESTION_FILE_PATTERN = Pattern.compile("\\b(Q\\d+[A-Za-z0-9]*)\\.java\\b");
+
 
     private Path csvScoresheet;
     private Path inputSubmissions;
@@ -203,9 +208,9 @@ public class GradingService {
             String studentRemarks = remarks.getOrDefault(studentId, "");
 
             boolean rootFolderCorrect = student == null || student.isFolderRenamed();
-            java.util.Set<String> missingHeaderQuestions = extractQuestionIds(studentRemarks, "NoHeader:");
-            java.util.Set<String> wrongPackageQuestions = extractQuestionIds(studentRemarks, ":WrongPackage:");
-            java.util.Set<String> hierarchyQuestions = extractQuestionIds(studentRemarks, ":FILE_NOT_FOUND");
+            Set<String> headerPenaltyQuestions = extractHeaderPenaltyQuestionIds(studentRemarks);
+            Set<String> wrongPackageQuestions = extractQuestionIds(studentRemarks, ":WrongPackage:");
+            Set<String> hierarchyQuestions = extractQuestionIds(studentRemarks, ":ImproperHierarchy");
 
             List<PenaltyGradingResult> penaltyInputs = new ArrayList<>();
 
@@ -216,7 +221,7 @@ public class GradingService {
                 String questionId = gr.getQuestionId();
 
                 boolean properHierarchy = !hierarchyQuestions.contains(questionId);
-                boolean hasHeaders = !missingHeaderQuestions.contains(questionId);
+                boolean hasHeaders = !headerPenaltyQuestions.contains(questionId);
                 boolean hasWrongPackage = wrongPackageQuestions.contains(questionId);
 
                 penaltyInputs.add(new PenaltyGradingResult(
@@ -261,8 +266,8 @@ public class GradingService {
         return penaltyMap;
     }
 
-    private java.util.Set<String> extractQuestionIds(String remarks, String marker) {
-        java.util.Set<String> ids = new java.util.LinkedHashSet<>();
+    private Set<String> extractQuestionIds(String remarks, String marker) {
+        Set<String> ids = new java.util.LinkedHashSet<>();
         if (remarks == null || remarks.isBlank()) {
             return ids;
         }
@@ -289,6 +294,27 @@ public class GradingService {
                 if (colon > 0) {
                     ids.add(trimmed.substring(0, colon).trim());
                 }
+            }
+        }
+        return ids;
+    }
+
+    private Set<String> extractHeaderPenaltyQuestionIds(String remarks) {
+        Set<String> ids = extractQuestionIds(remarks, "NoHeader:");
+        if (remarks == null || remarks.isBlank()) {
+            return ids;
+        }
+
+        String[] tokens = remarks.split("\\s*;\\s*");
+        for (String token : tokens) {
+            String trimmed = token.trim();
+            if (!trimmed.startsWith("HeaderMismatch:")) {
+                continue;
+            }
+
+            Matcher matcher = QUESTION_FILE_PATTERN.matcher(trimmed);
+            if (matcher.find()) {
+                ids.add(matcher.group(1));
             }
         }
         return ids;

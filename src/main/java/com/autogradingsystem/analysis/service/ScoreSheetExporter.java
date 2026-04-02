@@ -157,7 +157,11 @@ public class ScoreSheetExporter {
                     for (int c = 0; c < cols.length; c++) {
                         if (c == COL_EOL) continue;
                         if (headerRow.length() > 0) headerRow.append(",");
-                        headerRow.append(escapeCsv(cols[c].trim()));
+                        String header = cols[c].trim();
+                        if (hasPenalties && c == COL_NUMERATOR) {
+                            header = "Calculated Raw Grade Numerator";
+                        }
+                        headerRow.append(escapeCsv(header));
                     }
                     for (String qid : questionOrder) {
                         headerRow.append(",").append(escapeCsv(qid));
@@ -169,6 +173,7 @@ public class ScoreSheetExporter {
                         for (String qid : questionOrder) {
                             headerRow.append(",").append(escapeCsv(qid));
                         }
+                        headerRow.append(",Total");
                         headerRow.append(",Remarks");
                     }
                     headerRow.append(",").append(cols.length > COL_EOL ? escapeCsv(cols[COL_EOL].trim()) : "#");
@@ -222,6 +227,7 @@ public class ScoreSheetExporter {
                             dataRow.append(",").append(fmtNum(adjustedScores.getOrDefault(qid, 0.0)));
                         }
                     }
+                    dataRow.append(",").append(fmtNum(adjustedTotal));
                     dataRow.append(",").append(escapeCsv(penaltyRemark));
                 }
 
@@ -288,6 +294,9 @@ public class ScoreSheetExporter {
                     for (int c = 0; c < cols.length; c++) {
                         if (c == COL_EOL) continue;
                         String h = cols[c].trim();
+                        if (hasPenalties && c == COL_NUMERATOR) {
+                            h = "Calculated Raw Grade Numerator";
+                        }
                         Cell cell = row.createCell(cellIdx++);
                         cell.setCellValue(h);
                         cell.setCellStyle(headerStyle);
@@ -318,6 +327,10 @@ public class ScoreSheetExporter {
                             cell.setCellStyle(headerStyle);
                             outHeaders.add(qid);
                         }
+
+                        Cell totalh = row.createCell(cellIdx++);
+                        totalh.setCellValue("Total"); totalh.setCellStyle(headerStyle);
+                        outHeaders.add("Total");
 
                         Cell prh = row.createCell(cellIdx++);
                         prh.setCellValue("Remarks"); prh.setCellStyle(headerStyle);
@@ -376,6 +389,10 @@ public class ScoreSheetExporter {
                             adjCell.setCellStyle(normal);
                         }
 
+                        Cell totalCell = row.createCell(colIdx++);
+                        totalCell.setCellValue(adjustedTotal);
+                        totalCell.setCellStyle(ps != null && ps.getTotalDeduction() > 0 ? penaltyStyle : normal);
+
                         Cell rulesCell = row.createCell(colIdx++);
                         rulesCell.setCellValue(ps != null ? ps.getPenaltyRulesApplied() : "No penalty");
                         rulesCell.setCellStyle(normal);
@@ -390,6 +407,7 @@ public class ScoreSheetExporter {
                         row.createCell(colIdx++).setCellStyle(normal); // adjusted numerator
                         row.createCell(colIdx++).setCellValue(totalMaxScore); // denominator
                         for (String ignored : questionOrder) row.createCell(colIdx++).setCellStyle(normal);
+                        row.createCell(colIdx++).setCellStyle(normal); // total
                         Cell penaltyRemark = row.createCell(colIdx++);
                         penaltyRemark.setCellValue("No penalty");
                         penaltyRemark.setCellStyle(normal);

@@ -15,6 +15,11 @@ import java.util.stream.Collectors;
  * Orchestrates penalty computation with either strategy-based or CSV-backed rules.
  */
 public class PenaltyService {
+    private static final double ROOT_FOLDER_DEDUCTION_RATE = 0.20;
+    private static final double HIERARCHY_DEDUCTION_RATE = 0.05;
+    private static final double HEADER_DEDUCTION_RATE = 0.20;
+    private static final double WRONG_PACKAGE_DEDUCTION_RATE = 0.20;
+
     private final List<PenaltyStrategy> strategies;
 
     public PenaltyService() {
@@ -79,21 +84,21 @@ public class PenaltyService {
             double adjustedScore = adjustedQuestionScores.getOrDefault(qid, round2(rawScore));
 
             if (!questionResult.hasProperHierarchy()) {
-                double deduction = round2(rawScore * 0.05);
+                double deduction = round2(rawScore * HIERARCHY_DEDUCTION_RATE);
                 totalDeduction += deduction;
                 adjustedScore = round2(adjustedScore - deduction);
                 hierarchyQuestions.add(qid);
             }
 
             if (!questionResult.hasHeaders()) {
-                double deduction = round2(rawScore * 0.20);
+                double deduction = round2(rawScore * HEADER_DEDUCTION_RATE);
                 totalDeduction += deduction;
                 adjustedScore = round2(adjustedScore - deduction);
                 headerQuestions.add(qid);
             }
 
             if (questionResult.hasWrongPackage()) {
-                double deduction = round2(rawScore * 0.20);
+                double deduction = round2(rawScore * WRONG_PACKAGE_DEDUCTION_RATE);
                 totalDeduction += deduction;
                 adjustedScore = round2(adjustedScore - deduction);
                 wrongPackageQuestions.add(qid);
@@ -103,7 +108,7 @@ public class PenaltyService {
         }
 
         if (applyRootFolderPenalty) {
-            totalDeduction += round2(totalRawScore * 0.05);
+            totalDeduction += round2(totalRawScore * ROOT_FOLDER_DEDUCTION_RATE);
         }
 
         applyDisplayOverrides(adjustedQuestionScores, rawQuestionScores, headerQuestions, wrongPackageQuestions);
