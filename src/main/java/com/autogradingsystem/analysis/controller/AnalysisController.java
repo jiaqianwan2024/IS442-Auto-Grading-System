@@ -5,6 +5,7 @@ import com.autogradingsystem.analysis.service.ScoreSheetExporter;
 import com.autogradingsystem.analysis.service.StatisticsReportExporter;
 import com.autogradingsystem.model.GradingResult;
 import com.autogradingsystem.model.Student;
+import com.autogradingsystem.penalty.model.ProcessedScore;
 
 import java.nio.file.Path;
 import java.util.Collections;
@@ -20,9 +21,8 @@ import java.util.Map;
  *      (7 tabs: Score Sheet, Anomalies, Dashboard, Grade Distribution,
  *       Question Analysis, Student Ranking, Performance Matrix)
  *
- * NOTE: IS442-Statistics.xlsx is no longer produced as a separate file.
- * All statistics are embedded in IS442-ScoreSheet-Updated.xlsx by ScoreSheetExporter,
- * which calls StatisticsReportExporter.appendStatsSheets() on the same workbook.
+ * v4.4: Added penalty data pass-through. When penalties are enabled,
+ * the score sheet includes "Penalty Deduction" and "Adjusted Score" columns.
  */
 public class AnalysisController {
 
@@ -31,13 +31,6 @@ public class AnalysisController {
 
     // ── CONSTRUCTORS ─────────────────────────────────────────────────────────
 
-    /**
-     * Path-aware — multi-assessment support.
-     *
-     * @param csvScoresheet Path to the scoresheet CSV for this assessment
-     * @param outputReports Path to the reports output directory for this assessment
-     * @param inputTesters  Path to this assessment's testers directory
-     */
     public AnalysisController(Path csvScoresheet, Path outputReports, Path inputTesters) {
         this.scoreSheetExporter = new ScoreSheetExporter(csvScoresheet, outputReports, inputTesters);
         this.inputTesters       = inputTesters;
@@ -45,26 +38,37 @@ public class AnalysisController {
 
     // ── PUBLIC API ────────────────────────────────────────────────────────────
 
-    /** Backward-compatible overload — no plagiarism notes. */
+    /** Backward-compatible: no plagiarism notes, no penalties. */
     public void analyzeAndDisplay(List<GradingResult> results,
                                   Map<String, String> remarksByStudent,
                                   Map<String, String> anomalyRemarks,
                                   List<Student> allStudents) {
         analyzeAndDisplay(results, remarksByStudent, anomalyRemarks, allStudents,
-                          Collections.emptyMap());
+                          Collections.emptyMap(), Collections.emptyMap());
     }
 
-    /**
-     * Full overload — includes plagiarism notes.
-     *
-     * @param plagiarismNotes studentId → plagiarism note for the "Plagiarism" column.
-     *                        Pass Collections.emptyMap() if check was not run.
-     */
+    /** With plagiarism notes, no penalties. */
     public void analyzeAndDisplay(List<GradingResult> results,
                                   Map<String, String> remarksByStudent,
                                   Map<String, String> anomalyRemarks,
                                   List<Student> allStudents,
                                   Map<String, String> plagiarismNotes) {
+        analyzeAndDisplay(results, remarksByStudent, anomalyRemarks, allStudents,
+                          plagiarismNotes, Collections.emptyMap());
+    }
+
+    /**
+     * Full overload — includes plagiarism notes AND penalty results.
+     *
+     * @param penaltyResults studentId → ProcessedScore from PenaltyController.
+     *                       Pass Collections.emptyMap() if penalties were not applied.
+     */
+    public void analyzeAndDisplay(List<GradingResult> results,
+                                  Map<String, String> remarksByStudent,
+                                  Map<String, String> anomalyRemarks,
+                                  List<Student> allStudents,
+                                  Map<String, String> plagiarismNotes,
+                                  Map<String, ProcessedScore> penaltyResults) {
 
         Path testersDir = inputTesters;
 
@@ -79,7 +83,8 @@ public class AnalysisController {
         displayCompactView(byStudent, maxScores);
         displayOverallStatistics(byStudent, maxScores);
 
-        exportReport(byStudent, remarksByStudent, anomalyRemarks, allStudents, plagiarismNotes);
+        exportReport(byStudent, remarksByStudent, anomalyRemarks, allStudents,
+                     plagiarismNotes, penaltyResults);
     }
 
     // ── PRIVATE: EXPORT ───────────────────────────────────────────────────────
@@ -88,7 +93,8 @@ public class AnalysisController {
                               Map<String, String> remarksByStudent,
                               Map<String, String> anomalyRemarks,
                               List<Student> allStudents,
-                              Map<String, String> plagiarismNotes) {
+                              Map<String, String> plagiarismNotes,
+                              Map<String, ProcessedScore> penaltyResults) {
         System.out.println("\n" + "=".repeat(70));
         System.out.println("📄 EXPORTING REPORTS");
         System.out.println("=".repeat(70));
@@ -96,10 +102,13 @@ public class AnalysisController {
         try {
             Path scoreSheet = scoreSheetExporter.export(byStudent, remarksByStudent,
                                                         anomalyRemarks, allStudents,
-                                                        plagiarismNotes);
+                                                        plagiarismNotes, penaltyResults);
             System.out.println("✅ Score Sheet + Statistics → " + scoreSheet.toAbsolutePath());
             System.out.println("   Tabs: Score Sheet | Anomalies | Dashboard | Grade Distribution");
             System.out.println("         Question Analysis | Student Ranking | Performance Matrix");
+            if (!penaltyResults.isEmpty()) {
+                System.out.println("   ✅ Penalty columns included (Deduction + Adjusted Score)");
+            }
         } catch (Exception e) {
             System.out.println("❌ Score Sheet export failed: " + e.getMessage());
             e.printStackTrace();
@@ -108,7 +117,7 @@ public class AnalysisController {
         System.out.println("=".repeat(70));
     }
 
-    // ── PRIVATE: CONSOLE DISPLAY ──────────────────────────────────────────────
+    // ── PRIVATE: CONSOLE DISPLAY (unchanged) ──────────────────────────────────
 
     private void displayQuestionStatistics(List<GradingResult> results,
                                            Map<String, Double> maxScores) {
