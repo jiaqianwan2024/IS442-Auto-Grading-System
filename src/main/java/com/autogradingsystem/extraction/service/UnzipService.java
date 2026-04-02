@@ -64,6 +64,7 @@ public class UnzipService {
                     try {
                         Path extractedPath = extractedDir.resolve(result.getResolvedId());
                         flattenWrapperFolder(extractedPath);
+                        writeExtractionMetadata(extractedPath, result);
                     } catch (Exception e) {
                         // Resiliency: Log failure for one student but continue the loop
                         System.err.println("⚠️  Warning: Non-standard structure for " + 
@@ -218,6 +219,16 @@ public class UnzipService {
             }
         }
         return studentZips;
+    }
+
+    private void writeExtractionMetadata(Path extractedPath, ValidationResult result) throws IOException {
+        Properties props = new Properties();
+        props.setProperty("originalFilename", result.getOriginalFilename());
+        props.setProperty("status", result.getStatus().name());
+
+        try (var writer = Files.newBufferedWriter(extractedPath.resolve(".autograder-meta.properties"))) {
+            props.store(writer, "Auto-grader extraction metadata");
+        }
     }
 
     /**

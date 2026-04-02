@@ -134,6 +134,51 @@ public class CompilerService {
         return new CompileResult(success, studentStripped);
     }
 
+    /**
+     * Compiles the target student file plus any non-tester Java helpers in the same folder.
+     * This is used as a fallback when an injected tester is incompatible but the student's
+     * own file contains a runnable self-test main method.
+     */
+    public CompileResult compileStudentSourcesWithDetails(Path workingDir, String targetFile) {
+        if (workingDir == null || !Files.exists(workingDir)) {
+            System.out.println("[Compiler] ❌ Directory does not exist: " + workingDir);
+            return new CompileResult(false, Collections.emptyList());
+        }
+
+        List<Path> javaFiles = new ArrayList<>();
+        Path target = workingDir.resolve(targetFile);
+        if (Files.exists(target)) {
+            javaFiles.add(target);
+        }
+
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(workingDir, "*.java")) {
+            for (Path f : stream) {
+                String name = f.getFileName().toString();
+                if (!name.endsWith("Tester.java") && !javaFiles.contains(f)) {
+                    javaFiles.add(f);
+                }
+            }
+        } catch (IOException e) {
+            System.out.println("[Compiler] ⚠️  Could not list directory: " + e.getMessage());
+        }
+
+        if (javaFiles.isEmpty()) {
+            System.out.println("[Compiler] ❌ Target file not found: " + targetFile);
+            return new CompileResult(false, Collections.emptyList());
+        }
+
+        List<String> stripped = stripPackageDeclarations(javaFiles);
+        List<String> studentStripped = new ArrayList<>();
+        for (String f : stripped) {
+            if (!f.endsWith("Tester.java")) {
+                studentStripped.add(f);
+            }
+        }
+
+        boolean success = runJavac(workingDir, javaFiles);
+        return new CompileResult(success, studentStripped);
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────────
 
     private List<Path> collectJavaFiles(Path dir) {

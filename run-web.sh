@@ -6,7 +6,7 @@
 #   1. Clears resources/assessments on startup
 #   2. Loads COHERE_API_KEY from .env
 #   3. Runs mvn clean install -DskipTests
-#   4. Starts the Spring Boot web server on http://localhost:8080
+#   4. Starts the Spring Boot web server on http://localhost:9090
 # ============================================================================
 
 set -e
@@ -59,7 +59,7 @@ echo " IS442 AUTO-GRADING SYSTEM - WEB UI MODE"
 echo "============================================"
 echo ""
 echo "Starting web server..."
-echo "Open browser at: http://localhost:8080"
+echo "Open browser at: http://localhost:9090"
 echo "Press Ctrl+C to stop."
 echo ""
 
