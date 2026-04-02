@@ -2,6 +2,7 @@ package com.autogradingsystem.analysis.service;
 
 import com.autogradingsystem.model.GradingResult;
 import com.autogradingsystem.model.Student;
+import com.autogradingsystem.penalty.model.ProcessedScore;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.*;
@@ -18,20 +19,15 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * Exports a single combined XLSX report containing:
- *   Sheet 1  — Score Sheet          (identified students)
- *   Sheet 2  — Anomalies            (unidentifiable submissions)
- *   Sheet 3  — Dashboard            (class-level statistics)
- *   Sheet 4  — Grade Distribution
- *   Sheet 5  — Question Analysis
- *   Sheet 6  — Student Ranking
- *   Sheet 7  — Performance Matrix
+ * Exports a single combined XLSX report.
  *
- * Output: IS442-ScoreSheet-Updated.xlsx
+ * v4.4: Added penalty support. When penaltyResults is non-empty, two extra
+ * columns are appended to the Score Sheet and CSV:
+ *   - "Penalty Deduction"  — total points deducted (structural + compilation + CSV penalties)
+ *   - "Adjusted Score"     — rawTotal - deduction (floored at 0)
  *
- * Sheets 3-7 are delegated to StatisticsReportExporter.appendStatsSheets()
- * on the same XSSFWorkbook, so there is exactly ONE output file.
- * The separate IS442-Statistics.xlsx is no longer produced.
+ * The "Calculated Final Grade Numerator" column in the CSV is updated to the
+ * ADJUSTED score when penalties are applied, so the LMS import reflects penalties.
  */
 public class ScoreSheetExporter {
 
@@ -43,7 +39,6 @@ public class ScoreSheetExporter {
 
     // ── CONSTRUCTORS ─────────────────────────────────────────────────────────
 
-    /** Path-aware — multi-assessment support (full). */
     public ScoreSheetExporter(Path csvScoresheet, Path outputReports, Path inputTesters) {
         this.csvScoresheet = csvScoresheet;
         this.outputReports = outputReports;
@@ -52,43 +47,47 @@ public class ScoreSheetExporter {
 
     // ── PATH RESOLUTION ──────────────────────────────────────────────────────
 
-    private Path resolveCsvScoresheet() {
-        return csvScoresheet.toAbsolutePath();
-    }
-
-    private Path resolveInputTesters() {
-        return inputTesters.toAbsolutePath();
-    }
-
-    private Path resolveOutputDir() {
-        return outputReports.toAbsolutePath();
-    }
+    private Path resolveCsvScoresheet() { return csvScoresheet.toAbsolutePath(); }
+    private Path resolveInputTesters()  { return inputTesters.toAbsolutePath(); }
+    private Path resolveOutputDir()     { return outputReports.toAbsolutePath(); }
 
     // ── PUBLIC API ────────────────────────────────────────────────────────────
 
-    /** Backward-compatible overload — no plagiarism notes. */
+    /** Backward-compatible: no plagiarism, no penalties. */
     public Path export(
             Map<String, List<GradingResult>> resultsByStudent,
             Map<String, String> remarksByStudent,
             Map<String, String> anomalyRemarks,
             List<Student> allStudents) throws IOException {
         return export(resultsByStudent, remarksByStudent, anomalyRemarks, allStudents,
-                      Collections.emptyMap());
+                      Collections.emptyMap(), Collections.emptyMap());
     }
 
-    /**
-     * Full overload — includes plagiarism notes (v3.3+).
-     *
-     * Produces IS442-ScoreSheet-Updated.xlsx with 7 sheets:
-     *   1 Score Sheet  2 Anomalies  3 Dashboard  4 Grade Distribution
-     *   5 Question Analysis  6 Student Ranking  7 Performance Matrix
-     */
+    /** With plagiarism, no penalties. */
     public Path export(
             Map<String, List<GradingResult>> resultsByStudent,
             Map<String, String> remarksByStudent,
             Map<String, String> anomalyRemarks,
             List<Student> allStudents,
             Map<String, String> plagiarismNotes) throws IOException {
+        return export(resultsByStudent, remarksByStudent, anomalyRemarks, allStudents,
+                      plagiarismNotes, Collections.emptyMap());
+    }
+
+    /**
+     * Full overload — includes plagiarism notes AND penalty results.
+     *
+     * @param penaltyResults studentId → ProcessedScore. Empty map = no penalty columns.
+     */
+    public Path export(
+            Map<String, List<GradingResult>> resultsByStudent,
+            Map<String, String> remarksByStudent,
+            Map<String, String> anomalyRemarks,
+            List<Student> allStudents,
+            Map<String, String> plagiarismNotes,
+            Map<String, ProcessedScore> penaltyResults) throws IOException {
+
+        boolean hasPenalties = penaltyResults != null && !penaltyResults.isEmpty();
 
         Path outputDir  = resolveOutputDir();
         Files.createDirectories(outputDir);
@@ -111,14 +110,13 @@ public class ScoreSheetExporter {
 
         try (XSSFWorkbook workbook = new XSSFWorkbook()) {
 
-            // ── Sheets 1 & 2: Score Sheet + Anomalies ────────────────────────
             buildMainSheet(workbook, resultsByStudent, remarksByStudent, allStudents,
-                           plagiarismNotes, questionOrder, totals, qScoreMap, totalMaxScore);
+                           plagiarismNotes, penaltyResults, questionOrder, totals,
+                           qScoreMap, totalMaxScore, hasPenalties);
 
             buildAnomalySheet(workbook, resultsByStudent, anomalyRemarks, allStudents,
                               questionOrder, qScoreMap, totalMaxScore);
 
-            // ── Sheets 3-7: Statistics (Dashboard, Grade Dist, Q Analysis, Ranking, Matrix)
             StatisticsReportExporter statsExporter =
                 new StatisticsReportExporter(outputReports, inputTesters);
             statsExporter.appendStatsSheets(workbook, resultsByStudent);
@@ -128,9 +126,8 @@ public class ScoreSheetExporter {
             }
         }
 
-        // CSV sidecar (used by status checks and legacy download routes)
         exportCsv(outputDir, questionOrder, totals, qScoreMap, remarksByStudent,
-                  plagiarismNotes, gradedUsernames);
+                  plagiarismNotes, penaltyResults, gradedUsernames, hasPenalties);
 
         return outputFile;
     }
@@ -143,7 +140,9 @@ public class ScoreSheetExporter {
                             Map<String, Map<String, Double>> qScoreMap,
                             Map<String, String> remarksByStudent,
                             Map<String, String> plagiarismNotes,
-                            Set<String> gradedUsernames) throws IOException {
+                            Map<String, ProcessedScore> penaltyResults,
+                            Set<String> gradedUsernames,
+                            boolean hasPenalties) throws IOException {
 
         Path csvOut = outputDir.resolve("IS442-ScoreSheet-Updated.csv");
         StringBuilder sb = new StringBuilder();
@@ -169,6 +168,10 @@ public class ScoreSheetExporter {
                         headerRow.append(",").append(escapeCsv(qid));
                     }
                     headerRow.append(",Remarks,Plagiarism");
+                    // NEW: penalty columns
+                    if (hasPenalties) {
+                        headerRow.append(",Penalty Deduction,Adjusted Score");
+                    }
                     headerRow.append(",").append(cols.length > COL_EOL ? escapeCsv(cols[COL_EOL].trim()) : "#");
                     sb.append(headerRow).append("\n");
                     isHeader = false;
@@ -179,7 +182,10 @@ public class ScoreSheetExporter {
                 String raw      = cols.length > COL_USERNAME ? cols[COL_USERNAME].trim() : "";
                 String username = (raw.startsWith("#") ? raw.substring(1) : raw).trim();
 
-                if (totals.containsKey(username)) {
+                // When penalties are applied, the LMS numerator uses the adjusted score
+                if (hasPenalties && penaltyResults.containsKey(username)) {
+                    cols[COL_NUMERATOR] = fmtNum(penaltyResults.get(username).getFinalScore());
+                } else if (totals.containsKey(username)) {
                     cols[COL_NUMERATOR] = fmtNum(totals.get(username));
                 }
 
@@ -200,6 +206,18 @@ public class ScoreSheetExporter {
                         : "Missing submission";
                 dataRow.append(",").append(escapeCsv(remarks));
                 dataRow.append(",").append(escapeCsv(plagiarismNotes.getOrDefault(username, "")));
+
+                // NEW: penalty data columns
+                if (hasPenalties) {
+                    ProcessedScore ps = penaltyResults.get(username);
+                    if (ps != null) {
+                        dataRow.append(",").append(fmtNum(ps.getTotalDeduction()));
+                        dataRow.append(",").append(fmtNum(ps.getFinalScore()));
+                    } else {
+                        dataRow.append(",0,").append(fmtNum(totals.getOrDefault(username, 0.0)));
+                    }
+                }
+
                 dataRow.append(",").append(escapeCsv(eolValue));
                 sb.append(dataRow).append("\n");
             }
@@ -228,10 +246,12 @@ public class ScoreSheetExporter {
             Map<String, String> remarksByStudent,
             List<Student> allStudents,
             Map<String, String> plagiarismNotes,
+            Map<String, ProcessedScore> penaltyResults,
             List<String> questionOrder,
             Map<String, Double> totals,
             Map<String, Map<String, Double>> perQ,
-            double totalMaxScore) throws IOException {
+            double totalMaxScore,
+            boolean hasPenalties) throws IOException {
 
         XSSFSheet sheet = wb.createSheet("Score Sheet");
         Set<String> gradedUsernames = resultsByStudent.keySet();
@@ -239,6 +259,8 @@ public class ScoreSheetExporter {
         XSSFCellStyle headerStyle = makeHeaderStyle(wb);
         XSSFCellStyle normal      = makeNormalStyle(wb);
         XSSFCellStyle redBold     = makeColorStyle(wb, IndexedColors.ROSE.getIndex());
+        // NEW: style for penalty deduction cells (orange background)
+        XSSFCellStyle penaltyStyle = makePenaltyStyle(wb);
 
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(
                 Files.newInputStream(resolveCsvScoresheet()), StandardCharsets.UTF_8))) {
@@ -278,6 +300,17 @@ public class ScoreSheetExporter {
                     ph.setCellValue("Plagiarism"); ph.setCellStyle(headerStyle);
                     outHeaders.add("Plagiarism");
 
+                    // NEW: penalty header columns
+                    if (hasPenalties) {
+                        Cell pdh = row.createCell(cellIdx++);
+                        pdh.setCellValue("Penalty Deduction"); pdh.setCellStyle(headerStyle);
+                        outHeaders.add("Penalty Deduction");
+
+                        Cell ash = row.createCell(cellIdx++);
+                        ash.setCellValue("Adjusted Score"); ash.setCellStyle(headerStyle);
+                        outHeaders.add("Adjusted Score");
+                    }
+
                     Cell eh = row.createCell(cellIdx);
                     eh.setCellValue(cols.length > COL_EOL ? cols[COL_EOL].trim() : "#");
                     eh.setCellStyle(headerStyle);
@@ -287,10 +320,13 @@ public class ScoreSheetExporter {
                 }
 
                 String eolValue = cols.length > COL_EOL ? cols[COL_EOL].trim() : "#";
-                String raw      = cols.length > COL_USERNAME ? cols[COL_USERNAME].trim() : "";
-                String username = (raw.startsWith("#") ? raw.substring(1) : raw).trim();
+                String rawUn    = cols.length > COL_USERNAME ? cols[COL_USERNAME].trim() : "";
+                String username = (rawUn.startsWith("#") ? rawUn.substring(1) : rawUn).trim();
 
-                if (totals.containsKey(username)) {
+                // When penalties are applied, the LMS numerator uses the adjusted score
+                if (hasPenalties && penaltyResults.containsKey(username)) {
+                    cols[COL_NUMERATOR] = fmtNum(penaltyResults.get(username).getFinalScore());
+                } else if (totals.containsKey(username)) {
                     cols[COL_NUMERATOR] = fmtNum(totals.get(username));
                 }
 
@@ -313,12 +349,35 @@ public class ScoreSheetExporter {
                     String plagNote = plagiarismNotes.getOrDefault(username, "");
                     plagCell.setCellValue(plagNote);
                     plagCell.setCellStyle(plagNote.isEmpty() ? normal : redBold);
+
+                    // NEW: penalty data cells
+                    if (hasPenalties) {
+                        ProcessedScore ps = penaltyResults.get(username);
+                        Cell dedCell = row.createCell(colIdx++);
+                        Cell adjCell = row.createCell(colIdx++);
+                        if (ps != null) {
+                            dedCell.setCellValue(ps.getTotalDeduction());
+                            dedCell.setCellStyle(ps.getTotalDeduction() > 0 ? penaltyStyle : normal);
+                            adjCell.setCellValue(ps.getFinalScore());
+                            adjCell.setCellStyle(normal);
+                        } else {
+                            dedCell.setCellValue(0.0);
+                            dedCell.setCellStyle(normal);
+                            adjCell.setCellValue(totals.getOrDefault(username, 0.0));
+                            adjCell.setCellStyle(normal);
+                        }
+                    }
                 } else {
                     for (String ignored : questionOrder) row.createCell(colIdx++).setCellStyle(normal);
                     Cell remCell = row.createCell(colIdx++);
                     remCell.setCellValue("Missing submission - refer to Anomalies tab");
                     remCell.setCellStyle(normal);
-                    row.createCell(colIdx++).setCellStyle(normal);
+                    row.createCell(colIdx++).setCellStyle(normal); // plagiarism
+
+                    if (hasPenalties) {
+                        row.createCell(colIdx++).setCellStyle(normal); // penalty deduction
+                        row.createCell(colIdx++).setCellStyle(normal); // adjusted score
+                    }
                 }
 
                 row.createCell(colIdx).setCellValue(eolValue);
@@ -328,7 +387,7 @@ public class ScoreSheetExporter {
         }
     }
 
-    // ── SHEET 2: Anomalies ────────────────────────────────────────────────────
+    // ── SHEET 2: Anomalies (unchanged) ────────────────────────────────────────
 
     private void buildAnomalySheet(
             XSSFWorkbook wb,
@@ -469,6 +528,22 @@ public class ScoreSheetExporter {
         font.setBold(true);
         style.setFont(font);
         style.setFillForegroundColor(colorIndex);
+        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        return style;
+    }
+
+    /**
+     * NEW: Orange-highlighted style for penalty deduction cells with non-zero values.
+     */
+    private XSSFCellStyle makePenaltyStyle(XSSFWorkbook wb) {
+        XSSFCellStyle style = wb.createCellStyle();
+        XSSFFont font = wb.createFont();
+        font.setFontName("Arial");
+        font.setFontHeightInPoints((short) 10);
+        font.setBold(true);
+        style.setFont(font);
+        // Light orange background — matches the FCE4D6 used in StatisticsReportExporter
+        style.setFillForegroundColor(new XSSFColor(new byte[]{(byte)252,(byte)228,(byte)214}, null));
         style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
         return style;
     }

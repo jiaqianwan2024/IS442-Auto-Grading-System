@@ -8,8 +8,12 @@ import com.autogradingsystem.model.GradingPlan;
 import com.autogradingsystem.model.GradingResult;
 import com.autogradingsystem.model.Student;
 import com.autogradingsystem.multiassessment.AssessmentPathConfig;
+import com.autogradingsystem.penalty.controller.PenaltyController;
+import com.autogradingsystem.penalty.model.PenaltyGradingResult;
+import com.autogradingsystem.penalty.model.ProcessedScore;
 import com.autogradingsystem.plagiarism.controller.PlagiarismController;
 import com.autogradingsystem.plagiarism.model.PlagiarismResult;
+import com.autogradingsystem.analysis.service.ScoreAnalyzer;
 import com.autogradingsystem.testcasegenerator.controller.TestCaseGeneratorController;
 import com.autogradingsystem.testcasegenerator.model.QuestionSpec;
 import com.autogradingsystem.testcasegenerator.service.TemplateTestSpecBuilder;
@@ -43,7 +47,22 @@ public class GradingService {
         this.outputReports = paths.OUTPUT_REPORTS;
     }
 
+    // ── NEW: overload with applyPenalties flag ────────────────────────────────
+
     public GradingReport runFullPipeline(String assessmentName) {
+        return runFullPipeline(assessmentName, false);
+    }
+
+    /**
+     * Runs the full 7-phase grading pipeline with optional penalty application.
+     *
+     * @param assessmentName Sanitised assessment key for progress tracking
+     * @param applyPenalties If true, runs penalty phase between execution and analysis.
+     *                       Penalty data (per-student deductions + adjusted totals) is
+     *                       passed to AnalysisController so the score sheet includes
+     *                       "Penalty Deduction" and "Adjusted Score" columns.
+     */
+    public GradingReport runFullPipeline(String assessmentName, boolean applyPenalties) {
         List<String> logs = new ArrayList<>();
 
         try {
@@ -109,6 +128,20 @@ public class GradingService {
             logs.add("Graded " + results.size() + " results");
             progress(assessmentName, 86, "Graded", "Completed execution for " + results.size() + " result(s).");
 
+            // ══════════════════════════════════════════════════════════════
+            // NEW PHASE: PENALTY APPLICATION (between execution and plagiarism)
+            // ══════════════════════════════════════════════════════════════
+            Map<String, ProcessedScore> penaltyResults = Collections.emptyMap();
+
+            if (applyPenalties) {
+                progress(assessmentName, 88, "Applying Penalties", "Calculating penalty deductions...");
+                penaltyResults = runPenaltyPhase(results, remarks, allStudents);
+                logs.add("Penalties applied to " + penaltyResults.size() + " student(s)");
+                progress(assessmentName, 89, "Penalties Applied", "Penalty deductions calculated.");
+            } else {
+                logs.add("Penalties skipped (not enabled for this run)");
+            }
+
             progress(assessmentName, 90, "Analyzing Plagiarism", "Checking submissions for similarity...");
             PlagiarismController plagController =
                     new PlagiarismController(outputExtracted, outputReports);
@@ -126,8 +159,9 @@ public class GradingService {
             progress(assessmentName, 96, "Exporting Reports", "Generating score sheet and reports...");
             AnalysisController analysisController =
                     new AnalysisController(csvScoresheet, outputReports, inputTesters);
-            analysisController.analyzeAndDisplay(results, remarks, anomalyRemarks, allStudents, plagiarismNotes);
-            logs.add("Reports exported");
+            analysisController.analyzeAndDisplay(results, remarks, anomalyRemarks,
+                    allStudents, plagiarismNotes, penaltyResults);
+            logs.add("Reports exported" + (applyPenalties ? " (with penalty columns)" : ""));
             progress(assessmentName, 100, "Completed", "Reports exported.");
 
             return new GradingReport(true, studentCount, results, logs);
@@ -139,6 +173,108 @@ public class GradingService {
             return new GradingReport(false, 0, Collections.emptyList(), logs);
         }
     }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // PENALTY PHASE — builds PenaltyGradingResult per student, runs through
+    // PenaltyController, returns per-student ProcessedScore map.
+    // ══════════════════════════════════════════════════════════════════════════
+
+    private Map<String, ProcessedScore> runPenaltyPhase(
+            List<GradingResult> results,
+            Map<String, String> remarks,
+            List<Student> allStudents) {
+
+        Map<String, ProcessedScore> penaltyMap = new LinkedHashMap<>();
+        PenaltyController penaltyController = new PenaltyController();
+
+        // Group results by student
+        Map<String, List<GradingResult>> byStudent = ScoreAnalyzer.groupByStudent(results);
+
+        // Build a quick lookup: studentId → Student object
+        Map<String, Student> studentLookup = new LinkedHashMap<>();
+        for (Student s : allStudents) {
+            studentLookup.put(s.getId(), s);
+        }
+
+        for (Map.Entry<String, List<GradingResult>> entry : byStudent.entrySet()) {
+            String studentId = entry.getKey();
+            List<GradingResult> studentResults = entry.getValue();
+            Student student = studentLookup.get(studentId);
+
+            // Build PenaltyGradingResult for each question
+            List<PenaltyGradingResult> penaltyInputs = new ArrayList<>();
+
+            for (GradingResult gr : studentResults) {
+                double rawScore = gr.getScore();
+                double maxScore = ScoreAnalyzer.getMaxScoreFromTester(
+                        gr.getQuestionId(), inputTesters);
+
+                boolean hasCompilationError =
+                        "COMPILATION_FAILED".equals(gr.getStatus());
+
+                // Naming correct = folder was properly renamed
+                boolean namingCorrect = student != null && student.isFolderRenamed();
+
+                // Proper hierarchy = not an anomaly student
+                boolean properHierarchy = student != null && !student.isAnomaly();
+
+                // Has headers = no missing header files for this student
+                boolean hasHeaders = student != null
+                        && (student.getMissingHeaderFiles() == null
+                            || student.getMissingHeaderFiles().isEmpty());
+
+                penaltyInputs.add(new PenaltyGradingResult(
+                        rawScore, maxScore,
+                        hasCompilationError, namingCorrect,
+                        properHierarchy, hasHeaders));
+            }
+
+            // Run through PenaltyController — applies strategy-based deductions
+            // + CSV-based global deductions (lateness etc.) if penalties.csv exists
+            try {
+                Path penaltiesCsv = csvScoresheet.getParent().resolve("penalties.csv");
+                ProcessedScore processed;
+
+                if (Files.exists(penaltiesCsv)) {
+                    processed = penaltyController.processStudentResults(
+                            studentId, penaltyInputs,
+                            penaltiesCsv.toAbsolutePath().toString());
+                } else {
+                    processed = penaltyController.processStudentResults(
+                            studentId, penaltyInputs);
+                }
+
+                penaltyMap.put(studentId, processed);
+            } catch (Exception e) {
+                System.err.println("⚠️  Penalty calculation failed for "
+                        + studentId + ": " + e.getMessage());
+                // Fallback: no deduction
+                double total = studentResults.stream()
+                        .mapToDouble(GradingResult::getScore).sum();
+                penaltyMap.put(studentId, new ProcessedScore(total, 0.0, total));
+            }
+        }
+
+        // Console summary
+        System.out.println("\n" + "=".repeat(70));
+        System.out.println("💰 PENALTY SUMMARY");
+        System.out.println("=".repeat(70));
+        for (Map.Entry<String, ProcessedScore> e : penaltyMap.entrySet()) {
+            ProcessedScore ps = e.getValue();
+            if (ps.getTotalDeduction() > 0) {
+                System.out.printf("   %-25s Raw: %.1f  Deduction: -%.1f  Adjusted: %.1f%n",
+                        e.getKey(), ps.getRawScore(), ps.getTotalDeduction(), ps.getFinalScore());
+            }
+        }
+        long penalised = penaltyMap.values().stream()
+                .filter(p -> p.getTotalDeduction() > 0).count();
+        System.out.println("   " + penalised + " student(s) received deductions.");
+        System.out.println("=".repeat(70));
+
+        return penaltyMap;
+    }
+
+    // ── Existing helpers (unchanged) ──────────────────────────────────────────
 
     private void progress(String assessmentName, int percent, String stage, String message) {
         if (assessmentName == null || assessmentName.isBlank()) {

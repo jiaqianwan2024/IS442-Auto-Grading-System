@@ -258,7 +258,7 @@
         /* ── Results stats ──────────────────────────────────────────────── */
         .stats-container {
             display: grid;
-            grid-template-columns: repeat(2, minmax(220px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 16px;
             margin-bottom: 16px;
         }
@@ -301,6 +301,38 @@
             transition: all 0.1s; font-family: 'Space Grotesk', sans-serif;
         }
         .btn-dl:hover { transform: translate(-2px,-2px); box-shadow: var(--shadow-medium); }
+
+        /* ── Penalty toggle ────────────────────────────────────────────── */
+        .penalty-toggle {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 18px;
+            background: var(--white);
+            border: 3px solid var(--black);
+            box-shadow: var(--shadow-small);
+            margin-top: 12px;
+            margin-bottom: 12px;
+            font-family: 'Space Grotesk', sans-serif;
+        }
+        .penalty-toggle input[type=checkbox] {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            accent-color: var(--yellow-dark);
+        }
+        .penalty-toggle label {
+            font-weight: 700;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            cursor: pointer;
+        }
+        .penalty-toggle .toggle-hint {
+            font-size: 0.78rem;
+            color: #666;
+            font-weight: 400;
+            text-transform: none;
+        }
 
         /* ── Responsive ────────────────────────────────────────────────── */
         @media (max-width: 768px) {
@@ -418,13 +450,10 @@
 // ══════════════════════════════════════════════════════════════════════════════
 const MAX_SLOTS = 5;
 const usedSlotIds = new Set();
-const uploadSlots = {}; // { id: { name, submission, template, scoresheet, examPdf, testers } }
+const uploadSlots = {};
 
-// After upload — one state object per assessment (keyed by sanitised name)
 const assessments = {};
-// { sanitisedName: { displayName, sanitisedName, currentStep, testerSources, savedState, activeTab } }
-
-let activeAssessment = null; // currently visible assessment sanitised name
+let activeAssessment = null;
 let hasWizardChanges = false;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -437,10 +466,7 @@ function addSlot() {
         return;
     }
     const id = getLowestAvailableSlotId();
-    if (!id) {
-        showAlert('error', 'No available assessment slots.');
-        return;
-    }
+    if (!id) { showAlert('error', 'No available assessment slots.'); return; }
     usedSlotIds.add(id);
     uploadSlots[id] = { name:'', submission:null, template:null, scoresheet:null, examPdf:null, testers:null };
     const empty = document.getElementById('emptyState');
@@ -471,9 +497,7 @@ function addSlot() {
 }
 
 function getLowestAvailableSlotId() {
-    for (let i = 1; i <= MAX_SLOTS; i++) {
-        if (!usedSlotIds.has(i)) return i;
-    }
+    for (let i = 1; i <= MAX_SLOTS; i++) { if (!usedSlotIds.has(i)) return i; }
     return null;
 }
 
@@ -495,17 +519,11 @@ function handleSlotFile(slotId, field, input) {
 }
 
 function clearSlotFile(event, slotId, field, defaultHint) {
-    if (event) {
-        event.preventDefault();
-        event.stopPropagation();
-    }
-
+    if (event) { event.preventDefault(); event.stopPropagation(); }
     uploadSlots[slotId][field] = null;
-
     const drop = document.getElementById('drop-' + slotId + '-' + field);
     const hint = document.getElementById('hint-' + slotId + '-' + field);
     const input = drop ? drop.querySelector('input[type=file]') : null;
-
     if (hint) hint.textContent = defaultHint;
     if (drop) drop.classList.remove('has-file');
     if (input) input.value = '';
@@ -519,12 +537,7 @@ async function removeSlot(id) {
     if (slot.sanitisedName) candidates.push(slot.sanitisedName);
     if (typedName) candidates.push(typedName);
     candidates.push('Assessment ' + id);
-
-    for (const candidate of candidates) {
-        const ok = await clearAssessmentOnServer(candidate);
-        if (ok) break;
-    }
-
+    for (const candidate of candidates) { const ok = await clearAssessmentOnServer(candidate); if (ok) break; }
     const el = document.getElementById('slot-' + id); if (el) el.remove();
     usedSlotIds.delete(id);
     delete uploadSlots[id];
@@ -554,21 +567,14 @@ function refreshSlotLabels() {
     });
 }
 
-async function clearAssessmentOnServer(assessmentNameOrSanitised) {
-    if (!assessmentNameOrSanitised) return true;
+async function clearAssessmentOnServer(name) {
+    if (!name) return true;
     try {
-        const res = await fetch('/assessments/clear?assessment=' + encodeURIComponent(assessmentNameOrSanitised), {
-            method: 'POST'
-        });
+        const res = await fetch('/assessments/clear?assessment=' + encodeURIComponent(name), { method: 'POST' });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok || data.success === false) {
-            throw new Error(data.message || ('HTTP ' + res.status));
-        }
+        if (!res.ok || data.success === false) throw new Error(data.message || ('HTTP ' + res.status));
         return true;
-    } catch (e) {
-        showAlert('error', 'Failed to clear assessment folder: ' + e.message);
-        return false;
-    }
+    } catch (e) { showAlert('error', 'Failed to clear assessment folder: ' + e.message); return false; }
 }
 
 function updateSlotHint() {
@@ -578,10 +584,7 @@ function updateSlotHint() {
     const clearBtn = document.getElementById('clearAllBtn');
     if (n >= MAX_SLOTS) { addBtn.disabled = true; addBtn.style.opacity = '0.4'; }
     else { addBtn.disabled = false; addBtn.style.opacity = '1'; }
-    if (clearBtn) {
-        clearBtn.disabled = n === 0;
-        clearBtn.style.opacity = n === 0 ? '0.4' : '1';
-    }
+    if (clearBtn) { clearBtn.disabled = n === 0; clearBtn.style.opacity = n === 0 ? '0.4' : '1'; }
 }
 
 function resetAssessmentWizardState() {
@@ -596,9 +599,7 @@ function resetAssessmentWizardState() {
 // ── Upload All ────────────────────────────────────────────────────────────────
 
 async function uploadAll() {
-    const ids = Object.keys(uploadSlots)
-        .filter(id => document.getElementById('slot-' + id))
-        .sort((a, b) => Number(a) - Number(b));
+    const ids = Object.keys(uploadSlots).filter(id => document.getElementById('slot-' + id)).sort((a, b) => Number(a) - Number(b));
     if (!ids.length) { showAlert('error', 'Add at least one assessment.'); return; }
 
     const btn = document.getElementById('uploadBtn');
@@ -620,30 +621,19 @@ async function uploadAll() {
     try {
         const res  = await fetch('/assessments/upload', { method:'POST', body: fd });
         const data = await res.json();
-        if (!data.success) {
-            showAlert('error', 'Upload failed: ' + data.message);
-            return;
-        }
+        if (!data.success) { showAlert('error', 'Upload failed: ' + data.message); return; }
 
         resetAssessmentWizardState();
 
-        // Build assessment state from response and map it back to slots.
         data.assessments.forEach((a, index) => {
             const slotId = ids[index];
-            if (slotId && uploadSlots[slotId]) {
-                uploadSlots[slotId].sanitisedName = a.sanitisedName;
-            }
+            if (slotId && uploadSlots[slotId]) uploadSlots[slotId].sanitisedName = a.sanitisedName;
             assessments[a.sanitisedName] = {
-                displayName:    a.name,
-                sanitisedName:  a.sanitisedName,
-                hasExamPdf:     a.saved.includes('examPdf'),
-                currentStep:    1,
-                hasTesters:     a.saved.includes('testers'),
-                testerSources:  {},
-                savedState:     {},
-                activeTab:      null,
-                graded:         false,
-                gradeResult:    null,
+                displayName: a.name, sanitisedName: a.sanitisedName,
+                hasExamPdf: a.saved.includes('examPdf'), currentStep: 1,
+                hasTesters: a.saved.includes('testers'),
+                testerSources: {}, savedState: {}, activeTab: null,
+                graded: false, gradeResult: null,
             };
         });
 
@@ -652,7 +642,6 @@ async function uploadAll() {
         hasWizardChanges = true;
         showWizardPhase();
         await autoScanUploadedExamPdfs(data.assessments);
-
     } catch (e) {
         showAlert('error', 'Upload error: ' + e.message);
         setStatus('READY');
@@ -677,16 +666,11 @@ function showWizardPhase() {
 async function autoScanUploadedExamPdfs(uploadedAssessments) {
     const toScan = (uploadedAssessments || []).filter(a => Array.isArray(a.saved) && a.saved.includes('examPdf'));
     if (!toScan.length) return;
-
     await new Promise(resolve => requestAnimationFrame(resolve));
-    for (const assessment of toScan) {
-        await scanMarks(assessment.sanitisedName, { silentNetworkError: true });
-    }
+    for (const assessment of toScan) { await scanMarks(assessment.sanitisedName, { silentNetworkError: true }); }
 }
 
-function backToUpload() {
-    confirmAndResetToUpload();
-}
+function backToUpload() { confirmAndResetToUpload(); }
 
 function hasUnsavedAssessmentChanges() {
     for (const key of Object.keys(assessments)) {
@@ -701,14 +685,9 @@ async function clearServerAssessments() {
     try {
         const res = await fetch('/assessments/clear', { method: 'POST' });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok || data.success === false) {
-            throw new Error(data.message || ('HTTP ' + res.status));
-        }
+        if (!res.ok || data.success === false) throw new Error(data.message || ('HTTP ' + res.status));
         return true;
-    } catch (e) {
-        showAlert('error', 'Failed to clear server session: ' + e.message);
-        return false;
-    }
+    } catch (e) { showAlert('error', 'Failed to clear server session: ' + e.message); return false; }
 }
 
 function resetUiToUploadState() {
@@ -724,12 +703,9 @@ async function confirmAndResetToUpload() {
     const hasSessionData = Object.keys(assessments).length > 0;
     const hasUnsaved = hasSessionData || hasWizardChanges || hasUnsavedAssessmentChanges();
     if (hasUnsaved) {
-        const ok = window.confirm(
-            'You have unsaved assessment progress. Going back will clear all uploaded assessments and session data. Continue?'
-        );
+        const ok = window.confirm('You have unsaved assessment progress. Going back will clear all uploaded assessments and session data. Continue?');
         if (!ok) return;
     }
-
     const cleared = await clearServerAssessments();
     if (!cleared) return;
     resetUiToUploadState();
@@ -746,9 +722,7 @@ function buildAssessmentTabs() {
     keys.forEach((key, index) => {
         const a = assessments[key];
         const displayName = (a.displayName || '').trim();
-        const displayLabel = /^assessment[\s-]*\d+$/i.test(displayName)
-            ? ('Assessment ' + (index + 1))
-            : displayName;
+        const displayLabel = /^assessment[\s-]*\d+$/i.test(displayName) ? ('Assessment ' + (index + 1)) : displayName;
 
         const tab = document.createElement('div');
         tab.className = 'assess-tab';
@@ -812,7 +786,13 @@ function buildWizardHTML(key, a) {
 
         <div class="section-actions">
             <button class="btn-secondary" id="${key}-scanBtn" onclick="scanMarks('${key}')">📄 Scan Exam PDF</button>
-            ${hasTesters ? `<button class="btn-primary" onclick="skipToGrade('${key}')">⏩ Skip to Grade (use uploaded testers)</button>` : ''}
+            ${hasTesters ? `
+            <div class="penalty-toggle">
+                <input type="checkbox" id="${key}-penaltyToggleSkip">
+                <label for="${key}-penaltyToggleSkip">Apply Penalties</label>
+                <span class="toggle-hint">Structural (10%), Compilation (50%), + CSV deductions</span>
+            </div>
+            <button class="btn-primary" onclick="skipToGrade('${key}')">⏩ Skip to Grade (use uploaded testers)</button>` : ''}
             <button class="btn-primary" id="${key}-genBtn" onclick="doGenerate('${key}')">⚙ Generate Test Cases</button>
         </div>
     </div>
@@ -841,6 +821,11 @@ function buildWizardHTML(key, a) {
                       oninput="markUnsaved('${key}')"
                       onkeydown="handleTabKey(event)"></textarea>
         </div>
+        <div class="penalty-toggle">
+            <input type="checkbox" id="${key}-penaltyToggle">
+            <label for="${key}-penaltyToggle">Apply Penalties</label>
+            <span class="toggle-hint">Structural (10%), Compilation (50%), + CSV deductions</span>
+        </div>
         <div class="section-actions">
             <button class="btn-secondary" onclick="wizardGoBack('${key}', 1)">← Back to Marks</button>
             <button class="btn-secondary" onclick="saveAllFiles('${key}')">💾 Save All Files</button>
@@ -866,8 +851,9 @@ function buildWizardHTML(key, a) {
             <p>Grading complete!</p>
         </div>
         <div class="stats-container">
-            <div class="stat-card"><div class="stat-icon">👥</div><div class="stat-value" id="${key}-statStudents">-</div><div class="stat-label">Students</div></div>
-            <div class="stat-card"><div class="stat-icon">📝</div><div class="stat-value" id="${key}-statTasks">-</div><div class="stat-label">Tasks</div></div>
+            <div class="stat-card"><div class="stat-icon">👥</div><div><div class="stat-value" id="${key}-statStudents">-</div><div class="stat-label">Students</div></div></div>
+            <div class="stat-card"><div class="stat-icon">📝</div><div><div class="stat-value" id="${key}-statTasks">-</div><div class="stat-label">Tasks</div></div></div>
+            <div class="stat-card" id="${key}-statPenalty" style="display:none;"><div class="stat-icon">💰</div><div><div class="stat-value" id="${key}-statPenaltyVal">-</div><div class="stat-label">Penalties Applied</div></div></div>
         </div>
         <div class="download-area-card">
             <h4>Download Reports</h4>
@@ -893,7 +879,6 @@ function switchAssessment(key) {
     activeAssessment = key;
     document.querySelectorAll('.assess-tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.assess-panel').forEach(p => p.classList.remove('active'));
-
     const tab = document.getElementById('atab-' + key);
     const panel = document.getElementById('apanel-' + key);
     if (tab) tab.classList.add('active');
@@ -904,17 +889,13 @@ function updateTabStatus(key, stepNum, label, cssClass) {
     const tab = document.getElementById('atab-' + key);
     if (!tab) return;
     const status = tab.querySelector('.tab-status');
-    if (status) {
-        status.className = 'tab-status ' + cssClass;
-        status.textContent = '● ' + label;
-    }
+    if (status) { status.className = 'tab-status ' + cssClass; status.textContent = '● ' + label; }
 }
 
 function startRealGradingProgress(key) {
     const fill = document.getElementById(key + '-progressFill');
     const label = document.getElementById(key + '-progressLabel');
     let stopped = false;
-
     const poll = async () => {
         if (stopped) return;
         try {
@@ -925,30 +906,17 @@ function startRealGradingProgress(key) {
             const stage = data.stage || 'Working';
             const message = data.message ? ' • ' + data.message : '';
             label.textContent = `${stage}... ${percent}%${message}`;
-        } catch (e) {
-            label.textContent = 'Updating progress...';
-        }
+        } catch (e) { label.textContent = 'Updating progress...'; }
     };
-
     poll();
     const interval = setInterval(poll, 1000);
-
     return {
-        complete(finalLabel) {
-            stopped = true;
-            clearInterval(interval);
-            fill.style.width = '100%';
-            label.textContent = finalLabel || 'Completed... 100%';
-        },
-        fail(finalLabel) {
-            stopped = true;
-            clearInterval(interval);
-            label.textContent = finalLabel || 'Stopped before completion';
-        }
+        complete(finalLabel) { stopped = true; clearInterval(interval); fill.style.width = '100%'; label.textContent = finalLabel || 'Completed... 100%'; },
+        fail(finalLabel) { stopped = true; clearInterval(interval); label.textContent = finalLabel || 'Stopped before completion'; }
     };
 }
 
-// ── Step navigation within an assessment ──────────────────────────────────────
+// ── Step navigation ───────────────────────────────────────────────────────────
 
 function wizardGotoStep(key, n) {
     assessments[key].currentStep = n;
@@ -967,10 +935,7 @@ function wizardGotoStep(key, n) {
 
 function wizardGoBack(key, toStep) {
     const sections = { 1: 'marksSection', 2: 'editorSection', 3: 'gradingSection', 4: 'resultsSection' };
-    Object.values(sections).forEach(s => {
-        const el = document.getElementById(key + '-' + s);
-        if (el) el.style.display = 'none';
-    });
+    Object.values(sections).forEach(s => { const el = document.getElementById(key + '-' + s); if (el) el.style.display = 'none'; });
     wizardGotoStep(key, toStep);
     const target = document.getElementById(key + '-' + sections[toStep]);
     if (target) { target.style.display = 'block'; target.scrollIntoView({ behavior:'smooth' }); }
@@ -986,44 +951,27 @@ async function scanMarks(key, options = {}) {
     const btn = document.getElementById(key + '-scanBtn');
     hint.textContent = '⏳ Scanning exam paper PDF with AI — this may take a moment...';
     hint.className = 'pdf-hint';
-    btn.disabled = true;
-    btn.textContent = 'SCANNING EXAM PDF...';
-
+    btn.disabled = true; btn.textContent = 'SCANNING EXAM PDF...';
     try {
-        const res  = await fetch('/assessments/' + key + '/parse-exam-marks', { method:'POST' });
+        const res = await fetch('/assessments/' + key + '/parse-exam-marks', { method:'POST' });
         const data = await res.json();
-
-        if (!data.success) {
-            hint.textContent = '❌ ' + (data.message || 'Failed to parse exam PDF.');
-            hint.style.borderColor = '#dc6f6f'; hint.style.color = '#dc6f6f';
-            return;
-        }
-
+        if (!data.success) { hint.textContent = '❌ ' + (data.message || 'Failed to parse exam PDF.'); hint.style.borderColor = '#dc6f6f'; hint.style.color = '#dc6f6f'; return; }
         hint.className = 'pdf-hint pdf-detected';
         hint.textContent = '✓ ' + (data.pdfName || 'PDF') + ' scanned — verify marks below.';
         btn.textContent = 'RETRY SCAN EXAM PDF';
-
         const marks = data.marks || {};
         const tbody = document.getElementById(key + '-marksBody');
         tbody.innerHTML = '';
         const sorted = Object.keys(marks).sort();
-        if (sorted.length === 0) {
-            addMarkRowToTable(key, 'Q1a', 1);
-        } else {
-            sorted.forEach(qId => addMarkRowToTable(key, qId, marks[qId]));
-        }
+        if (sorted.length === 0) addMarkRowToTable(key, 'Q1a', 1);
+        else sorted.forEach(qId => addMarkRowToTable(key, qId, marks[qId]));
         updateMarksTotal(key);
-
     } catch (e) {
         hint.textContent = '⚠️ Network error: ' + e.message;
         hint.style.borderColor = '#dc6f6f'; hint.style.color = '#dc6f6f';
-        if (!silentNetworkError) {
-            showAlert('error', 'Exam PDF scan failed for ' + (assessments[key]?.displayName || key) + ': ' + e.message);
-        }
+        if (!silentNetworkError) showAlert('error', 'Exam PDF scan failed for ' + (assessments[key]?.displayName || key) + ': ' + e.message);
     } finally {
-        if (btn.textContent === 'SCANNING EXAM PDF...') {
-            btn.textContent = 'SCAN EXAM PDF';
-        }
+        if (btn.textContent === 'SCANNING EXAM PDF...') btn.textContent = 'SCAN EXAM PDF';
         btn.disabled = false;
     }
 }
@@ -1058,16 +1006,13 @@ function addMarkRow(key) {
 }
 
 function removeMarkRow(key, qId) {
-    const row = document.getElementById(key + '-markrow-' + qId);
-    if (row) row.remove();
+    const row = document.getElementById(key + '-markrow-' + qId); if (row) row.remove();
     updateMarksTotal(key);
 }
 
 function updateMarksTotal(key) {
     let total = 0;
-    document.querySelectorAll('#' + key + '-marksBody input[type=number]').forEach(inp => {
-        total += parseInt(inp.value) || 0;
-    });
+    document.querySelectorAll('#' + key + '-marksBody input[type=number]').forEach(inp => { total += parseInt(inp.value) || 0; });
     document.getElementById(key + '-marksTotal').textContent = total;
 }
 
@@ -1087,14 +1032,9 @@ function getConfirmedMarks(key) {
 
 async function doGenerate(key) {
     const marks = getConfirmedMarks(key);
-    if (Object.keys(marks).length === 0) {
-        showAlert('error', 'Add at least one question.');
-        return;
-    }
-
+    if (Object.keys(marks).length === 0) { showAlert('error', 'Add at least one question.'); return; }
     const btn = document.getElementById(key + '-genBtn');
     btn.disabled = true; btn.textContent = '⏳ Generating...';
-
     wizardGotoStep(key, 2);
     updateTabStatus(key, 2, 'Generating...', 'step-2');
     document.getElementById(key + '-marksSection').style.display = 'none';
@@ -1102,50 +1042,30 @@ async function doGenerate(key) {
     document.getElementById(key + '-generatingOverlay').style.display = 'block';
     document.getElementById(key + '-editorContainer').style.display = 'none';
     document.getElementById(key + '-qTabs').innerHTML = '';
-
     try {
         const res = await fetch('/assessments/' + key + '/generate-testers', {
-            method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ marks })
+            method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ marks })
         });
         const data = await res.json();
-
-        if (!data.success) {
-            showAlert('error', 'Generation failed: ' + data.message);
-            updateTabStatus(key, 2, 'Error', 'error');
-            return;
-        }
-
+        if (!data.success) { showAlert('error', 'Generation failed: ' + data.message); updateTabStatus(key, 2, 'Error', 'error'); return; }
         const a = assessments[key];
-        a.testerSources = {};
-        a.savedState = {};
-        for (const [qId, info] of Object.entries(data.testers)) {
-            a.testerSources[qId] = info.source;
-            a.savedState[qId] = false;
-        }
-
+        a.testerSources = {}; a.savedState = {};
+        for (const [qId, info] of Object.entries(data.testers)) { a.testerSources[qId] = info.source; a.savedState[qId] = false; }
         renderQTabs(key);
         updateTabStatus(key, 2, 'Review', 'step-3');
         showAlert('success', Object.keys(a.testerSources).length + ' tester file(s) generated ✓');
-
-    } catch (e) {
-        showAlert('error', 'Generation error: ' + e.message);
-        updateTabStatus(key, 2, 'Error', 'error');
-    } finally {
-        btn.disabled = false; btn.textContent = '⚙ Generate Test Cases';
-        document.getElementById(key + '-generatingOverlay').style.display = 'none';
-    }
+    } catch (e) { showAlert('error', 'Generation error: ' + e.message); updateTabStatus(key, 2, 'Error', 'error'); }
+    finally { btn.disabled = false; btn.textContent = '⚙ Generate Test Cases'; document.getElementById(key + '-generatingOverlay').style.display = 'none'; }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// EDITOR — per-assessment question tabs + source editing
+// EDITOR
 // ══════════════════════════════════════════════════════════════════════════════
 
 function renderQTabs(key) {
     const a = assessments[key];
     const tabBar = document.getElementById(key + '-qTabs');
     tabBar.innerHTML = '';
-
     const sorted = Object.keys(a.testerSources).sort();
     sorted.forEach(qId => {
         const tab = document.createElement('div');
@@ -1155,39 +1075,30 @@ function renderQTabs(key) {
         tab.onclick = () => switchQTab(key, qId);
         tabBar.appendChild(tab);
     });
-
     document.getElementById(key + '-editorContainer').style.display = 'block';
     if (sorted.length > 0) switchQTab(key, sorted[0]);
 }
 
 function flushActiveEditor(key) {
     const a = assessments[key];
-    if (a.activeTab) {
-        const editor = document.getElementById(key + '-codeEditor');
-        if (editor) a.testerSources[a.activeTab] = editor.value;
-    }
+    if (a.activeTab) { const editor = document.getElementById(key + '-codeEditor'); if (editor) a.testerSources[a.activeTab] = editor.value; }
 }
 
 function switchQTab(key, qId) {
     const a = assessments[key];
     flushActiveEditor(key);
     a.activeTab = qId;
-
     document.querySelectorAll('#' + key + '-qTabs .q-tab').forEach(t => t.classList.remove('active'));
-    const tab = document.getElementById(key + '-qtab-' + qId);
-    if (tab) tab.classList.add('active');
-
+    const tab = document.getElementById(key + '-qtab-' + qId); if (tab) tab.classList.add('active');
     document.getElementById(key + '-codeEditor').value = a.testerSources[qId] || '';
     document.getElementById(key + '-editorFilename').textContent = qId + 'Tester.java';
-
     const ind = document.getElementById(key + '-saveIndicator');
     if (a.savedState[qId]) { ind.className = 'save-indicator saved'; ind.textContent = '✓ saved'; }
     else { ind.className = 'save-indicator unsaved'; ind.textContent = '● unsaved'; }
 }
 
 function markUnsaved(key) {
-    const a = assessments[key];
-    if (!a.activeTab) return;
+    const a = assessments[key]; if (!a.activeTab) return;
     a.testerSources[a.activeTab] = document.getElementById(key + '-codeEditor').value;
     a.savedState[a.activeTab] = false;
     const ind = document.getElementById(key + '-saveIndicator');
@@ -1203,17 +1114,13 @@ function handleTabKey(e) {
     const ta = e.target, s = ta.selectionStart, end = ta.selectionEnd;
     ta.value = ta.value.substring(0, s) + '    ' + ta.value.substring(end);
     ta.selectionStart = ta.selectionEnd = s + 4;
-    const key = activeAssessment;
-    if (key) markUnsaved(key);
+    const key = activeAssessment; if (key) markUnsaved(key);
 }
-
-// ── Save files ────────────────────────────────────────────────────────────────
 
 async function callSaveTesters(key, testers) {
     try {
         const res = await fetch('/assessments/' + key + '/save-testers', {
-            method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ testers })
+            method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ testers })
         });
         const data = await res.json();
         if (!data.success) { showAlert('error', 'Save failed: ' + data.message); return false; }
@@ -1222,8 +1129,7 @@ async function callSaveTesters(key, testers) {
 }
 
 async function saveCurrentFile(key) {
-    const a = assessments[key];
-    if (!a.activeTab) return;
+    const a = assessments[key]; if (!a.activeTab) return;
     flushActiveEditor(key);
     const ok = await callSaveTesters(key, { [a.activeTab]: a.testerSources[a.activeTab] });
     if (ok) {
@@ -1238,8 +1144,7 @@ async function saveCurrentFile(key) {
 }
 
 async function saveAllFiles(key) {
-    const a = assessments[key];
-    flushActiveEditor(key);
+    const a = assessments[key]; flushActiveEditor(key);
     const ok = await callSaveTesters(key, a.testerSources);
     if (ok) {
         Object.keys(a.testerSources).forEach(qId => {
@@ -1247,17 +1152,14 @@ async function saveAllFiles(key) {
             const tab = document.getElementById(key + '-qtab-' + qId);
             if (tab) { tab.classList.remove('unsaved'); tab.classList.add('saved'); }
         });
-        if (a.activeTab) {
-            const ind = document.getElementById(key + '-saveIndicator');
-            ind.className = 'save-indicator saved'; ind.textContent = '✓ saved';
-        }
+        if (a.activeTab) { const ind = document.getElementById(key + '-saveIndicator'); ind.className = 'save-indicator saved'; ind.textContent = '✓ saved'; }
         showAlert('success', 'All files saved ✓');
         hasWizardChanges = hasUnsavedAssessmentChanges();
     }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// STEP 2 → 3 — GRADE
+// STEP 2 → 3 — GRADE (with penalty toggle)
 // ══════════════════════════════════════════════════════════════════════════════
 
 async function doGrade(key) {
@@ -1278,8 +1180,12 @@ async function doGrade(key) {
 
     const progress = startRealGradingProgress(key);
 
+    // Read penalty toggle
+    const penaltyCheckbox = document.getElementById(key + '-penaltyToggle');
+    const applyPenalties = penaltyCheckbox ? penaltyCheckbox.checked : false;
+
     try {
-        const res  = await fetch('/assessments/' + key + '/grade', { method:'POST' });
+        const res  = await fetch('/assessments/' + key + '/grade?applyPenalties=' + applyPenalties, { method:'POST' });
         const data = await res.json();
 
         progress.complete('Completed... 100%');
@@ -1294,21 +1200,18 @@ async function doGrade(key) {
         document.getElementById(key + '-statStudents').textContent = data.studentCount || '-';
         document.getElementById(key + '-statTasks').textContent = (data.logs || []).length;
 
+        // Show penalty stat card if penalties were applied
+        if (data.penaltiesApplied) {
+            const penaltyCard = document.getElementById(key + '-statPenalty');
+            if (penaltyCard) { penaltyCard.style.display = ''; document.getElementById(key + '-statPenaltyVal').textContent = '✓ Yes'; }
+        }
+
         const logEl = document.getElementById(key + '-logTerminal');
         logEl.innerHTML = '';
-        (data.logs || []).forEach(l => {
-            const d = document.createElement('div');
-            d.className = 'log-line'; d.textContent = '$ ' + l;
-            logEl.appendChild(d);
-        });
+        (data.logs || []).forEach(l => { const d = document.createElement('div'); d.className = 'log-line'; d.textContent = '$ ' + l; logEl.appendChild(d); });
 
-        if (data.success) {
-            updateTabStatus(key, 4, 'Done ✓', 'done');
-            showAlert('success', a.displayName + ' — grading complete ✓');
-        } else {
-            updateTabStatus(key, 4, 'Errors', 'error');
-            showAlert('error', a.displayName + ' — grading had errors');
-        }
+        if (data.success) { updateTabStatus(key, 4, 'Done ✓', 'done'); showAlert('success', a.displayName + ' — grading complete ✓'); }
+        else { updateTabStatus(key, 4, 'Errors', 'error'); showAlert('error', a.displayName + ' — grading had errors'); }
 
     } catch (e) {
         progress.fail('Grading failed before completion');
@@ -1330,8 +1233,12 @@ async function skipToGrade(key) {
 
     const progress = startRealGradingProgress(key);
 
+    // Read penalty toggle (skip variant)
+    const penaltyCheckbox = document.getElementById(key + '-penaltyToggleSkip');
+    const applyPenalties = penaltyCheckbox ? penaltyCheckbox.checked : false;
+
     try {
-        const res = await fetch('/assessments/' + key + '/grade', { method:'POST' });
+        const res = await fetch('/assessments/' + key + '/grade?applyPenalties=' + applyPenalties, { method:'POST' });
         const data = await res.json();
         progress.complete('Completed... 100%');
 
@@ -1345,21 +1252,18 @@ async function skipToGrade(key) {
         document.getElementById(key + '-statStudents').textContent = data.studentCount || '-';
         document.getElementById(key + '-statTasks').textContent = (data.logs || []).length;
 
+        // Show penalty stat card if penalties were applied
+        if (data.penaltiesApplied) {
+            const penaltyCard = document.getElementById(key + '-statPenalty');
+            if (penaltyCard) { penaltyCard.style.display = ''; document.getElementById(key + '-statPenaltyVal').textContent = '✓ Yes'; }
+        }
+
         const logEl = document.getElementById(key + '-logTerminal');
         logEl.innerHTML = '';
-        (data.logs || []).forEach(l => {
-            const d = document.createElement('div');
-            d.className = 'log-line'; d.textContent = '$ ' + l;
-            logEl.appendChild(d);
-        });
+        (data.logs || []).forEach(l => { const d = document.createElement('div'); d.className = 'log-line'; d.textContent = '$ ' + l; logEl.appendChild(d); });
 
-        if (data.success) {
-            updateTabStatus(key, 4, 'Done ✓', 'done');
-            showAlert('success', assessments[key].displayName + ' — grading complete ✓');
-        } else {
-            updateTabStatus(key, 4, 'Errors', 'error');
-            showAlert('error', assessments[key].displayName + ' — grading had errors');
-        }
+        if (data.success) { updateTabStatus(key, 4, 'Done ✓', 'done'); showAlert('success', assessments[key].displayName + ' — grading complete ✓'); }
+        else { updateTabStatus(key, 4, 'Errors', 'error'); showAlert('error', assessments[key].displayName + ' — grading had errors'); }
     } catch (e) {
         progress.fail('Grading failed before completion');
         showAlert('error', 'Grading error: ' + e.message);

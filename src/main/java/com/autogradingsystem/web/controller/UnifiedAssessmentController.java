@@ -164,7 +164,6 @@ public class UnifiedAssessmentController {
                         info.put("hasScoresheet", Files.exists(paths.CSV_SCORESHEET));
                         info.put("hasExamPdf",    Files.isDirectory(paths.INPUT_EXAM)       && hasPdfIn(paths.INPUT_EXAM));
                         info.put("hasTesters",    Files.isDirectory(paths.INPUT_TESTERS)    && hasJavaFiles(paths.INPUT_TESTERS));
-                        // hasReports: true when the combined scoresheet XLSX exists
                         info.put("hasReports",
                                 Files.exists(paths.OUTPUT_REPORTS.resolve("IS442-ScoreSheet-Updated.xlsx"))
                              || Files.exists(paths.OUTPUT_REPORTS.resolve("IS442-ScoreSheet-Updated.csv")));
@@ -225,23 +224,30 @@ public class UnifiedAssessmentController {
     // ── POST /assessments/{name}/grade ────────────────────────────────────────
 
     @PostMapping("/assessments/{name}/grade")
-    public ResponseEntity<Map<String, Object>> grade(@PathVariable String name) {
+    public ResponseEntity<Map<String, Object>> grade(
+            @PathVariable String name,
+            @RequestParam(value = "applyPenalties", defaultValue = "false") boolean applyPenalties) {
+
         Map<String, Object> response = new LinkedHashMap<>();
         try {
             AssessmentPathConfig paths = new AssessmentPathConfig(name);
             GradingService service = new GradingService(paths);
             AssessmentProgressRegistry.start(name);
-            GradingService.GradingReport report = service.runFullPipeline(name);
+
+            // Pass the applyPenalties flag to the pipeline
+            GradingService.GradingReport report = service.runFullPipeline(name, applyPenalties);
+
             if (report.isSuccess()) {
                 AssessmentProgressRegistry.complete(name, "Grading completed successfully.");
             } else {
                 AssessmentProgressRegistry.fail(name, "Grading completed with errors.");
             }
 
-            response.put("success",      report.isSuccess());
-            response.put("studentCount", report.getStudentCount());
-            response.put("logs",         report.getLogs());
-            response.put("assessment",   name);
+            response.put("success",         report.isSuccess());
+            response.put("studentCount",    report.getStudentCount());
+            response.put("logs",            report.getLogs());
+            response.put("assessment",      name);
+            response.put("penaltiesApplied", applyPenalties);
 
             if (report.isSuccess() && !report.getResults().isEmpty()) {
                 double avg = report.getResults().stream()
@@ -271,13 +277,6 @@ public class UnifiedAssessmentController {
     }
 
     // ── GET /assessments/{name}/download ──────────────────────────────────────
-    //
-    // ?file=csv          → IS442-ScoreSheet-Updated.csv
-    // ?file=scoresheet   → IS442-ScoreSheet-Updated.xlsx  (Score Sheet + Statistics tabs)
-    // ?file=plagiarism   → IS442-Plagiarism-Report.xlsx
-    //
-    // NOTE: "excel" (?file=excel) is removed — IS442-Statistics.xlsx no longer exists.
-    //       Statistics are embedded inside the scoresheet XLSX.
 
     @GetMapping("/assessments/{name}/download")
     public ResponseEntity<Resource> download(
@@ -295,8 +294,8 @@ public class UnifiedAssessmentController {
                 reportFile = paths.OUTPUT_REPORTS.resolve("IS442-ScoreSheet-Updated.xlsx");
                 break;
             case "plagiarism":
-    reportFile = Paths.get("resources", "output", "reports", "IS442-Plagiarism-Report.xlsx");
-    break;
+                reportFile = paths.OUTPUT_REPORTS.resolve("IS442-Plagiarism-Report.xlsx");
+                break;
             default:
                 return ResponseEntity.badRequest().build();
         }
