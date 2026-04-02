@@ -21,13 +21,8 @@ import java.util.stream.Collectors;
 /**
  * Exports a single combined XLSX report.
  *
- * v4.4: Added penalty support. When penaltyResults is non-empty, two extra
- * columns are appended to the Score Sheet and CSV:
- *   - "Penalty Deduction"  — total points deducted (structural + compilation + CSV penalties)
- *   - "Adjusted Score"     — rawTotal - deduction (floored at 0)
- *
- * The "Calculated Final Grade Numerator" column in the CSV is updated to the
- * ADJUSTED score when penalties are applied, so the LMS import reflects penalties.
+ * v4.5: Penalty support now preserves the original LMS-shaped score block and
+ * appends a second post-penalty block with the adjusted total and remarks.
  */
 public class ScoreSheetExporter {
 
@@ -127,7 +122,7 @@ public class ScoreSheetExporter {
         }
 
         exportCsv(outputDir, questionOrder, totals, qScoreMap, remarksByStudent,
-                  plagiarismNotes, penaltyResults, gradedUsernames, hasPenalties);
+                  penaltyResults, gradedUsernames, hasPenalties, totalMaxScore);
 
         return outputFile;
     }
@@ -139,10 +134,10 @@ public class ScoreSheetExporter {
                             Map<String, Double> totals,
                             Map<String, Map<String, Double>> qScoreMap,
                             Map<String, String> remarksByStudent,
-                            Map<String, String> plagiarismNotes,
                             Map<String, ProcessedScore> penaltyResults,
                             Set<String> gradedUsernames,
-                            boolean hasPenalties) throws IOException {
+                            boolean hasPenalties,
+                            double totalMaxScore) throws IOException {
 
         Path csvOut = outputDir.resolve("IS442-ScoreSheet-Updated.csv");
         StringBuilder sb = new StringBuilder();
@@ -167,10 +162,14 @@ public class ScoreSheetExporter {
                     for (String qid : questionOrder) {
                         headerRow.append(",").append(escapeCsv(qid));
                     }
-                    headerRow.append(",Remarks,Plagiarism");
-                    // NEW: penalty columns
+                    headerRow.append(",Remarks");
                     if (hasPenalties) {
-                        headerRow.append(",Penalty Deduction,Adjusted Score");
+                        headerRow.append(",Calculated Final Grade Numerator");
+                        headerRow.append(",Calculated Final Grade Denominator");
+                        for (String qid : questionOrder) {
+                            headerRow.append(",").append(escapeCsv(qid));
+                        }
+                        headerRow.append(",Remarks");
                     }
                     headerRow.append(",").append(cols.length > COL_EOL ? escapeCsv(cols[COL_EOL].trim()) : "#");
                     sb.append(headerRow).append("\n");
@@ -182,10 +181,7 @@ public class ScoreSheetExporter {
                 String raw      = cols.length > COL_USERNAME ? cols[COL_USERNAME].trim() : "";
                 String username = (raw.startsWith("#") ? raw.substring(1) : raw).trim();
 
-                // When penalties are applied, the LMS numerator uses the adjusted score
-                if (hasPenalties && penaltyResults.containsKey(username)) {
-                    cols[COL_NUMERATOR] = fmtNum(penaltyResults.get(username).getFinalScore());
-                } else if (totals.containsKey(username)) {
+                if (totals.containsKey(username)) {
                     cols[COL_NUMERATOR] = fmtNum(totals.get(username));
                 }
 
@@ -205,17 +201,28 @@ public class ScoreSheetExporter {
                         ? remarksByStudent.getOrDefault(username, "")
                         : "Missing submission";
                 dataRow.append(",").append(escapeCsv(remarks));
-                dataRow.append(",").append(escapeCsv(plagiarismNotes.getOrDefault(username, "")));
 
-                // NEW: penalty data columns
                 if (hasPenalties) {
                     ProcessedScore ps = penaltyResults.get(username);
+                    double adjustedTotal = ps != null ? ps.getFinalScore() : totals.getOrDefault(username, 0.0);
+                    Map<String, Double> adjustedScores = ps != null && !ps.getAdjustedQuestionScores().isEmpty()
+                            ? ps.getAdjustedQuestionScores()
+                            : qScores;
+                    String penaltyRemark = ps != null ? ps.getPenaltyRulesApplied() : "No penalty";
+
+                    dataRow.append(",").append(fmtNum(adjustedTotal));
+                    dataRow.append(",").append(fmtNum(totalMaxScore));
+
                     if (ps != null) {
-                        dataRow.append(",").append(fmtNum(ps.getTotalDeduction()));
-                        dataRow.append(",").append(fmtNum(ps.getFinalScore()));
+                        for (String qid : questionOrder) {
+                            dataRow.append(",").append(fmtNum(adjustedScores.getOrDefault(qid, qScores.getOrDefault(qid, 0.0))));
+                        }
                     } else {
-                        dataRow.append(",0,").append(fmtNum(totals.getOrDefault(username, 0.0)));
+                        for (String qid : questionOrder) {
+                            dataRow.append(",").append(fmtNum(adjustedScores.getOrDefault(qid, 0.0)));
+                        }
                     }
+                    dataRow.append(",").append(escapeCsv(penaltyRemark));
                 }
 
                 dataRow.append(",").append(escapeCsv(eolValue));
@@ -259,7 +266,7 @@ public class ScoreSheetExporter {
         XSSFCellStyle headerStyle = makeHeaderStyle(wb);
         XSSFCellStyle normal      = makeNormalStyle(wb);
         XSSFCellStyle redBold     = makeColorStyle(wb, IndexedColors.ROSE.getIndex());
-        // NEW: style for penalty deduction cells (orange background)
+        // Style for final score cells when penalties changed the total
         XSSFCellStyle penaltyStyle = makePenaltyStyle(wb);
 
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(
@@ -296,19 +303,25 @@ public class ScoreSheetExporter {
                     rh.setCellValue("Remarks"); rh.setCellStyle(headerStyle);
                     outHeaders.add("Remarks");
 
-                    Cell ph = row.createCell(cellIdx++);
-                    ph.setCellValue("Plagiarism"); ph.setCellStyle(headerStyle);
-                    outHeaders.add("Plagiarism");
-
-                    // NEW: penalty header columns
                     if (hasPenalties) {
-                        Cell pdh = row.createCell(cellIdx++);
-                        pdh.setCellValue("Penalty Deduction"); pdh.setCellStyle(headerStyle);
-                        outHeaders.add("Penalty Deduction");
+                        Cell numh = row.createCell(cellIdx++);
+                        numh.setCellValue("Calculated Final Grade Numerator"); numh.setCellStyle(headerStyle);
+                        outHeaders.add("Calculated Final Grade Numerator");
 
-                        Cell ash = row.createCell(cellIdx++);
-                        ash.setCellValue("Adjusted Score"); ash.setCellStyle(headerStyle);
-                        outHeaders.add("Adjusted Score");
+                        Cell denh = row.createCell(cellIdx++);
+                        denh.setCellValue("Calculated Final Grade Denominator"); denh.setCellStyle(headerStyle);
+                        outHeaders.add("Calculated Final Grade Denominator");
+
+                        for (String qid : questionOrder) {
+                            Cell cell = row.createCell(cellIdx++);
+                            cell.setCellValue(qid);
+                            cell.setCellStyle(headerStyle);
+                            outHeaders.add(qid);
+                        }
+
+                        Cell prh = row.createCell(cellIdx++);
+                        prh.setCellValue("Remarks"); prh.setCellStyle(headerStyle);
+                        outHeaders.add("Remarks");
                     }
 
                     Cell eh = row.createCell(cellIdx);
@@ -323,10 +336,7 @@ public class ScoreSheetExporter {
                 String rawUn    = cols.length > COL_USERNAME ? cols[COL_USERNAME].trim() : "";
                 String username = (rawUn.startsWith("#") ? rawUn.substring(1) : rawUn).trim();
 
-                // When penalties are applied, the LMS numerator uses the adjusted score
-                if (hasPenalties && penaltyResults.containsKey(username)) {
-                    cols[COL_NUMERATOR] = fmtNum(penaltyResults.get(username).getFinalScore());
-                } else if (totals.containsKey(username)) {
+                if (totals.containsKey(username)) {
                     cols[COL_NUMERATOR] = fmtNum(totals.get(username));
                 }
 
@@ -345,38 +355,44 @@ public class ScoreSheetExporter {
                     remCell.setCellValue(remarksByStudent.getOrDefault(username, ""));
                     remCell.setCellStyle(normal);
 
-                    Cell plagCell = row.createCell(colIdx++);
-                    String plagNote = plagiarismNotes.getOrDefault(username, "");
-                    plagCell.setCellValue(plagNote);
-                    plagCell.setCellStyle(plagNote.isEmpty() ? normal : redBold);
-
-                    // NEW: penalty data cells
                     if (hasPenalties) {
                         ProcessedScore ps = penaltyResults.get(username);
-                        Cell dedCell = row.createCell(colIdx++);
-                        Cell adjCell = row.createCell(colIdx++);
-                        if (ps != null) {
-                            dedCell.setCellValue(ps.getTotalDeduction());
-                            dedCell.setCellStyle(ps.getTotalDeduction() > 0 ? penaltyStyle : normal);
-                            adjCell.setCellValue(ps.getFinalScore());
-                            adjCell.setCellStyle(normal);
-                        } else {
-                            dedCell.setCellValue(0.0);
-                            dedCell.setCellStyle(normal);
-                            adjCell.setCellValue(totals.getOrDefault(username, 0.0));
+                        double adjustedTotal = ps != null ? ps.getFinalScore() : totals.getOrDefault(username, 0.0);
+                        Map<String, Double> adjustedScores = ps != null && !ps.getAdjustedQuestionScores().isEmpty()
+                                ? ps.getAdjustedQuestionScores()
+                                : qScores;
+
+                        Cell finalCell = row.createCell(colIdx++);
+                        finalCell.setCellValue(adjustedTotal);
+                        finalCell.setCellStyle(ps != null && ps.getTotalDeduction() > 0 ? penaltyStyle : normal);
+
+                        Cell denomCell = row.createCell(colIdx++);
+                        denomCell.setCellValue(totalMaxScore);
+                        denomCell.setCellStyle(normal);
+
+                        for (String qid : questionOrder) {
+                            Cell adjCell = row.createCell(colIdx++);
+                            adjCell.setCellValue(adjustedScores.getOrDefault(qid, qScores.getOrDefault(qid, 0.0)));
                             adjCell.setCellStyle(normal);
                         }
+
+                        Cell rulesCell = row.createCell(colIdx++);
+                        rulesCell.setCellValue(ps != null ? ps.getPenaltyRulesApplied() : "No penalty");
+                        rulesCell.setCellStyle(normal);
                     }
                 } else {
                     for (String ignored : questionOrder) row.createCell(colIdx++).setCellStyle(normal);
                     Cell remCell = row.createCell(colIdx++);
                     remCell.setCellValue("Missing submission - refer to Anomalies tab");
                     remCell.setCellStyle(normal);
-                    row.createCell(colIdx++).setCellStyle(normal); // plagiarism
 
                     if (hasPenalties) {
-                        row.createCell(colIdx++).setCellStyle(normal); // penalty deduction
-                        row.createCell(colIdx++).setCellStyle(normal); // adjusted score
+                        row.createCell(colIdx++).setCellStyle(normal); // adjusted numerator
+                        row.createCell(colIdx++).setCellValue(totalMaxScore); // denominator
+                        for (String ignored : questionOrder) row.createCell(colIdx++).setCellStyle(normal);
+                        Cell penaltyRemark = row.createCell(colIdx++);
+                        penaltyRemark.setCellValue("No penalty");
+                        penaltyRemark.setCellStyle(normal);
                     }
                 }
 

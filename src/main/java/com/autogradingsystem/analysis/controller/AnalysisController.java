@@ -2,7 +2,6 @@ package com.autogradingsystem.analysis.controller;
 
 import com.autogradingsystem.analysis.service.ScoreAnalyzer;
 import com.autogradingsystem.analysis.service.ScoreSheetExporter;
-import com.autogradingsystem.analysis.service.StatisticsReportExporter;
 import com.autogradingsystem.model.GradingResult;
 import com.autogradingsystem.model.Student;
 import com.autogradingsystem.penalty.model.ProcessedScore;
@@ -12,33 +11,16 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
-/**
- * AnalysisController
- *
- * Orchestrates the full analysis pipeline:
- *   1. Console display of grading results
- *   2. Export combined score sheet → IS442-ScoreSheet-Updated.xlsx
- *      (7 tabs: Score Sheet, Anomalies, Dashboard, Grade Distribution,
- *       Question Analysis, Student Ranking, Performance Matrix)
- *
- * v4.4: Added penalty data pass-through. When penalties are enabled,
- * the score sheet includes "Penalty Deduction" and "Adjusted Score" columns.
- */
 public class AnalysisController {
 
     private final ScoreSheetExporter scoreSheetExporter;
     private final Path               inputTesters;
-
-    // ── CONSTRUCTORS ─────────────────────────────────────────────────────────
 
     public AnalysisController(Path csvScoresheet, Path outputReports, Path inputTesters) {
         this.scoreSheetExporter = new ScoreSheetExporter(csvScoresheet, outputReports, inputTesters);
         this.inputTesters       = inputTesters;
     }
 
-    // ── PUBLIC API ────────────────────────────────────────────────────────────
-
-    /** Backward-compatible: no plagiarism notes, no penalties. */
     public void analyzeAndDisplay(List<GradingResult> results,
                                   Map<String, String> remarksByStudent,
                                   Map<String, String> anomalyRemarks,
@@ -47,7 +29,6 @@ public class AnalysisController {
                           Collections.emptyMap(), Collections.emptyMap());
     }
 
-    /** With plagiarism notes, no penalties. */
     public void analyzeAndDisplay(List<GradingResult> results,
                                   Map<String, String> remarksByStudent,
                                   Map<String, String> anomalyRemarks,
@@ -57,18 +38,22 @@ public class AnalysisController {
                           plagiarismNotes, Collections.emptyMap());
     }
 
-    /**
-     * Full overload — includes plagiarism notes AND penalty results.
-     *
-     * @param penaltyResults studentId → ProcessedScore from PenaltyController.
-     *                       Pass Collections.emptyMap() if penalties were not applied.
-     */
     public void analyzeAndDisplay(List<GradingResult> results,
                                   Map<String, String> remarksByStudent,
                                   Map<String, String> anomalyRemarks,
                                   List<Student> allStudents,
                                   Map<String, String> plagiarismNotes,
                                   Map<String, ProcessedScore> penaltyResults) {
+        analyzeAndDisplayWithPenalties(results, remarksByStudent, anomalyRemarks,
+                allStudents, plagiarismNotes, penaltyResults);
+    }
+
+    public void analyzeAndDisplayWithPenalties(List<GradingResult> results,
+                                               Map<String, String> remarksByStudent,
+                                               Map<String, String> anomalyRemarks,
+                                               List<Student> allStudents,
+                                               Map<String, String> plagiarismNotes,
+                                               Map<String, ProcessedScore> penaltyResults) {
 
         Path testersDir = inputTesters;
 
@@ -76,7 +61,7 @@ public class AnalysisController {
         List<GradingResult>              updatedResults = ScoreAnalyzer.updateWithMaxScores(results, testersDir);
         Map<String, List<GradingResult>> byStudent      = ScoreAnalyzer.groupByStudent(updatedResults);
 
-        System.out.println("\n📋 Detected Max Scores per Question:");
+        System.out.println("\nDetected Max Scores per Question:");
         maxScores.forEach((q, m) -> System.out.println("   " + q + ": " + m + " points"));
 
         displayQuestionStatistics(updatedResults, maxScores);
@@ -87,8 +72,6 @@ public class AnalysisController {
                      plagiarismNotes, penaltyResults);
     }
 
-    // ── PRIVATE: EXPORT ───────────────────────────────────────────────────────
-
     private void exportReport(Map<String, List<GradingResult>> byStudent,
                               Map<String, String> remarksByStudent,
                               Map<String, String> anomalyRemarks,
@@ -96,33 +79,31 @@ public class AnalysisController {
                               Map<String, String> plagiarismNotes,
                               Map<String, ProcessedScore> penaltyResults) {
         System.out.println("\n" + "=".repeat(70));
-        System.out.println("📄 EXPORTING REPORTS");
+        System.out.println("EXPORTING REPORTS");
         System.out.println("=".repeat(70));
 
         try {
             Path scoreSheet = scoreSheetExporter.export(byStudent, remarksByStudent,
                                                         anomalyRemarks, allStudents,
                                                         plagiarismNotes, penaltyResults);
-            System.out.println("✅ Score Sheet + Statistics → " + scoreSheet.toAbsolutePath());
+            System.out.println("Score Sheet + Statistics -> " + scoreSheet.toAbsolutePath());
             System.out.println("   Tabs: Score Sheet | Anomalies | Dashboard | Grade Distribution");
             System.out.println("         Question Analysis | Student Ranking | Performance Matrix");
             if (!penaltyResults.isEmpty()) {
-                System.out.println("   ✅ Penalty columns included (Deduction + Adjusted Score)");
+                System.out.println("   Penalty columns included.");
             }
         } catch (Exception e) {
-            System.out.println("❌ Score Sheet export failed: " + e.getMessage());
+            System.out.println("Score Sheet export failed: " + e.getMessage());
             e.printStackTrace();
         }
 
         System.out.println("=".repeat(70));
     }
 
-    // ── PRIVATE: CONSOLE DISPLAY (unchanged) ──────────────────────────────────
-
     private void displayQuestionStatistics(List<GradingResult> results,
                                            Map<String, Double> maxScores) {
         System.out.println("\n" + "=".repeat(70));
-        System.out.println("📈 QUESTION-BY-QUESTION STATISTICS");
+        System.out.println("QUESTION-BY-QUESTION STATISTICS");
         System.out.println("=".repeat(70));
 
         Map<String, List<GradingResult>> byQuestion = ScoreAnalyzer.groupByQuestion(results);
@@ -140,8 +121,9 @@ public class AnalysisController {
             System.out.println("\n" + qid + " (" + max + " points):");
             System.out.println("  Average: " + avg + " / " + max + " (" + pct + ")");
             System.out.println("  Perfect scores: " + perfect + "/" + total + " students");
-            if (passed - perfect > 0)
+            if (passed - perfect > 0) {
                 System.out.println("  Partial credit: " + (passed - perfect) + "/" + total + " students");
+            }
             System.out.println("  Failed: " + failed + "/" + total + " students");
         }
     }
@@ -149,7 +131,7 @@ public class AnalysisController {
     private void displayCompactView(Map<String, List<GradingResult>> byStudent,
                                     Map<String, Double> maxScores) {
         System.out.println("\n" + "=".repeat(70));
-        System.out.println("📋 GRADING RESULTS - COMPACT VIEW");
+        System.out.println("GRADING RESULTS - COMPACT VIEW");
         System.out.println("=".repeat(70));
 
         double totalMax = maxScores.values().stream().mapToDouble(Double::doubleValue).sum();
@@ -157,8 +139,9 @@ public class AnalysisController {
             double total = ScoreAnalyzer.calculateTotalScore(entry.getValue());
             StringBuilder sb = new StringBuilder();
             sb.append(String.format("%-20s", entry.getKey() + ":"));
-            for (GradingResult r : entry.getValue())
+            for (GradingResult r : entry.getValue()) {
                 sb.append(String.format("  %s:%-5s", r.getTask().getQuestionId(), r.getScore()));
+            }
             sb.append(String.format("  Total: %.1f/%.1f", total, totalMax));
             System.out.println(sb);
         }
@@ -168,7 +151,7 @@ public class AnalysisController {
     private void displayOverallStatistics(Map<String, List<GradingResult>> byStudent,
                                           Map<String, Double> maxScores) {
         System.out.println("\n" + "=".repeat(70));
-        System.out.println("📊 OVERALL CLASS STATISTICS");
+        System.out.println("OVERALL CLASS STATISTICS");
         System.out.println("=".repeat(70));
 
         double totalMax    = maxScores.values().stream().mapToDouble(Double::doubleValue).sum();

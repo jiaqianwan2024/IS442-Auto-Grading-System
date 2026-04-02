@@ -4,12 +4,29 @@ package com.autogradingsystem.penalty.model;
  * DTO representing grading data consumed by the penalty module.
  */
 public class PenaltyGradingResult {
+    private final String questionId;
     private final double rawScore;
     private final double maxPossibleScore;
-    private final boolean hasCompilationError;
-    private final boolean namingCorrect;
+    private final boolean rootFolderCorrect;
     private final boolean properHierarchy;
     private final boolean hasHeaders;
+    private final boolean hasWrongPackage;
+
+    public PenaltyGradingResult(String questionId,
+                                double rawScore,
+                                double maxPossibleScore,
+                                boolean rootFolderCorrect,
+                                boolean properHierarchy,
+                                boolean hasHeaders,
+                                boolean hasWrongPackage) {
+        this.questionId = questionId;
+        this.rawScore = rawScore;
+        this.maxPossibleScore = maxPossibleScore;
+        this.rootFolderCorrect = rootFolderCorrect;
+        this.properHierarchy = properHierarchy;
+        this.hasHeaders = hasHeaders;
+        this.hasWrongPackage = hasWrongPackage;
+    }
 
     public PenaltyGradingResult(double rawScore,
                                 double maxPossibleScore,
@@ -17,12 +34,11 @@ public class PenaltyGradingResult {
                                 boolean namingCorrect,
                                 boolean properHierarchy,
                                 boolean hasHeaders) {
-        this.rawScore = rawScore;
-        this.maxPossibleScore = maxPossibleScore;
-        this.hasCompilationError = hasCompilationError;
-        this.namingCorrect = namingCorrect;
-        this.properHierarchy = properHierarchy;
-        this.hasHeaders = hasHeaders;
+        this(null, rawScore, maxPossibleScore, namingCorrect, properHierarchy, hasHeaders, false);
+    }
+
+    public String getQuestionId() {
+        return questionId;
     }
 
     public double getRawScore() {
@@ -33,12 +49,8 @@ public class PenaltyGradingResult {
         return maxPossibleScore;
     }
 
-    public boolean hasCompilationError() {
-        return hasCompilationError;
-    }
-
-    public boolean isNamingCorrect() {
-        return namingCorrect;
+    public boolean isRootFolderCorrect() {
+        return rootFolderCorrect;
     }
 
     public boolean hasProperHierarchy() {
@@ -47,5 +59,9 @@ public class PenaltyGradingResult {
 
     public boolean hasHeaders() {
         return hasHeaders;
+    }
+
+    public boolean hasWrongPackage() {
+        return hasWrongPackage;
     }
 }

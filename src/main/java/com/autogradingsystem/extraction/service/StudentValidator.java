@@ -81,12 +81,25 @@ public class StudentValidator {
         Path tempDir = Files.createTempDirectory("student-check");
         try {
             ZipFileProcessor.unzip(studentZip, tempDir);
-            try (DirectoryStream<Path> stream = Files.newDirectoryStream(tempDir)) {
-                for (Path item : stream) {
-                    if (!Files.isDirectory(item)) continue;
-                    String folderName = item.getFileName().toString();
+            try (var stream = Files.walk(tempDir)) {
+                Path[] folders = stream
+                        .filter(Files::isDirectory)
+                        .filter(path -> !path.equals(tempDir))
+                        .toArray(Path[]::new);
+
+                for (Path folder : folders) {
+                    String folderName = folder.getFileName().toString().trim();
+                    if (folderName.isEmpty()) {
+                        continue;
+                    }
+
                     if (scoreReader.isValid(folderName)) {
                         return folderName;
+                    }
+
+                    String strippedName = folderName.replaceFirst("^(\\d{4}-)+", "");
+                    if (!strippedName.equals(folderName) && scoreReader.isValid(strippedName)) {
+                        return strippedName;
                     }
                 }
             }

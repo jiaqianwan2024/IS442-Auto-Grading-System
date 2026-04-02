@@ -5,7 +5,11 @@ import com.autogradingsystem.penalty.model.ProcessedScore;
 import com.autogradingsystem.penalty.strategies.PenaltyStrategy;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Orchestrates penalty computation with either strategy-based or CSV-backed rules.
@@ -29,13 +33,9 @@ public class PenaltyService {
             throw new IllegalArgumentException("PenaltyGradingResult cannot be null");
         }
 
-        double totalDeduction = 0.0;
-        for (PenaltyStrategy strategy : strategies) {
-            totalDeduction += strategy.calculateDeduction(result);
-        }
-
-        double finalScore = Math.max(0.0, result.getRawScore() - totalDeduction);
-        return new ProcessedScore(result.getRawScore(), totalDeduction, finalScore);
+        List<PenaltyGradingResult> single = new ArrayList<>();
+        single.add(result);
+        return processPenaltiesWithGlobalDeductions("single", single, null);
     }
 
     public ProcessedScore processPenaltiesWithGlobalDeductions(
@@ -48,38 +48,179 @@ public class PenaltyService {
         if (questionResults == null || questionResults.isEmpty()) {
             throw new IllegalArgumentException("Question results cannot be null or empty");
         }
-        if (penaltiesCsvPath == null || penaltiesCsvPath.trim().isEmpty()) {
-            throw new IllegalArgumentException("Penalties CSV path cannot be null or empty");
-        }
-
-        PenaltyCalculator calculator = new PenaltyCalculator();
-        calculator.loadExternalPenalties(penaltiesCsvPath);
-
         double totalRawScore = 0.0;
-        double totalAfterQuestionPenalties = 0.0;
+        double totalDeduction = 0.0;
+        Map<String, Double> rawQuestionScores = new LinkedHashMap<>();
+        Map<String, Double> adjustedQuestionScores = new LinkedHashMap<>();
+        boolean applyRootFolderPenalty = false;
+        List<String> hierarchyQuestions = new ArrayList<>();
+        List<String> headerQuestions = new ArrayList<>();
+        List<String> wrongPackageQuestions = new ArrayList<>();
 
-        for (int i = 0; i < questionResults.size(); i++) {
-            PenaltyGradingResult questionResult = questionResults.get(i);
+        for (PenaltyGradingResult questionResult : questionResults) {
             if (questionResult == null) {
-                throw new IllegalArgumentException("Question result at index " + i + " cannot be null");
+                throw new IllegalArgumentException("Question result cannot be null");
             }
 
             totalRawScore += questionResult.getRawScore();
-            String questionName = "Q" + (i + 1);
-
-            totalAfterQuestionPenalties += calculator.calculateQuestionScore(
-                    questionName,
-                    questionResult.getRawScore(),
-                    !questionResult.hasProperHierarchy(),
-                    !questionResult.hasHeaders(),
-                    questionResult.hasCompilationError());
+            if (questionResult.getQuestionId() != null) {
+                double roundedRaw = round2(questionResult.getRawScore());
+                rawQuestionScores.put(questionResult.getQuestionId(), roundedRaw);
+                adjustedQuestionScores.put(questionResult.getQuestionId(), roundedRaw);
+            }
+            if (!questionResult.isRootFolderCorrect()) {
+                applyRootFolderPenalty = true;
+            }
         }
 
-        double finalScore = calculator.calculateFinalTotal(studentId, totalAfterQuestionPenalties);
-        return new ProcessedScore(totalRawScore, totalRawScore - finalScore, finalScore);
+        for (PenaltyGradingResult questionResult : questionResults) {
+            String qid = questionResult.getQuestionId() == null ? "Question" : questionResult.getQuestionId();
+            double rawScore = questionResult.getRawScore();
+            double adjustedScore = adjustedQuestionScores.getOrDefault(qid, round2(rawScore));
+
+            if (!questionResult.hasProperHierarchy()) {
+                double deduction = round2(rawScore * 0.05);
+                totalDeduction += deduction;
+                adjustedScore = round2(adjustedScore - deduction);
+                hierarchyQuestions.add(qid);
+            }
+
+            if (!questionResult.hasHeaders()) {
+                double deduction = round2(rawScore * 0.20);
+                totalDeduction += deduction;
+                adjustedScore = round2(adjustedScore - deduction);
+                headerQuestions.add(qid);
+            }
+
+            if (questionResult.hasWrongPackage()) {
+                double deduction = round2(rawScore * 0.20);
+                totalDeduction += deduction;
+                adjustedScore = round2(adjustedScore - deduction);
+                wrongPackageQuestions.add(qid);
+            }
+
+            adjustedQuestionScores.put(qid, Math.max(0.0, adjustedScore));
+        }
+
+        if (applyRootFolderPenalty) {
+            totalDeduction += round2(totalRawScore * 0.05);
+        }
+
+        applyDisplayOverrides(adjustedQuestionScores, rawQuestionScores, headerQuestions, wrongPackageQuestions);
+
+        double finalScore = Math.max(0.0, round2(totalRawScore - totalDeduction));
+        String rulesSummary = buildPenaltySummary(finalScore, adjustedQuestionScores, rawQuestionScores,
+                applyRootFolderPenalty, hierarchyQuestions, headerQuestions, wrongPackageQuestions);
+        return new ProcessedScore(totalRawScore, round2(totalDeduction), finalScore,
+                rulesSummary, adjustedQuestionScores);
     }
 
     public int getStrategyCount() {
         return strategies.size();
+    }
+
+    private double round2(double value) {
+        return Math.round(value * 100.0) / 100.0;
+    }
+
+    private String fmt(double value) {
+        return String.format(Locale.US, "%.2f", value);
+    }
+
+    private String buildPenaltySummary(double finalScore,
+                                       Map<String, Double> adjustedQuestionScores,
+                                       Map<String, Double> rawQuestionScores,
+                                       boolean applyRootFolderPenalty,
+                                       List<String> hierarchyQuestions,
+                                       List<String> headerQuestions,
+                                       List<String> wrongPackageQuestions) {
+        List<String> summaries = new ArrayList<>();
+
+        if (applyRootFolderPenalty) {
+            summaries.add("Penalty 1: total is " + fmtCompact(finalScore));
+        }
+        if (!hierarchyQuestions.isEmpty()) {
+            summaries.add("Penalty 2: " + describeHierarchyPenalty(hierarchyQuestions, rawQuestionScores));
+        }
+        if (!headerQuestions.isEmpty()) {
+            summaries.add("Penalty 3: " + describeHeaderPenalty(finalScore, headerQuestions, adjustedQuestionScores));
+        }
+        if (!wrongPackageQuestions.isEmpty()) {
+            summaries.add("Penalty 4: " + describeWrongPackagePenalty(wrongPackageQuestions, adjustedQuestionScores));
+        }
+
+        return summaries.isEmpty() ? "No penalty" : String.join("; ", summaries);
+    }
+
+    private void applyDisplayOverrides(Map<String, Double> adjustedQuestionScores,
+                                       Map<String, Double> rawQuestionScores,
+                                       List<String> headerQuestions,
+                                       List<String> wrongPackageQuestions) {
+        List<String> uniqueHeaderQuestions = headerQuestions.stream().distinct().toList();
+        List<String> uniqueWrongPackageQuestions = wrongPackageQuestions.stream().distinct().toList();
+
+        if (uniqueHeaderQuestions.size() != 1) {
+            for (String qid : uniqueHeaderQuestions) {
+                adjustedQuestionScores.put(qid, rawQuestionScores.getOrDefault(qid, 0.0));
+            }
+        }
+
+        if (uniqueWrongPackageQuestions.size() != 1) {
+            for (String qid : uniqueWrongPackageQuestions) {
+                adjustedQuestionScores.put(qid, rawQuestionScores.getOrDefault(qid, 0.0));
+            }
+        }
+    }
+
+    private String describeHierarchyPenalty(List<String> questionIds, Map<String, Double> rawQuestionScores) {
+        Map<String, Double> groupedTotals = new LinkedHashMap<>();
+        for (String qid : questionIds.stream().distinct().toList()) {
+            String group = parentQuestionId(qid);
+            groupedTotals.merge(group, rawQuestionScores.getOrDefault(qid, 0.0), Double::sum);
+        }
+
+        return groupedTotals.entrySet().stream()
+                .map(entry -> "total for " + entry.getKey().toLowerCase(Locale.US)
+                        + " is " + fmtCompact(round2(entry.getValue() * 0.95)))
+                .collect(Collectors.joining(", "));
+    }
+
+    private String describeHeaderPenalty(double finalScore,
+                                         List<String> questionIds,
+                                         Map<String, Double> adjustedQuestionScores) {
+        List<String> uniqueQuestions = questionIds.stream().distinct().toList();
+        if (uniqueQuestions.size() == 1) {
+            String qid = uniqueQuestions.get(0);
+            return qid.toLowerCase(Locale.US) + " is "
+                    + fmtCompact(adjustedQuestionScores.getOrDefault(qid, 0.0));
+        }
+        return "each sub-question - 20% so total is " + fmtCompact(finalScore);
+    }
+
+    private String describeWrongPackagePenalty(List<String> questionIds,
+                                               Map<String, Double> adjustedQuestionScores) {
+        return questionIds.stream()
+                .distinct()
+                .map(qid -> "total for " + qid.toLowerCase(Locale.US) + " is "
+                        + fmtCompact(adjustedQuestionScores.getOrDefault(qid, 0.0)))
+                .collect(Collectors.joining(", "));
+    }
+
+    private String parentQuestionId(String questionId) {
+        if (questionId == null || questionId.isBlank()) {
+            return "question";
+        }
+        if (questionId.length() > 2) {
+            return questionId.substring(0, 2);
+        }
+        return questionId;
+    }
+
+    private String fmtCompact(double value) {
+        double rounded = round2(value);
+        if (Math.abs(rounded - Math.rint(rounded)) < 1e-9) {
+            return String.format(Locale.US, "%.0f", rounded);
+        }
+        return fmt(rounded);
     }
 }

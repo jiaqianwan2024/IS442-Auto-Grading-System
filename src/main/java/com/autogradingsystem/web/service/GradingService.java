@@ -159,7 +159,7 @@ public class GradingService {
             progress(assessmentName, 96, "Exporting Reports", "Generating score sheet and reports...");
             AnalysisController analysisController =
                     new AnalysisController(csvScoresheet, outputReports, inputTesters);
-            analysisController.analyzeAndDisplay(results, remarks, anomalyRemarks,
+            analysisController.analyzeAndDisplayWithPenalties(results, remarks, anomalyRemarks,
                     allStudents, plagiarismNotes, penaltyResults);
             logs.add("Reports exported" + (applyPenalties ? " (with penalty columns)" : ""));
             progress(assessmentName, 100, "Completed", "Reports exported.");
@@ -200,50 +200,37 @@ public class GradingService {
             String studentId = entry.getKey();
             List<GradingResult> studentResults = entry.getValue();
             Student student = studentLookup.get(studentId);
+            String studentRemarks = remarks.getOrDefault(studentId, "");
 
-            // Build PenaltyGradingResult for each question
+            boolean rootFolderCorrect = student == null || student.isFolderRenamed();
+            java.util.Set<String> missingHeaderQuestions = extractQuestionIds(studentRemarks, "NoHeader:");
+            java.util.Set<String> wrongPackageQuestions = extractQuestionIds(studentRemarks, ":WrongPackage:");
+            java.util.Set<String> hierarchyQuestions = extractQuestionIds(studentRemarks, ":FILE_NOT_FOUND");
+
             List<PenaltyGradingResult> penaltyInputs = new ArrayList<>();
 
             for (GradingResult gr : studentResults) {
                 double rawScore = gr.getScore();
                 double maxScore = ScoreAnalyzer.getMaxScoreFromTester(
                         gr.getQuestionId(), inputTesters);
+                String questionId = gr.getQuestionId();
 
-                boolean hasCompilationError =
-                        "COMPILATION_FAILED".equals(gr.getStatus());
-
-                // Naming correct = folder was properly renamed
-                boolean namingCorrect = student != null && student.isFolderRenamed();
-
-                // Proper hierarchy = not an anomaly student
-                boolean properHierarchy = student != null && !student.isAnomaly();
-
-                // Has headers = no missing header files for this student
-                boolean hasHeaders = student != null
-                        && (student.getMissingHeaderFiles() == null
-                            || student.getMissingHeaderFiles().isEmpty());
+                boolean properHierarchy = !hierarchyQuestions.contains(questionId);
+                boolean hasHeaders = !missingHeaderQuestions.contains(questionId);
+                boolean hasWrongPackage = wrongPackageQuestions.contains(questionId);
 
                 penaltyInputs.add(new PenaltyGradingResult(
-                        rawScore, maxScore,
-                        hasCompilationError, namingCorrect,
-                        properHierarchy, hasHeaders));
+                        questionId,
+                        rawScore,
+                        maxScore,
+                        rootFolderCorrect,
+                        properHierarchy,
+                        hasHeaders,
+                        hasWrongPackage));
             }
 
-            // Run through PenaltyController — applies strategy-based deductions
-            // + CSV-based global deductions (lateness etc.) if penalties.csv exists
             try {
-                Path penaltiesCsv = csvScoresheet.getParent().resolve("penalties.csv");
-                ProcessedScore processed;
-
-                if (Files.exists(penaltiesCsv)) {
-                    processed = penaltyController.processStudentResults(
-                            studentId, penaltyInputs,
-                            penaltiesCsv.toAbsolutePath().toString());
-                } else {
-                    processed = penaltyController.processStudentResults(
-                            studentId, penaltyInputs);
-                }
-
+                ProcessedScore processed = penaltyController.processStudentResults(studentId, penaltyInputs);
                 penaltyMap.put(studentId, processed);
             } catch (Exception e) {
                 System.err.println("⚠️  Penalty calculation failed for "
@@ -251,7 +238,7 @@ public class GradingService {
                 // Fallback: no deduction
                 double total = studentResults.stream()
                         .mapToDouble(GradingResult::getScore).sum();
-                penaltyMap.put(studentId, new ProcessedScore(total, 0.0, total));
+                penaltyMap.put(studentId, new ProcessedScore(total, 0.0, total, "None"));
             }
         }
 
@@ -272,6 +259,39 @@ public class GradingService {
         System.out.println("=".repeat(70));
 
         return penaltyMap;
+    }
+
+    private java.util.Set<String> extractQuestionIds(String remarks, String marker) {
+        java.util.Set<String> ids = new java.util.LinkedHashSet<>();
+        if (remarks == null || remarks.isBlank()) {
+            return ids;
+        }
+
+        String[] tokens = remarks.split("\\s*;\\s*");
+        for (String token : tokens) {
+            String trimmed = token.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+
+            if ("NoHeader:".equals(marker) && trimmed.startsWith("NoHeader:")) {
+                String fileName = trimmed.substring("NoHeader:".length()).trim();
+                if (fileName.endsWith(".java")) {
+                    ids.add(fileName.substring(0, fileName.length() - 5));
+                } else if (!fileName.isBlank()) {
+                    ids.add(fileName);
+                }
+                continue;
+            }
+
+            if (trimmed.contains(marker)) {
+                int colon = trimmed.indexOf(':');
+                if (colon > 0) {
+                    ids.add(trimmed.substring(0, colon).trim());
+                }
+            }
+        }
+        return ids;
     }
 
     // ── Existing helpers (unchanged) ──────────────────────────────────────────

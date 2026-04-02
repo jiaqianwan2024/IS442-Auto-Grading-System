@@ -1,14 +1,10 @@
 package com.autogradingsystem.analysis.service;
 
-import com.autogradingsystem.PathConfig;
 import com.autogradingsystem.model.GradingResult;
 
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * ScoreAnalyzer - Analyzes Grading Results and Infers Max Scores
@@ -138,48 +134,6 @@ public class ScoreAnalyzer {
 
     public static double getMaxScoreFromTester(String questionId) {
         throw new UnsupportedOperationException("Use getMaxScoreFromTester(questionId, testersDir) in assessment-scoped flow.");
-    }
-
-    // kept for internal use — delegates to overload above
-    private static double getMaxScoreFromTesterInternal(String questionId) {
-        try {
-            // Ensure strict casing (e.g., q1a -> Q1a)
-            String formattedId = "Q" + questionId.substring(1).toLowerCase();
-            String testerFilename = formattedId + "Tester.java";
-            Path testerPath = PathConfig.INPUT_TESTERS.resolve(testerFilename);
-            
-            // Fallback for differently formatted tester names
-            if (!Files.exists(testerPath)) {
-                testerPath = PathConfig.INPUT_TESTERS.resolve(questionId + "Tester.java");
-            }
-            if (!Files.exists(testerPath)) return 0.0;
-            
-            String testerContent = Files.readString(testerPath);
-            
-            // ── ADVANCED REGEX: Supports both "score += 6.0" and "score += (3.0/12)" ──
-            java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("score\\s*\\+=\\s*\\(?\\s*([0-9.]+)\\s*(?:/\\s*([0-9.]+))?\\s*\\)?");
-            java.util.regex.Matcher matcher = pattern.matcher(testerContent);
-            
-            double totalMax = 0.0;
-            while (matcher.find()) {
-                double numerator = Double.parseDouble(matcher.group(1));
-                
-                // If there is a denominator (e.g., the "/12" in "3.0/12")
-                if (matcher.group(2) != null) {
-                    double denominator = Double.parseDouble(matcher.group(2));
-                    totalMax += (numerator / denominator);
-                } else {
-                    // It's a plain number like "6.0"
-                    totalMax += numerator;
-                }
-            }
-            
-            // Round to 2 decimal places to destroy floating-point artifacts like 3.9999996
-            return Math.round(totalMax * 100.0) / 100.0;
-            
-        } catch (Exception e) {
-            return 0.0;
-        }
     }
     
     /**
