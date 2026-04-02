@@ -17,10 +17,10 @@ public class StructuralPenalty implements PenaltyStrategy {
 
     @Override
     public double calculateDeduction(PenaltyGradingResult result) {
-        // Check if any structural requirement is violated
-        boolean hasStructuralViolation = !result.isNamingCorrect() ||
-                                         !result.hasProperHierarchy() ||
-                                         !result.hasHeaders();
+        boolean hasStructuralViolation = !result.isRootFolderCorrect()
+                || !result.hasProperHierarchy()
+                || !result.hasHeaders()
+                || result.hasWrongPackage();
 
         if (hasStructuralViolation) {
             return result.getMaxPossibleScore() * DEDUCTION_PERCENTAGE;
