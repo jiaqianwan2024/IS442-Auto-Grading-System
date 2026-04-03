@@ -24,10 +24,6 @@ public class LLMTestOracle {
     private final ObjectMapper mapper;
     private final Map<String, List<GeneratedTestCase>> cache = new HashMap<>();
 
-    private static final Set<String> SAFE_EQUALS_TYPES = new LinkedHashSet<>(Arrays.asList(
-            "String","Integer","Long","Double","Float","Boolean","Character",
-            "int","long","double","float","boolean","char","Object"));
-
     public LLMTestOracle(String apiKey) {
         this.apiKey = apiKey;
         this.http   = HttpClient.newBuilder()
@@ -582,16 +578,6 @@ public class LLMTestOracle {
             System.err.println("Could not parse LLM inputs: " + e.getMessage());
         }
         return result;
-    }
-
-    private List<GeneratedTestCase> padWithSmoke(List<GeneratedTestCase> existing,
-                                                 int targetSize,
-                                                 MethodSpec method) {
-        return LLMTestOracleSupport.padWithSmoke(existing, targetSize, method);
-    }
-
-    private String safeDefault(String type, int seed) {
-        return LLMTestOracleSupport.oracleSafeDefault(type, seed);
     }
 
 }

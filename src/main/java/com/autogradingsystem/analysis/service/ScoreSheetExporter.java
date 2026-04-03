@@ -71,6 +71,7 @@ public class ScoreSheetExporter {
      *
      * @param penaltyResults studentId → ProcessedScore. Empty map = no penalty columns.
      */
+    @SuppressWarnings("deprecation")
     public Path export(
             Map<String, List<GradingResult>> resultsByStudent,
             Map<String, String> remarksByStudent,
@@ -269,7 +270,6 @@ public class ScoreSheetExporter {
 
         XSSFCellStyle headerStyle = makeHeaderStyle(wb);
         XSSFCellStyle normal      = makeNormalStyle(wb);
-        XSSFCellStyle redBold     = makeColorStyle(wb, IndexedColors.ROSE.getIndex());
         // Style for final score cells when penalties changed the total
         XSSFCellStyle penaltyStyle = makePenaltyStyle(wb);
 
@@ -396,7 +396,7 @@ public class ScoreSheetExporter {
                     plagCell.setCellValue(plagiarismNotes.getOrDefault(username, ""));
                     plagCell.setCellStyle(normal);
                 } else {
-                    for (String ignored : questionOrder) row.createCell(colIdx++).setCellStyle(normal);
+                    for (int qi = 0; qi < questionOrder.size(); qi++) row.createCell(colIdx++).setCellStyle(normal);
                     Cell remCell = row.createCell(colIdx++);
                     remCell.setCellValue("Missing submission - refer to Anomalies tab");
                     remCell.setCellStyle(normal);
@@ -404,7 +404,7 @@ public class ScoreSheetExporter {
                     if (hasPenalties) {
                         row.createCell(colIdx++).setCellStyle(normal); // adjusted numerator
                         row.createCell(colIdx++).setCellValue(totalMaxScore); // denominator
-                        for (String ignored : questionOrder) row.createCell(colIdx++).setCellStyle(normal);
+                        for (int qi = 0; qi < questionOrder.size(); qi++) row.createCell(colIdx++).setCellStyle(normal);
                         Cell penaltyRemark = row.createCell(colIdx++);
                         penaltyRemark.setCellValue("No penalty");
                         penaltyRemark.setCellStyle(normal);
@@ -435,7 +435,6 @@ public class ScoreSheetExporter {
 
         XSSFSheet sheet = wb.createSheet("Anomalies");
         XSSFCellStyle headerStyle = makeHeaderStyle(wb);
-        XSSFCellStyle normal      = makeNormalStyle(wb);
 
         List<String> headers = new ArrayList<>();
         headers.add("FolderName");
@@ -552,18 +551,6 @@ public class ScoreSheetExporter {
         font.setFontName("Arial");
         font.setFontHeightInPoints((short) 10);
         style.setFont(font);
-        return style;
-    }
-
-    private XSSFCellStyle makeColorStyle(XSSFWorkbook wb, short colorIndex) {
-        XSSFCellStyle style = wb.createCellStyle();
-        XSSFFont font = wb.createFont();
-        font.setFontName("Arial");
-        font.setFontHeightInPoints((short) 10);
-        font.setBold(true);
-        style.setFont(font);
-        style.setFillForegroundColor(colorIndex);
-        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
         return style;
     }
 

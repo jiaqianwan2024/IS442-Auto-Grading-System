@@ -26,7 +26,6 @@ public class LLMConfig {
     // -------------------------------------------------------------------------
 
     public static String resolveApiKey() {
-        if (ENV_KEY_NAME == null || ENV_KEY_NAME.isBlank()) return "";
         String key = System.getenv(ENV_KEY_NAME);
         if (key == null || key.isBlank()) key = System.getProperty(ENV_KEY_NAME);
         if (key == null || key.isBlank()) {

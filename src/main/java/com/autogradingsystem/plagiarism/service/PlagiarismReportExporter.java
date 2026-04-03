@@ -1,6 +1,5 @@
 package com.autogradingsystem.plagiarism.service;
 
-import com.autogradingsystem.PathConfig;
 import com.autogradingsystem.plagiarism.model.PlagiarismResult;
 
 import java.io.IOException;
@@ -27,9 +26,8 @@ import org.apache.poi.xssf.usermodel.*;
  *     - Every pair checked (flagged + clean), grouped by question
  *     - Flagged rows highlighted red
  *
- * Two export() overloads:
- *   export(allResults)           — writes to global PathConfig output dir (single-assessment)
- *   export(allResults, outputDir) — writes to the given dir (multi-assessment)
+ * One export() entry point:
+ *   export(allResults, outputDir) — writes to the given dir (per-assessment)
  */
 public class PlagiarismReportExporter {
 
@@ -46,16 +44,8 @@ public class PlagiarismReportExporter {
     // ── PUBLIC API ────────────────────────────────────────────────────────────
 
     /**
-     * Single-assessment overload — writes to global PathConfig output directory.
-     */
-    public Path export(List<PlagiarismResult> allResults) throws IOException {
-        Path outputDir = PathConfig.OUTPUT_BASE.resolve("reports").toAbsolutePath();
-        return export(allResults, outputDir);
-    }
-
-    /**
-     * Path-aware overload — writes to the given outputDir.
-     * Called by PlagiarismController when a per-assessment path is configured.
+     * Writes the plagiarism report to the given outputDir.
+     * Called by PlagiarismController with the per-assessment reports path.
      *
      * @param allResults All PlagiarismResult objects (flagged + unflagged)
      * @param outputDir  Directory in which to write IS442-Plagiarism-Report.xlsx

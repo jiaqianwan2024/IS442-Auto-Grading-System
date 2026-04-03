@@ -6,7 +6,6 @@ import com.autogradingsystem.extraction.model.ValidationResult.Status;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.charset.MalformedInputException;
-import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;

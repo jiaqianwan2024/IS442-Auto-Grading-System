@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -249,7 +250,7 @@ public class CompilerService {
             ProcessBuilder pb = new ProcessBuilder();
             if (isWindows()) pb.command("cmd", "/c", cmd.toString());
             else             pb.command("sh",  "-c", cmd.toString());
-            pb.directory(workingDir.toFile());
+            pb.directory(Objects.requireNonNull(workingDir.toFile()));
 
             Process process = pb.start();
             String fullErrorReport = captureFullErrors(process);

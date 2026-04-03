@@ -205,7 +205,7 @@ public class PenaltyService {
         Map<String, Double> groupedTotals = new LinkedHashMap<>();
         for (String qid : questionIds.stream().distinct().toList()) {
             String group = parentQuestionId(qid);
-            groupedTotals.merge(group, rawQuestionScores.getOrDefault(qid, 0.0), Double::sum);
+            groupedTotals.merge(group, rawQuestionScores.getOrDefault(qid, 0.0), (a, b) -> a + b);
         }
 
         return groupedTotals.entrySet().stream()

@@ -128,8 +128,9 @@ public class UnifiedAssessmentController {
                 } else { missing.add("scoresheet"); }
 
                 if (hasFile(examPdfs, i)) {
+                    String examFilename = examPdfs.get(i).getOriginalFilename();
                     saveFile(examPdfs.get(i),
-                            paths.INPUT_EXAM.resolve(examPdfs.get(i).getOriginalFilename()));
+                            paths.INPUT_EXAM.resolve(examFilename != null ? examFilename : "exam.pdf"));
                     saved.add("examPdf");
                 } else { missing.add("examPdf"); }
 
@@ -329,11 +330,11 @@ public class UnifiedAssessmentController {
             return ResponseEntity.notFound().build();
         }
 
-        Resource resource = new FileSystemResource(reportFile.toFile());
+        Resource resource = new FileSystemResource(Objects.requireNonNull(reportFile.toFile()));
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION,
                         "attachment; filename=\"" + reportFile.getFileName() + "\"")
-                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .contentType(Objects.requireNonNull(MediaType.APPLICATION_OCTET_STREAM))
                 .body(resource);
     }
 
@@ -487,7 +488,7 @@ public class UnifiedAssessmentController {
                 || startsWith(bytes, new byte[]{'P', 'K', 5, 6})
                 || startsWith(bytes, new byte[]{'P', 'K', 7, 8});
 
-        String originalName = file.getOriginalFilename() == null ? "" : file.getOriginalFilename().toLowerCase(Locale.ROOT);
+        String originalName = Objects.requireNonNullElse(file.getOriginalFilename(), "").toLowerCase(Locale.ROOT);
         String text = new String(bytes, StandardCharsets.UTF_8);
         signature.isCsv = originalName.endsWith(".csv")
                 || text.contains("Username")
@@ -549,7 +550,7 @@ public class UnifiedAssessmentController {
     private void saveFile(MultipartFile file, Path destination) throws IOException {
         Path absolute = destination.toAbsolutePath();
         Files.createDirectories(absolute.getParent());
-        file.transferTo(absolute.toFile());
+        Files.copy(file.getInputStream(), absolute, StandardCopyOption.REPLACE_EXISTING);
         System.out.println("  💾 Saved: " + absolute);
     }
 

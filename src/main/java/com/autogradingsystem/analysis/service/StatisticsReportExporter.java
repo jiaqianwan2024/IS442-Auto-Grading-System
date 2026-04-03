@@ -25,7 +25,6 @@ import java.util.stream.Collectors;
  *
  * The top-level export() is retained as a no-op for backward compatibility only.
  */
-@Deprecated
 public class StatisticsReportExporter {
 
     private static final double A_MIN = 80.0;
@@ -44,11 +43,9 @@ public class StatisticsReportExporter {
 
     // ── PATH FIELDS ──────────────────────────────────────────────────────────
 
-    private final Path outputReports;
     private final Path inputTesters;
 
     public StatisticsReportExporter(Path outputReports, Path inputTesters) {
-        this.outputReports = outputReports;
         this.inputTesters  = inputTesters;
     }
 

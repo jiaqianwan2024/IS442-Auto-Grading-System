@@ -52,12 +52,6 @@ public class GradingService {
         this.outputReports = paths.OUTPUT_REPORTS;
     }
 
-    // ── NEW: overload with applyPenalties flag ────────────────────────────────
-
-    public GradingReport runFullPipeline(String assessmentName) {
-        return runFullPipeline(assessmentName, false);
-    }
-
     /**
      * Runs the full 7-phase grading pipeline with optional penalty application.
      *
