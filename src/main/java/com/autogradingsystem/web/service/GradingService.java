@@ -219,8 +219,10 @@ public class GradingService {
                 double maxScore = ScoreAnalyzer.getMaxScoreFromTester(
                         gr.getQuestionId(), inputTesters);
                 String questionId = gr.getQuestionId();
+                String parentQuestionId = parentQuestionId(questionId);
 
-                boolean properHierarchy = !hierarchyQuestions.contains(questionId);
+                boolean properHierarchy = !hierarchyQuestions.contains(questionId)
+                        && !hierarchyQuestions.contains(parentQuestionId);
                 boolean hasHeaders = !headerPenaltyQuestions.contains(questionId);
                 boolean hasWrongPackage = wrongPackageQuestions.contains(questionId);
 
@@ -297,6 +299,20 @@ public class GradingService {
             }
         }
         return ids;
+    }
+
+    private String parentQuestionId(String questionId) {
+        if (questionId == null || questionId.isBlank()) {
+            return "Question";
+        }
+        if (questionId.length() >= 3) {
+            char last = questionId.charAt(questionId.length() - 1);
+            char secondLast = questionId.charAt(questionId.length() - 2);
+            if (Character.isLetter(last) && Character.isDigit(secondLast)) {
+                return questionId.substring(0, questionId.length() - 1);
+            }
+        }
+        return questionId;
     }
 
     private Set<String> extractHeaderPenaltyQuestionIds(String remarks) {

@@ -4,7 +4,7 @@
 ::
 :: WHAT THIS DOES:
 ::   1. Loads COHERE_API_KEY from .env (if present)
-::   2. Builds the project if the jar is missing
+::   2. Runs mvn clean install
 ::   3. Starts the Spring Boot web server on http://localhost:9090
 ::
 :: USAGE:
@@ -45,19 +45,14 @@ if "%COHERE_API_KEY%"=="" (
 )
 
 :: ── Find or build jar ─────────────────────────────────────────────────────────
-echo Running Maven clean install ^(skip tests^)...
-call mvn clean install -DskipTests -q
+echo Running Maven clean install...
+call mvn clean install -q
 if errorlevel 1 (
     echo.
-    echo WARNING: Maven install failed. Retrying with clean package...
-    call mvn clean package -DskipTests -q
-    if errorlevel 1 (
-        echo.
-        echo ERROR: Maven build failed.
-        echo Run manually: mvn clean install -DskipTests or mvn clean package -DskipTests
-        pause
-        exit /b 1
-    )
+    echo ERROR: Maven build failed.
+    echo Run manually: mvn clean install
+    pause
+    exit /b 1
 )
 echo Build complete.
 echo.
@@ -67,7 +62,7 @@ for /f "delims=" %%f in ('dir /b target\*.jar 2^>nul ^| findstr /v sources ^| fi
 
 if "!JAR!"=="" (
     echo ERROR: No jar found in target\ after build.
-    echo Run manually: mvn clean install -DskipTests or mvn clean package -DskipTests
+    echo Run manually: mvn clean install
     pause
     exit /b 1
 )

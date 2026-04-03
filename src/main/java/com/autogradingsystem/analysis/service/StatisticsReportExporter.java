@@ -1,5 +1,6 @@
 package com.autogradingsystem.analysis.service;
 import com.autogradingsystem.model.GradingResult;
+import com.autogradingsystem.penalty.model.ProcessedScore;
 
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.ss.util.CellRangeAddress;
@@ -76,7 +77,8 @@ public class StatisticsReportExporter {
     // Called by ScoreSheetExporter after writing Score Sheet + Anomalies tabs.
 
     void appendStatsSheets(XSSFWorkbook wb,
-                           Map<String, List<GradingResult>> resultsByStudent) {
+                           Map<String, List<GradingResult>> resultsByStudent,
+                           Map<String, ProcessedScore> penaltyResults) {
         try {
             List<GradingResult> allResults = resultsByStudent.values().stream()
                     .flatMap(Collection::stream).collect(Collectors.toList());
@@ -455,7 +457,8 @@ public class StatisticsReportExporter {
         }
     }
 
-    List<StudentRecord> buildRanked(Map<String, List<GradingResult>> map, double totalMax) {
+    List<StudentRecord> buildRanked(Map<String, List<GradingResult>> map,
+                                    double totalMax) {
         List<StudentRecord> list = new ArrayList<>();
         for (Map.Entry<String, List<GradingResult>> e : map.entrySet()) {
             Map<String, Double> qs = new LinkedHashMap<>();

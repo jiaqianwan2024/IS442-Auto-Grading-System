@@ -1,10 +1,17 @@
 package com.autogradingsystem.penalty.service;
 
 import com.autogradingsystem.penalty.model.PenaltyGradingResult;
+import com.autogradingsystem.penalty.model.PenaltyRecord;
 import com.autogradingsystem.penalty.model.ProcessedScore;
 import com.autogradingsystem.penalty.strategies.PenaltyStrategy;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -111,11 +118,17 @@ public class PenaltyService {
             totalDeduction += round2(totalRawScore * ROOT_FOLDER_DEDUCTION_RATE);
         }
 
-        applyDisplayOverrides(adjustedQuestionScores, rawQuestionScores, headerQuestions, wrongPackageQuestions);
+        applyDisplayOverrides(adjustedQuestionScores, rawQuestionScores, wrongPackageQuestions);
 
-        double finalScore = Math.max(0.0, round2(totalRawScore - totalDeduction));
+        List<PenaltyRecord> externalPenalties = loadExternalPenalties(studentId, penaltiesCsvPath);
+        double externalAdjustment = 0.0;
+        for (PenaltyRecord penalty : externalPenalties) {
+            externalAdjustment += penalty.getPenaltyValue();
+        }
+
+        double finalScore = Math.max(0.0, round2(totalRawScore - totalDeduction + externalAdjustment));
         String rulesSummary = buildPenaltySummary(finalScore, adjustedQuestionScores, rawQuestionScores,
-                applyRootFolderPenalty, hierarchyQuestions, headerQuestions, wrongPackageQuestions);
+                applyRootFolderPenalty, hierarchyQuestions, headerQuestions, wrongPackageQuestions, externalPenalties);
         return new ProcessedScore(totalRawScore, round2(totalDeduction), finalScore,
                 rulesSummary, adjustedQuestionScores);
     }
@@ -138,7 +151,8 @@ public class PenaltyService {
                                        boolean applyRootFolderPenalty,
                                        List<String> hierarchyQuestions,
                                        List<String> headerQuestions,
-                                       List<String> wrongPackageQuestions) {
+                                       List<String> wrongPackageQuestions,
+                                       List<PenaltyRecord> externalPenalties) {
         List<String> summaries = new ArrayList<>();
 
         if (applyRootFolderPenalty) {
@@ -153,22 +167,24 @@ public class PenaltyService {
         if (!wrongPackageQuestions.isEmpty()) {
             summaries.add("Penalty 4: " + describeWrongPackagePenalty(wrongPackageQuestions, adjustedQuestionScores));
         }
+        summaries.addAll(describeExternalPenalties(externalPenalties));
 
         return summaries.isEmpty() ? "No penalty" : String.join("; ", summaries);
     }
 
+    private List<String> describeExternalPenalties(List<PenaltyRecord> externalPenalties) {
+        if (externalPenalties == null || externalPenalties.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return externalPenalties.stream()
+                .map(penalty -> penalty.getReason() + ": " + fmtCompact(Math.abs(penalty.getPenaltyValue())))
+                .toList();
+    }
+
     private void applyDisplayOverrides(Map<String, Double> adjustedQuestionScores,
                                        Map<String, Double> rawQuestionScores,
-                                       List<String> headerQuestions,
                                        List<String> wrongPackageQuestions) {
-        List<String> uniqueHeaderQuestions = headerQuestions.stream().distinct().toList();
         List<String> uniqueWrongPackageQuestions = wrongPackageQuestions.stream().distinct().toList();
-
-        if (uniqueHeaderQuestions.size() != 1) {
-            for (String qid : uniqueHeaderQuestions) {
-                adjustedQuestionScores.put(qid, rawQuestionScores.getOrDefault(qid, 0.0));
-            }
-        }
 
         if (uniqueWrongPackageQuestions.size() != 1) {
             for (String qid : uniqueWrongPackageQuestions) {
@@ -227,5 +243,57 @@ public class PenaltyService {
             return String.format(Locale.US, "%.0f", rounded);
         }
         return fmt(rounded);
+    }
+
+    private List<PenaltyRecord> loadExternalPenalties(String studentId, String penaltiesCsvPath) {
+        if (studentId == null || penaltiesCsvPath == null || penaltiesCsvPath.isBlank()) {
+            return Collections.emptyList();
+        }
+
+        Path path = Path.of(penaltiesCsvPath);
+        if (!Files.exists(path)) {
+            return Collections.emptyList();
+        }
+
+        String normalizedStudentId = normalizeStudentId(studentId);
+        List<PenaltyRecord> matches = new ArrayList<>();
+
+        try (BufferedReader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                String trimmed = line.trim();
+                if (trimmed.isEmpty() || trimmed.startsWith("#")) {
+                    continue;
+                }
+
+                String[] parts = trimmed.split(",", 3);
+                if (parts.length < 2) {
+                    continue;
+                }
+
+                String csvStudentId = normalizeStudentId(parts[0]);
+                if (!normalizedStudentId.equals(csvStudentId)) {
+                    continue;
+                }
+
+                try {
+                    double penaltyValue = Double.parseDouble(parts[1].trim());
+                    String reason = parts.length >= 3 && !parts[2].trim().isEmpty()
+                            ? parts[2].trim()
+                            : "Manual penalty";
+                    matches.add(new PenaltyRecord(csvStudentId, penaltyValue, reason, false));
+                } catch (NumberFormatException ignored) {
+                    // Skip malformed entries and continue processing the rest.
+                }
+            }
+        } catch (IOException ignored) {
+            return Collections.emptyList();
+        }
+
+        return matches;
+    }
+
+    private String normalizeStudentId(String studentId) {
+        return studentId == null ? "" : studentId.trim().replace("#", "").toLowerCase(Locale.US);
     }
 }
