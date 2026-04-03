@@ -32,8 +32,14 @@
             font-family: 'Space Mono', monospace; font-weight: 700; font-size: 1rem;
             flex-shrink: 0;
         }
+        .slot-name-field { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+        .slot-name-label {
+            font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+            font-family: 'Space Grotesk', sans-serif; color: var(--black);
+        }
+        .slot-name-label .req { color: #b03030; font-weight: 800; }
         .slot-name-input {
-            flex: 1; padding: 8px 14px; font-size: 1rem; font-weight: 600;
+            width: 100%; padding: 8px 14px; font-size: 1rem; font-weight: 600;
             font-family: 'Space Grotesk', sans-serif;
             border: 3px solid var(--black); background: var(--white); outline: none;
         }
@@ -117,7 +123,7 @@
             font-family: 'Space Grotesk', sans-serif; font-size: 0.88rem; font-weight: 700;
             cursor: pointer; border: 3px solid var(--black); border-bottom: none;
             background: var(--white); transition: background 0.1s;
-            position: relative; top: 4px; text-transform: uppercase;
+            position: relative; top: 4px;
         }
         .assess-tab:hover { background: var(--yellow-light); }
         .assess-tab.active { background: var(--yellow); }
@@ -179,6 +185,12 @@
             background: var(--white); outline: none;
         }
         .add-question-row input:focus { background: var(--yellow-light); }
+
+        .add-question-hint {
+            max-width: 100%;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+        }
 
         /* ── Buttons ───────────────────────────────────────────────────── */
         .btn-secondary {
@@ -352,7 +364,7 @@
 
     <div class="hero-section">
         <h2 class="hero-title">Grade your code<br><span class="highlight">automatically!</span></h2>
-        <p class="hero-subtitle">Upload 1–5 Assessments → Confirm Marks → Review Testers → Grade Each One</p>
+        <p class="hero-subtitle">Upload 1–5 Assessments → Confirm Marks → Review Testers → Grade → View Results</p>
     </div>
 
     <!-- ══════════════════════════════════════════════════════════════════ -->
@@ -361,7 +373,7 @@
     <section id="uploadPhase">
         <div class="section-header">
             <h3>📂 Upload Assessments</h3>
-            <p>Add 1–5 assessments. Each needs: student submissions, template, score sheet CSV, and exam paper PDF. Testers ZIP is optional — AI can generate them.</p>
+            <p>Name each assessment, then add files: student submissions, template, score sheet CSV, and exam paper PDF. Testers ZIP is optional — AI can generate them.</p>
         </div>
 
         <div class="slot-grid" id="assessmentSlots">
@@ -453,9 +465,14 @@ function addSlot() {
     el.innerHTML = `
         <div class="slot-header">
             <span class="slot-num"></span>
-            <input class="slot-name-input" type="text"
-                   placeholder="Assessment name, e.g. Midterm 25/26"
-                   oninput="uploadSlots[${id}].name = this.value">
+            <div class="slot-name-field">
+                <label class="slot-name-label" for="slot-name-${id}">Assessment name <span class="req" title="Required">*</span></label>
+                <input class="slot-name-input" id="slot-name-${id}" type="text" required maxlength="120"
+                       autocomplete="off"
+                       placeholder="e.g. Midterm 25/26, Final Exam"
+                       oninput="uploadSlots[${id}].name = this.value; this.style.borderColor = this.value.trim() ? '' : 'var(--red)';"
+onblur="if(!this.value.trim()){ this.style.borderColor='var(--red)'; this.placeholder='⚠ Name required'; } else { this.style.borderColor=''; this.placeholder='Assessment name, e.g. Midterm 25/26'; }">
+            </div>
             <button class="slot-remove" onclick="removeSlot(${id})" title="Remove">✕</button>
         </div>
         <div class="slot-files">
@@ -601,6 +618,16 @@ async function uploadAll() {
         .sort((a, b) => Number(a) - Number(b));
     if (!ids.length) { showAlert('error', 'Add at least one assessment.'); return; }
 
+    for (const id of ids) {
+        const nameEl = document.querySelector('#slot-' + id + ' .slot-name-input');
+        const name = (nameEl && nameEl.value.trim()) || '';
+        if (!name) {
+            showAlert('error', 'Enter a name for each assessment before uploading.');
+            if (nameEl) { nameEl.focus(); nameEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+            return;
+        }
+    }
+
     const btn = document.getElementById('uploadBtn');
     btn.disabled = true; btn.innerHTML = '<span class="btn-icon">⏳</span> Uploading...';
     setStatus('UPLOADING');
@@ -609,7 +636,7 @@ async function uploadAll() {
     ids.forEach((id, index) => {
         const s = uploadSlots[id];
         const nameEl = document.querySelector('#slot-' + id + ' .slot-name-input');
-        fd.append('name', (nameEl && nameEl.value.trim()) || ('Assessment ' + (index + 1)));
+        fd.append('name', (nameEl && nameEl.value.trim()) || '');
         if (s.submission)  fd.append('submission',  s.submission);
         if (s.template)    fd.append('template',    s.template);
         if (s.scoresheet)  fd.append('scoresheet',  s.scoresheet);
@@ -630,6 +657,7 @@ async function uploadAll() {
         // Build assessment state from response and map it back to slots.
         data.assessments.forEach((a, index) => {
             const slotId = ids[index];
+            const testerUploaded = !!(slotId && uploadSlots[slotId] && uploadSlots[slotId].testers);
             if (slotId && uploadSlots[slotId]) {
                 uploadSlots[slotId].sanitisedName = a.sanitisedName;
             }
@@ -637,8 +665,9 @@ async function uploadAll() {
                 displayName:    a.name,
                 sanitisedName:  a.sanitisedName,
                 hasExamPdf:     a.saved.includes('examPdf'),
+                examMarksScanned: false,
                 currentStep:    1,
-                hasTesters:     a.saved.includes('testers'),
+                hasTesters:     testerUploaded,
                 testerSources:  {},
                 savedState:     {},
                 activeTab:      null,
@@ -779,11 +808,6 @@ function buildWizardHTML(key, a) {
         <div class="step" id="${key}-step4"><div class="step-circle">4</div><div class="step-label">Results</div></div>
     </div>
 
-    ${hasTesters ? `
-    <div class="pdf-hint pdf-detected" style="margin-bottom:20px;">
-        ✓ Pre-uploaded testers detected. You can skip to grading, or generate new testers from the exam PDF.
-    </div>` : ''}
-
     <!-- STEP 1: Confirm Marks -->
     <div id="${key}-marksSection">
         <div class="section-header">
@@ -804,16 +828,21 @@ function buildWizardHTML(key, a) {
             </tr></tfoot>
         </table>
 
-        <div class="add-question-row">
-            <input type="text" id="${key}-newQId" placeholder="Q1c" maxlength="6">
-            <input type="number" id="${key}-newQMarks" placeholder="Marks" min="1" max="30" style="width:70px;">
-            <button class="btn-secondary" onclick="addMarkRow('${key}')" style="padding:4px 12px;font-size:.8rem;">+ Add</button>
+        <div id="${key}-addMarkBlock" style="display:none;" title="Shown after the exam PDF is scanned and per-question marks appear">
+            <p class="add-question-hint" style="margin:0 0 10px 0;font-size:.85rem;color:#a8a8cc;line-height:1.45;">
+                Spot a question the scan missed? Enter its ID and marks, press <strong>+ Add</strong>, then generate testers when you are ready.
+            </p>
+            <div class="add-question-row">
+                <input type="text" id="${key}-newQId" placeholder="e.g. Q1c" maxlength="6">
+                <input type="number" id="${key}-newQMarks" placeholder="Marks" min="1" max="30" style="width:80px;">
+                <button class="btn-secondary" onclick="addMarkRow('${key}')" style="padding:4px 12px;font-size:.8rem;">+ Add</button>
+            </div>
         </div>
 
         <div class="section-actions">
             <button class="btn-secondary" id="${key}-scanBtn" onclick="scanMarks('${key}')">📄 Scan Exam PDF</button>
-            ${hasTesters ? `<button class="btn-primary" onclick="skipToGrade('${key}')">⏩ Skip to Grade (use uploaded testers)</button>` : ''}
-            <button class="btn-primary" id="${key}-genBtn" onclick="doGenerate('${key}')">⚙ Generate Test Cases</button>
+            ${hasTesters ? `<button class="btn-primary" id="${key}-skipBtn" onclick="skipToGrade('${key}')" style="display:none;">Skip to Grade (use uploaded testers)</button>` : ''}
+            ${hasTesters ? '' : `<button type="button" class="btn-primary" id="${key}-genBtn" onclick="doGenerate('${key}')" style="display:none;">⚙ Generate Test Cases</button>`}
         </div>
     </div>
 
@@ -821,7 +850,7 @@ function buildWizardHTML(key, a) {
     <div id="${key}-editorSection" style="display:none;">
         <div class="section-header">
             <h3>🧪 Review Tester Files</h3>
-            <p>Edit the AI-generated tester source code. Save each file before grading.</p>
+            <p>Edit the AI-generated tester source code. You must save all files before you can run grading.</p>
         </div>
         <div id="${key}-generatingOverlay" class="generating-overlay" style="display:none;">
             <span class="spinner">⚙</span>
@@ -841,10 +870,10 @@ function buildWizardHTML(key, a) {
                       oninput="markUnsaved('${key}')"
                       onkeydown="handleTabKey(event)"></textarea>
         </div>
-        <div class="section-actions">
+        <div class="section-actions" style="flex-wrap:wrap;">
             <button class="btn-secondary" onclick="wizardGoBack('${key}', 1)">← Back to Marks</button>
-            <button class="btn-secondary" onclick="saveAllFiles('${key}')">💾 Save All Files</button>
-            <button class="btn-primary" onclick="doGrade('${key}')">▶ Confirm &amp; Grade</button>
+            <button type="button" class="btn-secondary" id="${key}-saveAllBtn" onclick="saveAllFiles('${key}')" style="display:none;">💾 Save All Files</button>
+            <button type="button" class="btn-primary" id="${key}-gradeBtn" onclick="doGrade('${key}')" style="display:none;">▶ Confirm &amp; Grade</button>
         </div>
     </div>
 
@@ -862,12 +891,8 @@ function buildWizardHTML(key, a) {
     <!-- STEP 4: Results -->
     <div id="${key}-resultsSection" style="display:none;">
         <div class="section-header">
-            <h3>📊 Results — ${escHtml(a.displayName)}</h3>
+            <h3>Results — ${escHtml(a.displayName)}</h3>
             <p>Grading complete!</p>
-        </div>
-        <div class="stats-container">
-            <div class="stat-card"><div class="stat-icon">👥</div><div class="stat-value" id="${key}-statStudents">-</div><div class="stat-label">Students</div></div>
-            <div class="stat-card"><div class="stat-icon">📝</div><div class="stat-value" id="${key}-statTasks">-</div><div class="stat-label">Tasks</div></div>
         </div>
         <div class="download-area-card">
             <h4>Download Reports</h4>
@@ -984,6 +1009,13 @@ async function scanMarks(key, options = {}) {
     const { silentNetworkError = false } = options;
     const hint = document.getElementById(key + '-marksHint');
     const btn = document.getElementById(key + '-scanBtn');
+    const addMarkBlockEl = document.getElementById(key + '-addMarkBlock');
+    const genBtnScan = document.getElementById(key + '-genBtn');
+    const skipBtnScan = document.getElementById(key + '-skipBtn');
+    if (addMarkBlockEl) addMarkBlockEl.style.display = 'none';
+    if (genBtnScan) genBtnScan.style.display = 'none';
+    if (skipBtnScan) skipBtnScan.style.display = 'none';
+    if (assessments[key]) assessments[key].examMarksScanned = false;
     hint.textContent = '⏳ Scanning exam paper PDF with AI — this may take a moment...';
     hint.className = 'pdf-hint';
     btn.disabled = true;
@@ -996,6 +1028,11 @@ async function scanMarks(key, options = {}) {
         if (!data.success) {
             hint.textContent = '❌ ' + (data.message || 'Failed to parse exam PDF.');
             hint.style.borderColor = '#dc6f6f'; hint.style.color = '#dc6f6f';
+            const genBtnFail = document.getElementById(key + '-genBtn');
+            const skipBtnFail = document.getElementById(key + '-skipBtn');
+            if (genBtnFail) genBtnFail.style.display = 'none';
+            if (skipBtnFail) skipBtnFail.style.display = 'none';
+            if (assessments[key]) assessments[key].examMarksScanned = false;
             return;
         }
 
@@ -1013,10 +1050,21 @@ async function scanMarks(key, options = {}) {
             sorted.forEach(qId => addMarkRowToTable(key, qId, marks[qId]));
         }
         updateMarksTotal(key);
+        if (addMarkBlockEl) addMarkBlockEl.style.display = 'block';
+        const genBtn = document.getElementById(key + '-genBtn');
+        const skipBtn = document.getElementById(key + '-skipBtn');
+        if (genBtn) genBtn.style.display = 'inline-flex';
+        if (skipBtn) skipBtn.style.display = 'inline-flex';
+        if (assessments[key]) assessments[key].examMarksScanned = true;
 
     } catch (e) {
         hint.textContent = '⚠️ Network error: ' + e.message;
         hint.style.borderColor = '#dc6f6f'; hint.style.color = '#dc6f6f';
+        const genBtnErr = document.getElementById(key + '-genBtn');
+        const skipBtnErr = document.getElementById(key + '-skipBtn');
+        if (genBtnErr) genBtnErr.style.display = 'none';
+        if (skipBtnErr) skipBtnErr.style.display = 'none';
+        if (assessments[key]) assessments[key].examMarksScanned = false;
         if (!silentNetworkError) {
             showAlert('error', 'Exam PDF scan failed for ' + (assessments[key]?.displayName || key) + ': ' + e.message);
         }
@@ -1065,7 +1113,9 @@ function removeMarkRow(key, qId) {
 
 function updateMarksTotal(key) {
     let total = 0;
-    document.querySelectorAll('#' + key + '-marksBody input[type=number]').forEach(inp => {
+    const marksBody = document.getElementById(key + '-marksBody');
+    if (!marksBody) return;
+    marksBody.querySelectorAll('input[type="number"]').forEach(inp => {
         total += parseInt(inp.value) || 0;
     });
     document.getElementById(key + '-marksTotal').textContent = total;
@@ -1073,7 +1123,9 @@ function updateMarksTotal(key) {
 
 function getConfirmedMarks(key) {
     const marks = {};
-    document.querySelectorAll('#' + key + '-marksBody tr').forEach(tr => {
+    const marksBody = document.getElementById(key + '-marksBody');
+    if (!marksBody) return marks;
+    marksBody.querySelectorAll('tr').forEach(tr => {
         const qId = tr.id.replace(key + '-markrow-', '');
         const inp = document.getElementById(key + '-marks-' + qId);
         if (inp) marks[qId] = parseInt(inp.value) || 1;
@@ -1086,6 +1138,11 @@ function getConfirmedMarks(key) {
 // ══════════════════════════════════════════════════════════════════════════════
 
 async function doGenerate(key) {
+    const meta = assessments[key];
+    if (!meta || !meta.examMarksScanned) {
+        showAlert('error', 'Scan the exam PDF first so all questions and marks appear in the table.');
+        return;
+    }
     const marks = getConfirmedMarks(key);
     if (Object.keys(marks).length === 0) {
         showAlert('error', 'Add at least one question.');
@@ -1093,6 +1150,10 @@ async function doGenerate(key) {
     }
 
     const btn = document.getElementById(key + '-genBtn');
+    const saveAllBtn = document.getElementById(key + '-saveAllBtn');
+    const gradeBtn = document.getElementById(key + '-gradeBtn');
+    if (saveAllBtn) saveAllBtn.style.display = 'none';
+    if (gradeBtn) gradeBtn.style.display = 'none';
     btn.disabled = true; btn.textContent = '⏳ Generating...';
 
     wizardGotoStep(key, 2);
@@ -1125,6 +1186,8 @@ async function doGenerate(key) {
         }
 
         renderQTabs(key);
+        if (saveAllBtn) saveAllBtn.style.display = 'inline-flex';
+        if (gradeBtn) gradeBtn.style.display = 'inline-flex';
         updateTabStatus(key, 2, 'Review', 'step-3');
         showAlert('success', Object.keys(a.testerSources).length + ' tester file(s) generated ✓');
 
@@ -1157,7 +1220,16 @@ function renderQTabs(key) {
     });
 
     document.getElementById(key + '-editorContainer').style.display = 'block';
-    if (sorted.length > 0) switchQTab(key, sorted[0]);
+    const saveAllBtn = document.getElementById(key + '-saveAllBtn');
+    const gradeBtn = document.getElementById(key + '-gradeBtn');
+    if (sorted.length > 0) {
+        if (saveAllBtn) saveAllBtn.style.display = 'inline-flex';
+        if (gradeBtn) gradeBtn.style.display = 'inline-flex';
+        switchQTab(key, sorted[0]);
+    } else {
+        if (saveAllBtn) saveAllBtn.style.display = 'none';
+        if (gradeBtn) gradeBtn.style.display = 'none';
+    }
 }
 
 function flushActiveEditor(key) {
@@ -1173,7 +1245,8 @@ function switchQTab(key, qId) {
     flushActiveEditor(key);
     a.activeTab = qId;
 
-    document.querySelectorAll('#' + key + '-qTabs .q-tab').forEach(t => t.classList.remove('active'));
+    const qTabs = document.getElementById(key + '-qTabs');
+    if (qTabs) qTabs.querySelectorAll('.q-tab').forEach(t => t.classList.remove('active'));
     const tab = document.getElementById(key + '-qtab-' + qId);
     if (tab) tab.classList.add('active');
 
@@ -1262,12 +1335,19 @@ async function saveAllFiles(key) {
 
 async function doGrade(key) {
     const a = assessments[key];
+    if (!a) { showAlert('error', 'Assessment not found.'); return; }
     flushActiveEditor(key);
 
-    if (Object.keys(a.testerSources).length > 0) {
-        const ok = await callSaveTesters(key, a.testerSources);
-        if (!ok) return;
-        Object.keys(a.testerSources).forEach(q => a.savedState[q] = true);
+    const qids = Object.keys(a.testerSources || {});
+    if (qids.length === 0) {
+        showAlert('error', 'No tester files to grade.'); return;
+    }
+    if (!a.savedState) a.savedState = {};
+    const unsaved = qids.filter(q => a.savedState[q] !== true);
+    if (unsaved.length > 0) {
+        const msg = 'Save all tester files before grading. Unsaved: ' + unsaved.join(', ') + '. Use Save File or Save All Files.';
+        showAlert('error', msg);
+        return;
     }
 
     wizardGotoStep(key, 3);
@@ -1291,12 +1371,9 @@ async function doGrade(key) {
         document.getElementById(key + '-gradingSection').style.display = 'none';
         document.getElementById(key + '-resultsSection').style.display = 'block';
 
-        document.getElementById(key + '-statStudents').textContent = data.studentCount || '-';
-        document.getElementById(key + '-statTasks').textContent = (data.logs || []).length;
-
         const logEl = document.getElementById(key + '-logTerminal');
         logEl.innerHTML = '';
-        (data.logs || []).forEach(l => {
+        (data.logs || []).filter(l => l !== 'Penalties skipped (not enabled for this run)').forEach(l => {
             const d = document.createElement('div');
             d.className = 'log-line'; d.textContent = '$ ' + l;
             logEl.appendChild(d);
@@ -1342,12 +1419,9 @@ async function skipToGrade(key) {
         document.getElementById(key + '-gradingSection').style.display = 'none';
         document.getElementById(key + '-resultsSection').style.display = 'block';
 
-        document.getElementById(key + '-statStudents').textContent = data.studentCount || '-';
-        document.getElementById(key + '-statTasks').textContent = (data.logs || []).length;
-
         const logEl = document.getElementById(key + '-logTerminal');
         logEl.innerHTML = '';
-        (data.logs || []).forEach(l => {
+        (data.logs || []).filter(l => l !== 'Penalties skipped (not enabled for this run)').forEach(l => {
             const d = document.createElement('div');
             d.className = 'log-line'; d.textContent = '$ ' + l;
             logEl.appendChild(d);
@@ -1377,12 +1451,16 @@ function setStatus(s) {
 }
 
 function showAlert(type, message) {
+    const text = String(message == null ? '' : message);
     const c = document.getElementById('alertContainer');
+    if (!c) { try { window.alert(text); } catch (e) { } return; }
     const a = document.createElement('div');
     a.className = 'alert alert-' + type;
-    a.innerHTML = '<div class="alert-content"><span class="alert-icon">' + (type==='success'?'✓':'✕') + '</span><span class="alert-message">' + message + '</span></div><button class="alert-close" onclick="this.parentElement.remove()">×</button>';
+    a.innerHTML = '<div class="alert-content"><span class="alert-icon">' + (type==='success'?'✓':'✕') + '</span><span class="alert-message"></span></div><button class="alert-close" onclick="this.parentElement.remove()">×</button>';
+    const msgEl = a.querySelector('.alert-message');
+    if (msgEl) msgEl.textContent = text;
     c.appendChild(a);
-    setTimeout(() => { if (a.parentElement) a.remove(); }, 6000);
+    setTimeout(() => { if (a.parentElement) a.remove(); }, 8000);
 }
 
 function escHtml(s) {

@@ -13,7 +13,6 @@ public final class AssessmentProgressRegistry {
 
     public static void start(String assessment) {
         ProgressState state = new ProgressState();
-        state.assessment = assessment;
         state.stage = "Starting";
         state.message = "Preparing grading run...";
         state.percent = 0;
@@ -24,7 +23,6 @@ public final class AssessmentProgressRegistry {
 
     public static void updatePercent(String assessment, int percent, String stage, String message) {
         ProgressState state = STATES.computeIfAbsent(assessment, k -> new ProgressState());
-        state.assessment = assessment;
         state.percent = clamp(percent);
         state.stage = stage;
         state.message = message;
@@ -37,10 +35,7 @@ public final class AssessmentProgressRegistry {
     public static void updateProgress(String assessment, String stage, int percentBase,
                                       int completedUnits, int totalUnits, String message) {
         ProgressState state = STATES.computeIfAbsent(assessment, k -> new ProgressState());
-        state.assessment = assessment;
         state.stage = stage;
-        state.completedUnits = Math.max(0, completedUnits);
-        state.totalUnits = Math.max(0, totalUnits);
         if (totalUnits > 0) {
             int extra = (int) Math.round((completedUnits * 1.0 / totalUnits) * 30.0);
             state.percent = clamp(percentBase + extra);
@@ -56,7 +51,6 @@ public final class AssessmentProgressRegistry {
 
     public static void complete(String assessment, String message) {
         ProgressState state = STATES.computeIfAbsent(assessment, k -> new ProgressState());
-        state.assessment = assessment;
         state.percent = 100;
         state.stage = "Completed";
         state.message = message;
@@ -70,7 +64,6 @@ public final class AssessmentProgressRegistry {
 
     public static void fail(String assessment, String message) {
         ProgressState state = STATES.computeIfAbsent(assessment, k -> new ProgressState());
-        state.assessment = assessment;
         state.stage = "Failed";
         state.message = message;
         state.done = true;
@@ -128,12 +121,9 @@ public final class AssessmentProgressRegistry {
     }
 
     private static class ProgressState {
-        String assessment;
         String stage;
         String message;
         int percent;
-        int completedUnits;
-        int totalUnits;
         boolean done;
         boolean success;
         long startedAtMs;

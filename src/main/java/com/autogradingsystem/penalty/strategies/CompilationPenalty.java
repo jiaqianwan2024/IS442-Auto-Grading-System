@@ -16,6 +16,11 @@ public class CompilationPenalty implements PenaltyStrategy {
 
     @Override
     public double calculateDeduction(PenaltyGradingResult result) {
+        boolean failedToCompile = result.getRawScore() == 0.0
+                && result.getMaxPossibleScore() > 0.0;
+        if (failedToCompile) {
+            return result.getMaxPossibleScore() * DEDUCTION_PERCENTAGE;
+        }
         return 0.0;
     }
 }

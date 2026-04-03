@@ -5,7 +5,7 @@
 # WHAT THIS DOES:
 #   1. Clears resources/assessments on startup
 #   2. Loads COHERE_API_KEY from .env
-#   3. Runs mvn clean install -DskipTests
+#   3. Runs mvn clean install
 #   4. Starts the Spring Boot web server on http://localhost:9090
 # ============================================================================
 
@@ -37,12 +37,8 @@ fi
 echo "API key found."
 echo ""
 
-echo "Running Maven clean install (skip tests)..."
-mvn clean install -DskipTests -q || {
-    echo ""
-    echo "WARNING: Maven install failed. Retrying with clean package..."
-    mvn clean package -DskipTests -q
-}
+echo "Running Maven clean install..."
+mvn clean install -q
 echo "Build complete."
 echo ""
 
@@ -50,7 +46,7 @@ JAR=$(ls target/*.jar 2>/dev/null | grep -v sources | grep -v javadoc | head -1)
 
 if [ -z "$JAR" ]; then
     echo "Build failed - no jar found in target/."
-    echo "Run manually: mvn clean install -DskipTests or mvn clean package -DskipTests"
+    echo "Run manually: mvn clean install"
     exit 1
 fi
 

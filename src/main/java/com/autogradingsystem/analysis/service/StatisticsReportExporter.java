@@ -1,5 +1,6 @@
 package com.autogradingsystem.analysis.service;
 import com.autogradingsystem.model.GradingResult;
+import com.autogradingsystem.penalty.model.ProcessedScore;
 
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.ss.util.CellRangeAddress;
@@ -24,7 +25,6 @@ import java.util.stream.Collectors;
  *
  * The top-level export() is retained as a no-op for backward compatibility only.
  */
-@Deprecated
 public class StatisticsReportExporter {
 
     private static final double A_MIN = 80.0;
@@ -43,11 +43,9 @@ public class StatisticsReportExporter {
 
     // ── PATH FIELDS ──────────────────────────────────────────────────────────
 
-    private final Path outputReports;
     private final Path inputTesters;
 
     public StatisticsReportExporter(Path outputReports, Path inputTesters) {
-        this.outputReports = outputReports;
         this.inputTesters  = inputTesters;
     }
 
@@ -76,7 +74,8 @@ public class StatisticsReportExporter {
     // Called by ScoreSheetExporter after writing Score Sheet + Anomalies tabs.
 
     void appendStatsSheets(XSSFWorkbook wb,
-                           Map<String, List<GradingResult>> resultsByStudent) {
+                           Map<String, List<GradingResult>> resultsByStudent,
+                           Map<String, ProcessedScore> penaltyResults) {
         try {
             List<GradingResult> allResults = resultsByStudent.values().stream()
                     .flatMap(Collection::stream).collect(Collectors.toList());
@@ -128,7 +127,7 @@ public class StatisticsReportExporter {
         Row titleRow = s.createRow(0);
         titleRow.setHeightInPoints(36);
         XSSFCell tc = (XSSFCell) titleRow.createCell(0);
-        tc.setCellValue("IS442 AUTO-GRADING SYSTEM — CLASS STATISTICS REPORT");
+        tc.setCellValue("IS442 AUTO-GRADING SYSTEM — CLASS STATISTICS REPORT USING RAW SCORE");
         tc.setCellStyle(titleStyle);
         s.addMergedRegion(new CellRangeAddress(0, 0, 0, 2));
 
@@ -455,7 +454,8 @@ public class StatisticsReportExporter {
         }
     }
 
-    List<StudentRecord> buildRanked(Map<String, List<GradingResult>> map, double totalMax) {
+    List<StudentRecord> buildRanked(Map<String, List<GradingResult>> map,
+                                    double totalMax) {
         List<StudentRecord> list = new ArrayList<>();
         for (Map.Entry<String, List<GradingResult>> e : map.entrySet()) {
             Map<String, Double> qs = new LinkedHashMap<>();

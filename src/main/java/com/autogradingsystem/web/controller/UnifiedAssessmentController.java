@@ -14,9 +14,11 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.*;
 import java.nio.file.*;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
+import java.util.zip.ZipException;
 import java.util.zip.ZipInputStream;
 
 /**
@@ -94,6 +96,22 @@ public class UnifiedAssessmentController {
                 List<String> saved   = new ArrayList<>();
                 List<String> missing = new ArrayList<>();
 
+                validateAssessmentUpload(name, "submission", fileAt(submissions, i));
+                validateAssessmentUpload(name, "template", fileAt(templates, i));
+                validateAssessmentUpload(name, "scoresheet", fileAt(scoresheets, i));
+                validateAssessmentUpload(name, "examPdf", fileAt(examPdfs, i));
+                validateAssessmentUpload(name, "testers", fileAt(testerZips, i));
+
+                List<String> missingRequired = missingRequiredUploads(
+                        fileAt(submissions, i),
+                        fileAt(templates, i),
+                        fileAt(scoresheets, i),
+                        fileAt(examPdfs, i));
+                if (!missingRequired.isEmpty()) {
+                    throw new IllegalArgumentException("Assessment \"" + name + "\" is missing required file(s): "
+                            + String.join(", ", missingRequired) + ". Testers ZIP is optional.");
+                }
+
                 if (hasFile(submissions, i)) {
                     saveFile(submissions.get(i), paths.INPUT_SUBMISSIONS.resolve("student-submission.zip"));
                     saved.add("submission");
@@ -110,8 +128,9 @@ public class UnifiedAssessmentController {
                 } else { missing.add("scoresheet"); }
 
                 if (hasFile(examPdfs, i)) {
+                    String examFilename = examPdfs.get(i).getOriginalFilename();
                     saveFile(examPdfs.get(i),
-                            paths.INPUT_EXAM.resolve(examPdfs.get(i).getOriginalFilename()));
+                            paths.INPUT_EXAM.resolve(examFilename != null ? examFilename : "exam.pdf"));
                     saved.add("examPdf");
                 } else { missing.add("examPdf"); }
 
@@ -121,10 +140,13 @@ public class UnifiedAssessmentController {
                     saved.add("testers");
                 }
 
+                boolean hasTesters = Files.isDirectory(paths.INPUT_TESTERS) && hasJavaFiles(paths.INPUT_TESTERS);
+
                 result.put("saved",   saved);
                 result.put("missing", missing);
+                result.put("hasTesters", hasTesters);
                 result.put("ready",   missing.isEmpty() ||
-                        (missing.size() == 1 && missing.contains("examPdf") && saved.contains("testers")));
+                        (missing.size() == 1 && missing.contains("examPdf") && hasTesters));
                 assessmentResults.add(result);
             }
 
@@ -133,6 +155,10 @@ public class UnifiedAssessmentController {
             response.put("message",     assessmentResults.size() + " assessment(s) uploaded.");
             return ResponseEntity.ok(response);
 
+        } catch (IllegalArgumentException e) {
+            response.put("success", false);
+            response.put("message", e.getMessage());
+            return ResponseEntity.badRequest().body(response);
         } catch (Exception e) {
             e.printStackTrace();
             response.put("success", false);
@@ -304,11 +330,11 @@ public class UnifiedAssessmentController {
             return ResponseEntity.notFound().build();
         }
 
-        Resource resource = new FileSystemResource(reportFile.toFile());
+        Resource resource = new FileSystemResource(Objects.requireNonNull(reportFile.toFile()));
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION,
                         "attachment; filename=\"" + reportFile.getFileName() + "\"")
-                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .contentType(Objects.requireNonNull(MediaType.APPLICATION_OCTET_STREAM))
                 .body(resource);
     }
 
@@ -360,10 +386,171 @@ public class UnifiedAssessmentController {
                 && files.get(index) != null && !files.get(index).isEmpty();
     }
 
+    private MultipartFile fileAt(List<MultipartFile> files, int index) {
+        if (files == null || index >= files.size()) {
+            return null;
+        }
+        MultipartFile file = files.get(index);
+        return file == null || file.isEmpty() ? null : file;
+    }
+
+    private List<String> missingRequiredUploads(MultipartFile submission,
+                                                MultipartFile template,
+                                                MultipartFile scoresheet,
+                                                MultipartFile examPdf) {
+        List<String> missing = new ArrayList<>();
+        if (submission == null) {
+            missing.add("Submissions ZIP");
+        }
+        if (template == null) {
+            missing.add("Template ZIP");
+        }
+        if (scoresheet == null) {
+            missing.add("Score Sheet CSV");
+        }
+        if (examPdf == null) {
+            missing.add("Exam PDF");
+        }
+        return missing;
+    }
+
+    private void validateAssessmentUpload(String assessmentName,
+                                          String placeholder,
+                                          MultipartFile file) throws IOException {
+        if (file == null || file.isEmpty()) {
+            return;
+        }
+
+        UploadSignature signature = inspectUpload(file);
+        String originalName = file.getOriginalFilename() == null ? "(unnamed file)" : file.getOriginalFilename();
+
+        switch (placeholder) {
+            case "scoresheet":
+                if (!signature.isCsv) {
+                    throw new IllegalArgumentException("Assessment \"" + assessmentName + "\": \"" + originalName
+                            + "\" was uploaded into Score Sheet, but it does not look like a score sheet CSV.");
+                }
+                break;
+            case "examPdf":
+                if (!signature.isPdf) {
+                    throw new IllegalArgumentException("Assessment \"" + assessmentName + "\": \"" + originalName
+                            + "\" was uploaded into Exam PDF, but it is not a PDF file.");
+                }
+                break;
+            case "testers":
+                if (!signature.isZip) {
+                    throw new IllegalArgumentException("Assessment \"" + assessmentName + "\": \"" + originalName
+                            + "\" was uploaded into Testers, but testers must be provided as a ZIP.");
+                }
+                if (!signature.hasTesterJava) {
+                    throw new IllegalArgumentException("Assessment \"" + assessmentName + "\": \"" + originalName
+                            + "\" was uploaded into Testers, but it does not contain any *Tester.java files.");
+                }
+                break;
+            case "template":
+                if (!signature.isZip) {
+                    throw new IllegalArgumentException("Assessment \"" + assessmentName + "\": \"" + originalName
+                            + "\" was uploaded into Template, but template must be a ZIP.");
+                }
+                if (signature.hasTesterJava) {
+                    throw new IllegalArgumentException("Assessment \"" + assessmentName + "\": \"" + originalName
+                            + "\" looks like a testers ZIP, not the template ZIP. Please move it to the Testers placeholder.");
+                }
+                if (!signature.hasJavaFiles) {
+                    throw new IllegalArgumentException("Assessment \"" + assessmentName + "\": \"" + originalName
+                            + "\" was uploaded into Template, but no Java question files were found inside.");
+                }
+                break;
+            case "submission":
+                if (!signature.isZip) {
+                    throw new IllegalArgumentException("Assessment \"" + assessmentName + "\": \"" + originalName
+                            + "\" was uploaded into Submissions, but submissions must be provided as a ZIP.");
+                }
+                if (signature.hasTesterJava) {
+                    throw new IllegalArgumentException("Assessment \"" + assessmentName + "\": \"" + originalName
+                            + "\" looks like a testers ZIP, not a student submissions ZIP.");
+                }
+                if (signature.hasJavaFiles && !signature.hasNestedZip) {
+                    throw new IllegalArgumentException("Assessment \"" + assessmentName + "\": \"" + originalName
+                            + "\" looks like a template ZIP, not a student submissions ZIP.");
+                }
+                break;
+            default:
+                break;
+        }
+    }
+
+    private UploadSignature inspectUpload(MultipartFile file) throws IOException {
+        byte[] bytes = file.getBytes();
+        UploadSignature signature = new UploadSignature();
+        signature.isPdf = startsWith(bytes, "%PDF-".getBytes(StandardCharsets.US_ASCII));
+        signature.isZip = startsWith(bytes, new byte[]{'P', 'K', 3, 4})
+                || startsWith(bytes, new byte[]{'P', 'K', 5, 6})
+                || startsWith(bytes, new byte[]{'P', 'K', 7, 8});
+
+        String originalName = Objects.requireNonNullElse(file.getOriginalFilename(), "").toLowerCase(Locale.ROOT);
+        String text = new String(bytes, StandardCharsets.UTF_8);
+        signature.isCsv = originalName.endsWith(".csv")
+                || text.contains("Username")
+                || text.contains("Email")
+                || text.contains("OrgDefinedId");
+
+        if (signature.isZip) {
+            inspectZipEntries(bytes, signature);
+        }
+        return signature;
+    }
+
+    private void inspectZipEntries(byte[] bytes, UploadSignature signature) throws IOException {
+        try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(bytes))) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                if (entry.isDirectory()) {
+                    continue;
+                }
+
+                String entryName = entry.getName();
+                String lower = entryName.toLowerCase(Locale.ROOT);
+                if (lower.endsWith(".zip")) {
+                    signature.hasNestedZip = true;
+                }
+                if (lower.endsWith(".java")) {
+                    signature.hasJavaFiles = true;
+                }
+                if (lower.endsWith("tester.java")) {
+                    signature.hasTesterJava = true;
+                }
+            }
+        } catch (ZipException e) {
+            throw new IllegalArgumentException("Uploaded ZIP file could not be read: " + e.getMessage(), e);
+        }
+    }
+
+    private boolean startsWith(byte[] bytes, byte[] prefix) {
+        if (bytes == null || prefix == null || bytes.length < prefix.length) {
+            return false;
+        }
+        for (int i = 0; i < prefix.length; i++) {
+            if (bytes[i] != prefix[i]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static class UploadSignature {
+        private boolean isPdf;
+        private boolean isZip;
+        private boolean isCsv;
+        private boolean hasJavaFiles;
+        private boolean hasTesterJava;
+        private boolean hasNestedZip;
+    }
+
     private void saveFile(MultipartFile file, Path destination) throws IOException {
         Path absolute = destination.toAbsolutePath();
         Files.createDirectories(absolute.getParent());
-        file.transferTo(absolute.toFile());
+        Files.copy(file.getInputStream(), absolute, StandardCopyOption.REPLACE_EXISTING);
         System.out.println("  💾 Saved: " + absolute);
     }
 
@@ -386,7 +573,8 @@ public class UnifiedAssessmentController {
     private void flattenDirectory(Path dir) throws IOException {
         if (!Files.isDirectory(dir)) return;
         try (Stream<Path> walk = Files.walk(dir)) {
-            walk.filter(p -> p.toString().endsWith(".java"))
+            walk.filter(Files::isRegularFile)
+                .filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".java"))
                 .filter(p -> !p.getParent().equals(dir))
                 .forEach(p -> {
                     try { Files.move(p, dir.resolve(p.getFileName()), StandardCopyOption.REPLACE_EXISTING); }
@@ -413,8 +601,9 @@ public class UnifiedAssessmentController {
     }
 
     private boolean hasJavaFiles(Path dir) {
-        try (Stream<Path> s = Files.list(dir)) {
-            return s.anyMatch(p -> p.toString().endsWith(".java"));
+        try (Stream<Path> s = Files.walk(dir)) {
+            return s.filter(Files::isRegularFile)
+                    .anyMatch(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".java"));
         } catch (Exception e) { return false; }
     }
 

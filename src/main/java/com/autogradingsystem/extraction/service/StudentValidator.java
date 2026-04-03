@@ -6,7 +6,6 @@ import com.autogradingsystem.extraction.model.ValidationResult.Status;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.charset.MalformedInputException;
-import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -24,10 +23,12 @@ public class StudentValidator {
 
     private static final int HEADER_SCAN_LINES = 12;
 
+    private static final Pattern ZIP_NAME_PATTERN =
+            Pattern.compile("(?i)(?:\\d{4}-\\d{4}-)?(.+?)\\.zip$");
     private static final Pattern NAME_PATTERN =
-            Pattern.compile("(?i)^\\s*(?:/\\*+\\s*)?(?:\\*+\\s*)?Name\\s*:\\s*([^\\r\\n]*?)\\s*(?:\\*/)?\\s*$");
+            Pattern.compile("(?i)^\\s*(?:/\\*+\\s*)?(?:\\*+\\s*)?Name\\s*:\\s*(.+?)\\s*(?:\\*/)?\\s*$");
     private static final Pattern IDENTIFIER_PATTERN =
-            Pattern.compile("(?i)^\\s*(?:/\\*+\\s*)?(?:\\*+\\s*)?(?:Email\\s*ID|Email|ID)\\s*:\\s*([^\\r\\n]*?)\\s*(?:\\*/)?\\s*$");
+            Pattern.compile("(?i)^\\s*(?:/\\*+\\s*)?(?:\\*+\\s*)?(?:Email\\s*ID|Email|ID)\\s*:\\s*(\\S+)\\s*(?:\\*/)?\\s*$");
 
     /**
      * Validates student using layered detection and extracts if valid.
@@ -67,12 +68,8 @@ public class StudentValidator {
     }
 
     private String extractUsernameFromFilename(String filename) {
-        if (filename == null || !filename.toLowerCase().endsWith(".zip")) {
-            return null;
-        }
-        String base = filename.substring(0, filename.length() - 4);
-        String stripped = base.replaceFirst("^(\\d{4}-)+", "");
-        return stripped.isBlank() ? null : stripped;
+        Matcher matcher = ZIP_NAME_PATTERN.matcher(filename);
+        return matcher.find() ? matcher.group(1) : null;
     }
 
     private String extractUsernameFromFolder(Path studentZip, ScoreSheetReader scoreReader)
@@ -145,16 +142,16 @@ public class StudentValidator {
 
                         Matcher nameMatcher = NAME_PATTERN.matcher(line);
                         if (foundName == null && nameMatcher.find()) {
-                            foundName = cleanHeaderValue(nameMatcher.group(1));
+                            foundName = nameMatcher.group(1).trim();
                         }
 
                         Matcher idMatcher = IDENTIFIER_PATTERN.matcher(line);
                         if (foundIdentifier == null && idMatcher.find()) {
-                            foundIdentifier = cleanHeaderValue(idMatcher.group(1));
+                            foundIdentifier = idMatcher.group(1).trim();
                         }
                     }
 
-                    if (isValidHeader(foundName) && isValidHeader(foundIdentifier)) {
+                    if (foundName != null && foundIdentifier != null) {
                         String resolved = scoreReader.resolveUsernameFromIdentifier(foundIdentifier);
                         if (resolved != null) {
                             return resolved;
@@ -175,16 +172,6 @@ public class StudentValidator {
         } catch (MalformedInputException e) {
             return Files.readAllLines(javaFile, StandardCharsets.ISO_8859_1);
         }
-    }
-
-    private String cleanHeaderValue(String value) {
-        if (value == null) return null;
-        String cleaned = value.trim();
-        return cleaned.isEmpty() ? null : cleaned;
-    }
-
-    private boolean isValidHeader(String value) {
-        return value != null && !value.isBlank();
     }
 
     private void deleteDirectory(Path directory) throws IOException {

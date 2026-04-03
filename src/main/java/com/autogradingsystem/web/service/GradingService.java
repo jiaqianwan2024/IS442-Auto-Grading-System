@@ -52,12 +52,6 @@ public class GradingService {
         this.outputReports = paths.OUTPUT_REPORTS;
     }
 
-    // ── NEW: overload with applyPenalties flag ────────────────────────────────
-
-    public GradingReport runFullPipeline(String assessmentName) {
-        return runFullPipeline(assessmentName, false);
-    }
-
     /**
      * Runs the full 7-phase grading pipeline with optional penalty application.
      *
@@ -141,7 +135,7 @@ public class GradingService {
             if (applyPenalties) {
                 progress(assessmentName, 88, "Applying Penalties", "Calculating penalty deductions...");
                 penaltyResults = runPenaltyPhase(results, remarks, allStudents);
-                logs.add("Penalties applied to " + penaltyResults.size() + " student(s)");
+                logs.add("Penalties applied to " + countStudentsWithPenalty(penaltyResults) + " student(s)");
                 progress(assessmentName, 89, "Penalties Applied", "Penalty deductions calculated.");
             } else {
                 logs.add("Penalties skipped (not enabled for this run)");
@@ -166,7 +160,7 @@ public class GradingService {
                     new AnalysisController(csvScoresheet, outputReports, inputTesters);
             analysisController.analyzeAndDisplayWithPenalties(results, remarks, anomalyRemarks,
                     allStudents, plagiarismNotes, penaltyResults);
-            logs.add("Reports exported" + (applyPenalties ? " (with penalty columns)" : ""));
+            logs.add("Reports exported" + (applyPenalties ? "" : ""));
             progress(assessmentName, 100, "Completed", "Reports exported.");
 
             return new GradingReport(true, studentCount, results, logs);
@@ -219,8 +213,10 @@ public class GradingService {
                 double maxScore = ScoreAnalyzer.getMaxScoreFromTester(
                         gr.getQuestionId(), inputTesters);
                 String questionId = gr.getQuestionId();
+                String parentQuestionId = parentQuestionId(questionId);
 
-                boolean properHierarchy = !hierarchyQuestions.contains(questionId);
+                boolean properHierarchy = !hierarchyQuestions.contains(questionId)
+                        && !hierarchyQuestions.contains(parentQuestionId);
                 boolean hasHeaders = !headerPenaltyQuestions.contains(questionId);
                 boolean hasWrongPackage = wrongPackageQuestions.contains(questionId);
 
@@ -258,12 +254,20 @@ public class GradingService {
                         e.getKey(), ps.getRawScore(), ps.getTotalDeduction(), ps.getFinalScore());
             }
         }
-        long penalised = penaltyMap.values().stream()
-                .filter(p -> p.getTotalDeduction() > 0).count();
+        long penalised = countStudentsWithPenalty(penaltyMap);
         System.out.println("   " + penalised + " student(s) received deductions.");
         System.out.println("=".repeat(70));
 
         return penaltyMap;
+    }
+
+    private long countStudentsWithPenalty(Map<String, ProcessedScore> penaltyMap) {
+        if (penaltyMap == null || penaltyMap.isEmpty()) {
+            return 0;
+        }
+        return penaltyMap.values().stream()
+                .filter(p -> p != null && p.getFinalScore() < p.getRawScore() - 1e-9)
+                .count();
     }
 
     private Set<String> extractQuestionIds(String remarks, String marker) {
@@ -297,6 +301,20 @@ public class GradingService {
             }
         }
         return ids;
+    }
+
+    private String parentQuestionId(String questionId) {
+        if (questionId == null || questionId.isBlank()) {
+            return "Question";
+        }
+        if (questionId.length() >= 3) {
+            char last = questionId.charAt(questionId.length() - 1);
+            char secondLast = questionId.charAt(questionId.length() - 2);
+            if (Character.isLetter(last) && Character.isDigit(secondLast)) {
+                return questionId.substring(0, questionId.length() - 1);
+            }
+        }
+        return questionId;
     }
 
     private Set<String> extractHeaderPenaltyQuestionIds(String remarks) {

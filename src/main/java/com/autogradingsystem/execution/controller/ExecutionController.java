@@ -103,11 +103,11 @@ public class ExecutionController {
             }
 
             for (String missingFile : student.getMissingHeaderFiles()) {
-                preRemarks.add("NoHeader:" + missingFile);
+                addRemark(preRemarks, "NoHeader:" + missingFile);
             }
 
             if (!student.isFolderRenamed() && !student.isAnomaly()) {
-                preRemarks.add("NoFolderRename");
+                addRemark(preRemarks, "NoFolderRename");
             }
 
             if (!preRemarks.isEmpty()) {
@@ -160,9 +160,9 @@ public class ExecutionController {
                 }
 
                 if (remarkLabel != null && !student.isAnomaly()) {
-                    remarksAccumulator
-                        .computeIfAbsent(student.getId(), k -> new ArrayList<>())
-                        .add(task.getQuestionId() + ":" + remarkLabel);
+                    List<String> remarks = remarksAccumulator
+                        .computeIfAbsent(student.getId(), k -> new ArrayList<>());
+                    addRemark(remarks, task.getQuestionId() + ":" + remarkLabel);
                 }
             }
         }
@@ -313,8 +313,8 @@ public class ExecutionController {
 
         if (!hasJava && hasClass)
             return new GradingResult(student, task, 0.0,
-                "Source file not found: " + expectedFile
-                + "\nOnly a pre-compiled .class was submitted — source (.java) is required.",
+                "File not found: " + expectedFile
+                + "\nOnly a pre-compiled .class was submitted - source (.java) is required.",
                 "FILE_NOT_FOUND");
 
         try {
@@ -324,9 +324,9 @@ public class ExecutionController {
         }
 
         if (improperHierarchyDetected && !student.isAnomaly()) {
-            remarksAccumulator
-                .computeIfAbsent(student.getId(), k -> new ArrayList<>())
-                .add(task.getQuestionId() + ":ImproperHierarchy");
+            List<String> remarks = remarksAccumulator
+                .computeIfAbsent(student.getId(), k -> new ArrayList<>());
+            addRemark(remarks, parentQuestionId(task.getQuestionId()) + ":ImproperHierarchy");
         }
 
         if (hasJava) {
@@ -622,10 +622,36 @@ public class ExecutionController {
     private void addWrongPackageRemarks(Student student, GradingTask task,
                                         CompilerService.CompileResult compileResult) {
         for (String strippedFile : compileResult.strippedPackageFiles) {
-            remarksAccumulator
-                .computeIfAbsent(student.getId(), k -> new ArrayList<>())
-                .add(task.getQuestionId() + ":WrongPackage:" + strippedFile);
+            List<String> remarks = remarksAccumulator
+                .computeIfAbsent(student.getId(), k -> new ArrayList<>());
+            addRemark(remarks, task.getQuestionId() + ":WrongPackage:" + strippedFile);
         }
+    }
+
+    private void addRemark(List<String> remarks, String remark) {
+        if (remarks == null || remark == null || remark.isBlank()) {
+            return;
+        }
+        if (!remarks.contains(remark)) {
+            remarks.add(remark);
+        }
+    }
+
+    private String parentQuestionId(String questionId) {
+        if (questionId == null || questionId.isBlank()) {
+            return "Question";
+        }
+        int i = 0;
+        while (i < questionId.length() && !Character.isLetter(questionId.charAt(i))) {
+            i++;
+        }
+        if (i < questionId.length() - 1) {
+            char last = questionId.charAt(questionId.length() - 1);
+            if (Character.isLetter(last) && Character.isDigit(questionId.charAt(questionId.length() - 2))) {
+                return questionId.substring(0, questionId.length() - 1);
+            }
+        }
+        return questionId;
     }
 
     private boolean hasRunnableMain(Path javaFile) {

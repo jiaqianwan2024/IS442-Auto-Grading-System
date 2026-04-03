@@ -1,5 +1,0 @@
-# Student Penalties CSV
-# Format: studentId,penaltyValue,reason
-# penaltyValue can be negative (deduction) or positive (bonus)
-# Example: 01400001,-2.0,Late submission
-# Example: 01400002,-1.0,Missing documentation

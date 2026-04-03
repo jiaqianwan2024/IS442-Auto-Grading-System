@@ -7,7 +7,6 @@ import com.autogradingsystem.model.Student;
 import com.autogradingsystem.penalty.model.ProcessedScore;
 
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -19,33 +18,6 @@ public class AnalysisController {
     public AnalysisController(Path csvScoresheet, Path outputReports, Path inputTesters) {
         this.scoreSheetExporter = new ScoreSheetExporter(csvScoresheet, outputReports, inputTesters);
         this.inputTesters       = inputTesters;
-    }
-
-    public void analyzeAndDisplay(List<GradingResult> results,
-                                  Map<String, String> remarksByStudent,
-                                  Map<String, String> anomalyRemarks,
-                                  List<Student> allStudents) {
-        analyzeAndDisplay(results, remarksByStudent, anomalyRemarks, allStudents,
-                          Collections.emptyMap(), Collections.emptyMap());
-    }
-
-    public void analyzeAndDisplay(List<GradingResult> results,
-                                  Map<String, String> remarksByStudent,
-                                  Map<String, String> anomalyRemarks,
-                                  List<Student> allStudents,
-                                  Map<String, String> plagiarismNotes) {
-        analyzeAndDisplay(results, remarksByStudent, anomalyRemarks, allStudents,
-                          plagiarismNotes, Collections.emptyMap());
-    }
-
-    public void analyzeAndDisplay(List<GradingResult> results,
-                                  Map<String, String> remarksByStudent,
-                                  Map<String, String> anomalyRemarks,
-                                  List<Student> allStudents,
-                                  Map<String, String> plagiarismNotes,
-                                  Map<String, ProcessedScore> penaltyResults) {
-        analyzeAndDisplayWithPenalties(results, remarksByStudent, anomalyRemarks,
-                allStudents, plagiarismNotes, penaltyResults);
     }
 
     public void analyzeAndDisplayWithPenalties(List<GradingResult> results,

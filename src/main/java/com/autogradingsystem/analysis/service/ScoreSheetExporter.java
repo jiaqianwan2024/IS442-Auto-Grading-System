@@ -4,19 +4,16 @@ import com.autogradingsystem.model.GradingResult;
 import com.autogradingsystem.model.Student;
 import com.autogradingsystem.penalty.model.ProcessedScore;
 import org.apache.poi.ss.usermodel.*;
-import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.*;
 
 import java.io.BufferedReader;
 import java.io.OutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * Exports a single combined XLSX report.
@@ -74,6 +71,7 @@ public class ScoreSheetExporter {
      *
      * @param penaltyResults studentId → ProcessedScore. Empty map = no penalty columns.
      */
+    @SuppressWarnings("deprecation")
     public Path export(
             Map<String, List<GradingResult>> resultsByStudent,
             Map<String, String> remarksByStudent,
@@ -114,14 +112,14 @@ public class ScoreSheetExporter {
 
             StatisticsReportExporter statsExporter =
                 new StatisticsReportExporter(outputReports, inputTesters);
-            statsExporter.appendStatsSheets(workbook, resultsByStudent);
+            statsExporter.appendStatsSheets(workbook, resultsByStudent, penaltyResults);
 
             try (OutputStream os = Files.newOutputStream(outputFile)) {
                 workbook.write(os);
             }
         }
 
-        exportCsv(outputDir, questionOrder, totals, qScoreMap, remarksByStudent,
+        exportCsv(outputDir, questionOrder, totals, qScoreMap, remarksByStudent, plagiarismNotes,
                   penaltyResults, gradedUsernames, hasPenalties, totalMaxScore);
 
         return outputFile;
@@ -134,6 +132,7 @@ public class ScoreSheetExporter {
                             Map<String, Double> totals,
                             Map<String, Map<String, Double>> qScoreMap,
                             Map<String, String> remarksByStudent,
+                            Map<String, String> plagiarismNotes,
                             Map<String, ProcessedScore> penaltyResults,
                             Set<String> gradedUsernames,
                             boolean hasPenalties,
@@ -166,16 +165,16 @@ public class ScoreSheetExporter {
                     for (String qid : questionOrder) {
                         headerRow.append(",").append(escapeCsv(qid));
                     }
-                    headerRow.append(",Remarks");
+                    headerRow.append(",Grading Remarks");
                     if (hasPenalties) {
                         headerRow.append(",Calculated Final Grade Numerator");
                         headerRow.append(",Calculated Final Grade Denominator");
                         for (String qid : questionOrder) {
                             headerRow.append(",").append(escapeCsv(qid));
                         }
-                        headerRow.append(",Total");
-                        headerRow.append(",Remarks");
+                        headerRow.append(",Penalty Remarks");
                     }
+                    headerRow.append(",Plagiarism Remarks");
                     headerRow.append(",").append(cols.length > COL_EOL ? escapeCsv(cols[COL_EOL].trim()) : "#");
                     sb.append(headerRow).append("\n");
                     isHeader = false;
@@ -227,10 +226,10 @@ public class ScoreSheetExporter {
                             dataRow.append(",").append(fmtNum(adjustedScores.getOrDefault(qid, 0.0)));
                         }
                     }
-                    dataRow.append(",").append(fmtNum(adjustedTotal));
                     dataRow.append(",").append(escapeCsv(penaltyRemark));
                 }
 
+                dataRow.append(",").append(escapeCsv(plagiarismNotes.getOrDefault(username, "")));
                 dataRow.append(",").append(escapeCsv(eolValue));
                 sb.append(dataRow).append("\n");
             }
@@ -271,7 +270,6 @@ public class ScoreSheetExporter {
 
         XSSFCellStyle headerStyle = makeHeaderStyle(wb);
         XSSFCellStyle normal      = makeNormalStyle(wb);
-        XSSFCellStyle redBold     = makeColorStyle(wb, IndexedColors.ROSE.getIndex());
         // Style for final score cells when penalties changed the total
         XSSFCellStyle penaltyStyle = makePenaltyStyle(wb);
 
@@ -309,8 +307,8 @@ public class ScoreSheetExporter {
                         outHeaders.add(qid);
                     }
                     Cell rh = row.createCell(cellIdx++);
-                    rh.setCellValue("Remarks"); rh.setCellStyle(headerStyle);
-                    outHeaders.add("Remarks");
+                    rh.setCellValue("Grading Remarks"); rh.setCellStyle(headerStyle);
+                    outHeaders.add("Grading Remarks");
 
                     if (hasPenalties) {
                         Cell numh = row.createCell(cellIdx++);
@@ -328,14 +326,14 @@ public class ScoreSheetExporter {
                             outHeaders.add(qid);
                         }
 
-                        Cell totalh = row.createCell(cellIdx++);
-                        totalh.setCellValue("Total"); totalh.setCellStyle(headerStyle);
-                        outHeaders.add("Total");
-
                         Cell prh = row.createCell(cellIdx++);
-                        prh.setCellValue("Remarks"); prh.setCellStyle(headerStyle);
-                        outHeaders.add("Remarks");
+                        prh.setCellValue("Penalty Remarks"); prh.setCellStyle(headerStyle);
+                        outHeaders.add("Penalty Remarks");
                     }
+
+                    Cell ph = row.createCell(cellIdx++);
+                    ph.setCellValue("Plagiarism Remarks"); ph.setCellStyle(headerStyle);
+                    outHeaders.add("Plagiarism Remarks");
 
                     Cell eh = row.createCell(cellIdx);
                     eh.setCellValue(cols.length > COL_EOL ? cols[COL_EOL].trim() : "#");
@@ -389,16 +387,16 @@ public class ScoreSheetExporter {
                             adjCell.setCellStyle(normal);
                         }
 
-                        Cell totalCell = row.createCell(colIdx++);
-                        totalCell.setCellValue(adjustedTotal);
-                        totalCell.setCellStyle(ps != null && ps.getTotalDeduction() > 0 ? penaltyStyle : normal);
-
                         Cell rulesCell = row.createCell(colIdx++);
                         rulesCell.setCellValue(ps != null ? ps.getPenaltyRulesApplied() : "No penalty");
                         rulesCell.setCellStyle(normal);
                     }
+
+                    Cell plagCell = row.createCell(colIdx++);
+                    plagCell.setCellValue(plagiarismNotes.getOrDefault(username, ""));
+                    plagCell.setCellStyle(normal);
                 } else {
-                    for (String ignored : questionOrder) row.createCell(colIdx++).setCellStyle(normal);
+                    for (int qi = 0; qi < questionOrder.size(); qi++) row.createCell(colIdx++).setCellStyle(normal);
                     Cell remCell = row.createCell(colIdx++);
                     remCell.setCellValue("Missing submission - refer to Anomalies tab");
                     remCell.setCellStyle(normal);
@@ -406,12 +404,15 @@ public class ScoreSheetExporter {
                     if (hasPenalties) {
                         row.createCell(colIdx++).setCellStyle(normal); // adjusted numerator
                         row.createCell(colIdx++).setCellValue(totalMaxScore); // denominator
-                        for (String ignored : questionOrder) row.createCell(colIdx++).setCellStyle(normal);
-                        row.createCell(colIdx++).setCellStyle(normal); // total
+                        for (int qi = 0; qi < questionOrder.size(); qi++) row.createCell(colIdx++).setCellStyle(normal);
                         Cell penaltyRemark = row.createCell(colIdx++);
                         penaltyRemark.setCellValue("No penalty");
                         penaltyRemark.setCellStyle(normal);
                     }
+
+                    Cell plagCell = row.createCell(colIdx++);
+                    plagCell.setCellValue(plagiarismNotes.getOrDefault(username, ""));
+                    plagCell.setCellStyle(normal);
                 }
 
                 row.createCell(colIdx).setCellValue(eolValue);
@@ -434,7 +435,6 @@ public class ScoreSheetExporter {
 
         XSSFSheet sheet = wb.createSheet("Anomalies");
         XSSFCellStyle headerStyle = makeHeaderStyle(wb);
-        XSSFCellStyle normal      = makeNormalStyle(wb);
 
         List<String> headers = new ArrayList<>();
         headers.add("FolderName");
@@ -551,18 +551,6 @@ public class ScoreSheetExporter {
         font.setFontName("Arial");
         font.setFontHeightInPoints((short) 10);
         style.setFont(font);
-        return style;
-    }
-
-    private XSSFCellStyle makeColorStyle(XSSFWorkbook wb, short colorIndex) {
-        XSSFCellStyle style = wb.createCellStyle();
-        XSSFFont font = wb.createFont();
-        font.setFontName("Arial");
-        font.setFontHeightInPoints((short) 10);
-        font.setBold(true);
-        style.setFont(font);
-        style.setFillForegroundColor(colorIndex);
-        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
         return style;
     }
 
