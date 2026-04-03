@@ -130,7 +130,7 @@ public class StatisticsReportExporter {
         Row titleRow = s.createRow(0);
         titleRow.setHeightInPoints(36);
         XSSFCell tc = (XSSFCell) titleRow.createCell(0);
-        tc.setCellValue("IS442 AUTO-GRADING SYSTEM — CLASS STATISTICS REPORT");
+        tc.setCellValue("IS442 AUTO-GRADING SYSTEM — CLASS STATISTICS REPORT USING RAW SCORE");
         tc.setCellStyle(titleStyle);
         s.addMergedRegion(new CellRangeAddress(0, 0, 0, 2));
 

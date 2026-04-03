@@ -657,6 +657,7 @@ async function uploadAll() {
         // Build assessment state from response and map it back to slots.
         data.assessments.forEach((a, index) => {
             const slotId = ids[index];
+            const testerUploaded = !!(slotId && uploadSlots[slotId] && uploadSlots[slotId].testers);
             if (slotId && uploadSlots[slotId]) {
                 uploadSlots[slotId].sanitisedName = a.sanitisedName;
             }
@@ -666,7 +667,7 @@ async function uploadAll() {
                 hasExamPdf:     a.saved.includes('examPdf'),
                 examMarksScanned: false,
                 currentStep:    1,
-                hasTesters:     a.saved.includes('testers'),
+                hasTesters:     testerUploaded,
                 testerSources:  {},
                 savedState:     {},
                 activeTab:      null,
@@ -840,7 +841,7 @@ function buildWizardHTML(key, a) {
 
         <div class="section-actions">
             <button class="btn-secondary" id="${key}-scanBtn" onclick="scanMarks('${key}')">📄 Scan Exam PDF</button>
-            ${hasTesters ? `<button class="btn-primary" onclick="skipToGrade('${key}')">⏩ Skip to Grade (use uploaded testers)</button>` : ''}
+            ${hasTesters ? `<button class="btn-primary" id="${key}-skipBtn" onclick="skipToGrade('${key}')" style="display:none;">Skip to Grade (use uploaded testers)</button>` : ''}
             ${hasTesters ? '' : `<button type="button" class="btn-primary" id="${key}-genBtn" onclick="doGenerate('${key}')" style="display:none;">⚙ Generate Test Cases</button>`}
         </div>
     </div>
@@ -890,7 +891,7 @@ function buildWizardHTML(key, a) {
     <!-- STEP 4: Results -->
     <div id="${key}-resultsSection" style="display:none;">
         <div class="section-header">
-            <h3>📊 Results — ${escHtml(a.displayName)}</h3>
+            <h3>Results — ${escHtml(a.displayName)}</h3>
             <p>Grading complete!</p>
         </div>
         <div class="download-area-card">
@@ -1010,8 +1011,10 @@ async function scanMarks(key, options = {}) {
     const btn = document.getElementById(key + '-scanBtn');
     const addMarkBlockEl = document.getElementById(key + '-addMarkBlock');
     const genBtnScan = document.getElementById(key + '-genBtn');
+    const skipBtnScan = document.getElementById(key + '-skipBtn');
     if (addMarkBlockEl) addMarkBlockEl.style.display = 'none';
     if (genBtnScan) genBtnScan.style.display = 'none';
+    if (skipBtnScan) skipBtnScan.style.display = 'none';
     if (assessments[key]) assessments[key].examMarksScanned = false;
     hint.textContent = '⏳ Scanning exam paper PDF with AI — this may take a moment...';
     hint.className = 'pdf-hint';
@@ -1026,7 +1029,9 @@ async function scanMarks(key, options = {}) {
             hint.textContent = '❌ ' + (data.message || 'Failed to parse exam PDF.');
             hint.style.borderColor = '#dc6f6f'; hint.style.color = '#dc6f6f';
             const genBtnFail = document.getElementById(key + '-genBtn');
+            const skipBtnFail = document.getElementById(key + '-skipBtn');
             if (genBtnFail) genBtnFail.style.display = 'none';
+            if (skipBtnFail) skipBtnFail.style.display = 'none';
             if (assessments[key]) assessments[key].examMarksScanned = false;
             return;
         }
@@ -1047,14 +1052,18 @@ async function scanMarks(key, options = {}) {
         updateMarksTotal(key);
         if (addMarkBlockEl) addMarkBlockEl.style.display = 'block';
         const genBtn = document.getElementById(key + '-genBtn');
+        const skipBtn = document.getElementById(key + '-skipBtn');
         if (genBtn) genBtn.style.display = 'inline-flex';
+        if (skipBtn) skipBtn.style.display = 'inline-flex';
         if (assessments[key]) assessments[key].examMarksScanned = true;
 
     } catch (e) {
         hint.textContent = '⚠️ Network error: ' + e.message;
         hint.style.borderColor = '#dc6f6f'; hint.style.color = '#dc6f6f';
         const genBtnErr = document.getElementById(key + '-genBtn');
+        const skipBtnErr = document.getElementById(key + '-skipBtn');
         if (genBtnErr) genBtnErr.style.display = 'none';
+        if (skipBtnErr) skipBtnErr.style.display = 'none';
         if (assessments[key]) assessments[key].examMarksScanned = false;
         if (!silentNetworkError) {
             showAlert('error', 'Exam PDF scan failed for ' + (assessments[key]?.displayName || key) + ': ' + e.message);

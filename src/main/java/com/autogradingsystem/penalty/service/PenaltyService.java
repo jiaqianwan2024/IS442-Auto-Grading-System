@@ -154,18 +154,22 @@ public class PenaltyService {
                                        List<String> wrongPackageQuestions,
                                        List<PenaltyRecord> externalPenalties) {
         List<String> summaries = new ArrayList<>();
+        double totalRawScore = rawQuestionScores.values().stream().mapToDouble(Double::doubleValue).sum();
 
         if (applyRootFolderPenalty) {
-            summaries.add("Penalty 1: total is " + fmtCompact(finalScore));
+            double adjustedTotal = round2(totalRawScore * (1 - ROOT_FOLDER_DEDUCTION_RATE));
+            summaries.add("Penalty 1: total raw " + fmtCompact(totalRawScore)
+                    + " - (" + fmtCompact(totalRawScore) + " * 20%) = "
+                    + fmtCompact(adjustedTotal));
         }
         if (!hierarchyQuestions.isEmpty()) {
             summaries.add("Penalty 2: " + describeHierarchyPenalty(hierarchyQuestions, rawQuestionScores));
         }
         if (!headerQuestions.isEmpty()) {
-            summaries.add("Penalty 3: " + describeHeaderPenalty(finalScore, headerQuestions, adjustedQuestionScores));
+            summaries.add("Penalty 3: " + describeHeaderPenalty(headerQuestions, adjustedQuestionScores, rawQuestionScores));
         }
         if (!wrongPackageQuestions.isEmpty()) {
-            summaries.add("Penalty 4: " + describeWrongPackagePenalty(wrongPackageQuestions, adjustedQuestionScores));
+            summaries.add("Penalty 4: " + describeWrongPackagePenalty(wrongPackageQuestions, adjustedQuestionScores, rawQuestionScores));
         }
         summaries.addAll(describeExternalPenalties(externalPenalties));
 
@@ -177,7 +181,11 @@ public class PenaltyService {
             return Collections.emptyList();
         }
         return externalPenalties.stream()
-                .map(penalty -> penalty.getReason() + ": " + fmtCompact(Math.abs(penalty.getPenaltyValue())))
+                .map(penalty -> {
+                    double value = Math.abs(penalty.getPenaltyValue());
+                    String op = penalty.getPenaltyValue() < 0 ? "-" : "+";
+                    return penalty.getReason() + ": final score " + op + " " + fmtCompact(value);
+                })
                 .toList();
     }
 
@@ -201,29 +209,40 @@ public class PenaltyService {
         }
 
         return groupedTotals.entrySet().stream()
-                .map(entry -> "total for " + entry.getKey().toLowerCase(Locale.US)
-                        + " is " + fmtCompact(round2(entry.getValue() * 0.95)))
+                .map(entry -> {
+                    double raw = round2(entry.getValue());
+                    double adjusted = round2(raw * (1 - HIERARCHY_DEDUCTION_RATE));
+                    return entry.getKey().toLowerCase(Locale.US) + " raw " + fmtCompact(raw)
+                            + " - (" + fmtCompact(raw) + " * 5%) = " + fmtCompact(adjusted);
+                })
                 .collect(Collectors.joining(", "));
     }
 
-    private String describeHeaderPenalty(double finalScore,
-                                         List<String> questionIds,
-                                         Map<String, Double> adjustedQuestionScores) {
-        List<String> uniqueQuestions = questionIds.stream().distinct().toList();
-        if (uniqueQuestions.size() == 1) {
-            String qid = uniqueQuestions.get(0);
-            return qid.toLowerCase(Locale.US) + " is "
-                    + fmtCompact(adjustedQuestionScores.getOrDefault(qid, 0.0));
-        }
-        return "each sub-question - 20% so total is " + fmtCompact(finalScore);
+    private String describeHeaderPenalty(List<String> questionIds,
+                                         Map<String, Double> adjustedQuestionScores,
+                                         Map<String, Double> rawQuestionScores) {
+        return questionIds.stream()
+                .distinct()
+                .map(qid -> {
+                    double raw = rawQuestionScores.getOrDefault(qid, 0.0);
+                    double adjusted = adjustedQuestionScores.getOrDefault(qid, 0.0);
+                    return qid.toLowerCase(Locale.US) + " raw " + fmtCompact(raw)
+                            + " - (" + fmtCompact(raw) + " * 20%) = " + fmtCompact(adjusted);
+                })
+                .collect(Collectors.joining(", "));
     }
 
     private String describeWrongPackagePenalty(List<String> questionIds,
-                                               Map<String, Double> adjustedQuestionScores) {
+                                               Map<String, Double> adjustedQuestionScores,
+                                               Map<String, Double> rawQuestionScores) {
         return questionIds.stream()
                 .distinct()
-                .map(qid -> "total for " + qid.toLowerCase(Locale.US) + " is "
-                        + fmtCompact(adjustedQuestionScores.getOrDefault(qid, 0.0)))
+                .map(qid -> {
+                    double raw = rawQuestionScores.getOrDefault(qid, 0.0);
+                    double adjusted = adjustedQuestionScores.getOrDefault(qid, 0.0);
+                    return qid.toLowerCase(Locale.US) + " raw " + fmtCompact(raw)
+                            + " - (" + fmtCompact(raw) + " * 20%) = " + fmtCompact(adjusted);
+                })
                 .collect(Collectors.joining(", "));
     }
 

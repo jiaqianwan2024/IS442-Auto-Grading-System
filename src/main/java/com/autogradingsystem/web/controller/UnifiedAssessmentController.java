@@ -139,10 +139,13 @@ public class UnifiedAssessmentController {
                     saved.add("testers");
                 }
 
+                boolean hasTesters = Files.isDirectory(paths.INPUT_TESTERS) && hasJavaFiles(paths.INPUT_TESTERS);
+
                 result.put("saved",   saved);
                 result.put("missing", missing);
+                result.put("hasTesters", hasTesters);
                 result.put("ready",   missing.isEmpty() ||
-                        (missing.size() == 1 && missing.contains("examPdf") && saved.contains("testers")));
+                        (missing.size() == 1 && missing.contains("examPdf") && hasTesters));
                 assessmentResults.add(result);
             }
 
@@ -569,7 +572,8 @@ public class UnifiedAssessmentController {
     private void flattenDirectory(Path dir) throws IOException {
         if (!Files.isDirectory(dir)) return;
         try (Stream<Path> walk = Files.walk(dir)) {
-            walk.filter(p -> p.toString().endsWith(".java"))
+            walk.filter(Files::isRegularFile)
+                .filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".java"))
                 .filter(p -> !p.getParent().equals(dir))
                 .forEach(p -> {
                     try { Files.move(p, dir.resolve(p.getFileName()), StandardCopyOption.REPLACE_EXISTING); }
@@ -596,8 +600,9 @@ public class UnifiedAssessmentController {
     }
 
     private boolean hasJavaFiles(Path dir) {
-        try (Stream<Path> s = Files.list(dir)) {
-            return s.anyMatch(p -> p.toString().endsWith(".java"));
+        try (Stream<Path> s = Files.walk(dir)) {
+            return s.filter(Files::isRegularFile)
+                    .anyMatch(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".java"));
         } catch (Exception e) { return false; }
     }
 
