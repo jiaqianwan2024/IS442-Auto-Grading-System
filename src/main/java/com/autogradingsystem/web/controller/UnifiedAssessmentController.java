@@ -191,8 +191,8 @@ public class UnifiedAssessmentController {
                         info.put("hasExamPdf",    Files.isDirectory(paths.INPUT_EXAM)       && hasPdfIn(paths.INPUT_EXAM));
                         info.put("hasTesters",    Files.isDirectory(paths.INPUT_TESTERS)    && hasJavaFiles(paths.INPUT_TESTERS));
                         info.put("hasReports",
-                                Files.exists(paths.OUTPUT_REPORTS.resolve("IS442-ScoreSheet-Updated.xlsx"))
-                             || Files.exists(paths.OUTPUT_REPORTS.resolve("IS442-ScoreSheet-Updated.csv")));
+                                Files.exists(paths.OUTPUT_REPORTS.resolve(AssessmentPathConfig.toDisplayTitle(name) + "-ScoreSheet-Updated.xlsx"))
+                             || Files.exists(paths.OUTPUT_REPORTS.resolve(AssessmentPathConfig.toDisplayTitle(name) + "-ScoreSheet-Updated.csv")));
                         info.put("ready", (boolean) info.get("hasSubmission")
                                        && (boolean) info.get("hasTemplate")
                                        && (boolean) info.get("hasScoresheet"));
@@ -310,17 +310,18 @@ public class UnifiedAssessmentController {
             @RequestParam(value = "file", defaultValue = "scoresheet") String file) {
 
         AssessmentPathConfig paths = new AssessmentPathConfig(name);
+        String displayTitle = AssessmentPathConfig.toDisplayTitle(name);
         Path reportFile;
 
         switch (file.toLowerCase()) {
             case "csv":
-                reportFile = paths.OUTPUT_REPORTS.resolve("IS442-ScoreSheet-Updated.csv");
+                reportFile = paths.OUTPUT_REPORTS.resolve(displayTitle + "-ScoreSheet-Updated.csv");
                 break;
             case "scoresheet":
-                reportFile = paths.OUTPUT_REPORTS.resolve("IS442-ScoreSheet-Updated.xlsx");
+                reportFile = paths.OUTPUT_REPORTS.resolve(displayTitle + "-ScoreSheet-Updated.xlsx");
                 break;
             case "plagiarism":
-                reportFile = paths.OUTPUT_REPORTS.resolve("IS442-Plagiarism-Report.xlsx");
+                reportFile = paths.OUTPUT_REPORTS.resolve(displayTitle + "-Plagiarism-Report.xlsx");
                 break;
             default:
                 return ResponseEntity.badRequest().build();

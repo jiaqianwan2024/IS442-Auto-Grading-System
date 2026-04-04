@@ -44,16 +44,30 @@ public class PlagiarismReportExporter {
     // ── PUBLIC API ────────────────────────────────────────────────────────────
 
     /**
-     * Writes the plagiarism report to the given outputDir.
-     * Called by PlagiarismController with the per-assessment reports path.
-     *
-     * @param allResults All PlagiarismResult objects (flagged + unflagged)
-     * @param outputDir  Directory in which to write IS442-Plagiarism-Report.xlsx
-     * @return Path to the written file
+     * Writes the plagiarism report to the given outputDir using the default filename.
+     * Called when no assessment title is available.
      */
     public Path export(List<PlagiarismResult> allResults, Path outputDir) throws IOException {
+        return export(allResults, outputDir, null);
+    }
+
+    /**
+     * Writes the plagiarism report to the given outputDir.
+     * The filename is {@code <assessmentTitle>-Plagiarism-Report.xlsx} when a title
+     * is provided, otherwise falls back to {@value #OUTPUT_FILENAME}.
+     *
+     * @param allResults     All PlagiarismResult objects (flagged + unflagged)
+     * @param outputDir      Directory in which to write the report
+     * @param assessmentTitle Display title of the assessment, e.g. "Lab-Test-1"
+     * @return Path to the written file
+     */
+    public Path export(List<PlagiarismResult> allResults, Path outputDir,
+                       String assessmentTitle) throws IOException {
+        String filename = (assessmentTitle != null && !assessmentTitle.isBlank())
+                ? assessmentTitle + "-Plagiarism-Report.xlsx"
+                : OUTPUT_FILENAME;
         Files.createDirectories(outputDir);
-        Path outputFile = outputDir.resolve(OUTPUT_FILENAME);
+        Path outputFile = outputDir.resolve(filename);
 
         List<PlagiarismResult> flagged = allResults.stream()
                 .filter(PlagiarismResult::isFlagged)

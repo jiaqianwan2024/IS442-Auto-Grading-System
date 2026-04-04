@@ -143,13 +143,15 @@ public class GradingService {
 
             progress(assessmentName, 90, "Analyzing Plagiarism", "Checking submissions for similarity...");
             PlagiarismController plagController =
-                    new PlagiarismController(outputExtracted, outputReports);
+                    new PlagiarismController(outputExtracted, outputReports,
+                                            AssessmentPathConfig.toDisplayTitle(assessmentName));
             PlagiarismController.PlagiarismSummary plagSummary = plagController.runPlagiarismCheck(gradingPlan);
             Map<String, String> plagiarismNotes = buildPlagiarismNotes(plagSummary);
 
+            String displayTitle = AssessmentPathConfig.toDisplayTitle(assessmentName);
             if (plagSummary.hasSuspiciousPairs()) {
                 logs.add("Plagiarism: " + plagSummary.getFlaggedPairCount()
-                        + " suspicious pair(s) - see IS442-Plagiarism-Report.xlsx");
+                        + " suspicious pair(s) - see " + displayTitle + "-Plagiarism-Report.xlsx");
             } else {
                 logs.add("Plagiarism: no suspicious pairs detected");
             }
@@ -157,7 +159,8 @@ public class GradingService {
 
             progress(assessmentName, 96, "Exporting Reports", "Generating score sheet and reports...");
             AnalysisController analysisController =
-                    new AnalysisController(csvScoresheet, outputReports, inputTesters);
+                    new AnalysisController(csvScoresheet, outputReports, inputTesters,
+                                          AssessmentPathConfig.toDisplayTitle(assessmentName));
             analysisController.analyzeAndDisplayWithPenalties(results, remarks, anomalyRemarks,
                     allStudents, plagiarismNotes, penaltyResults);
             logs.add("Reports exported" + (applyPenalties ? "" : ""));

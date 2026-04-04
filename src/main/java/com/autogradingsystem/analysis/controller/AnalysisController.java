@@ -15,8 +15,10 @@ public class AnalysisController {
     private final ScoreSheetExporter scoreSheetExporter;
     private final Path               inputTesters;
 
-    public AnalysisController(Path csvScoresheet, Path outputReports, Path inputTesters) {
-        this.scoreSheetExporter = new ScoreSheetExporter(csvScoresheet, outputReports, inputTesters);
+    public AnalysisController(Path csvScoresheet, Path outputReports, Path inputTesters,
+                              String assessmentTitle) {
+        this.scoreSheetExporter = new ScoreSheetExporter(csvScoresheet, outputReports, inputTesters,
+                                                         assessmentTitle);
         this.inputTesters       = inputTesters;
     }
 

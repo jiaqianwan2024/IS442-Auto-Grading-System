@@ -16,10 +16,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.stream.Stream;
 import java.util.zip.ZipFile;
@@ -165,6 +167,12 @@ public class ExecutionController {
                     addRemark(remarks, task.getQuestionId() + ":" + remarkLabel);
                 }
             }
+
+            // ── Flag unexpected folders and files ─────────────────────────
+            if (!student.isAnomaly()) {
+                addUnexpectedFolderRemarks(student, plan);
+                addUnexpectedFileRemarks(student, plan);
+            }
         }
 
         return allResults;
@@ -245,6 +253,14 @@ public class ExecutionController {
                 }
             }
             if (found != null) { isScriptTask = true; scriptFolder = found.getParent(); }
+            // No scripts found — treat as a normal Java task.
+            // The folder name was used as the representative file (e.g. "Q3").
+            // Re-derive expectedFile / expectedClass so the Java-task path below
+            // can find "Q3.java" (and "Q3.class") correctly.
+            if (!isScriptTask) {
+                expectedFile  = task.getStudentFolder() + ".java";
+                expectedClass = task.getStudentFolder() + ".class";
+            }
         }
 
         if (isScriptTask) {
@@ -305,11 +321,25 @@ public class ExecutionController {
                             .equals(expectedQuestionFolder.normalize());
                 }
             }
+            // Folder lookup failed — search the entire student root for the file
+            if (!hasJava && !hasClass) {
+                Path foundJava  = findFileSkippingWrongQFolders(studentRoot, expectedFile, task.getStudentFolder());
+                Path foundClass = findFileSkippingWrongQFolders(studentRoot, expectedClass, task.getStudentFolder());
+                if (foundJava != null) {
+                    javaFile = foundJava; questionFolder = foundJava.getParent(); hasJava = true;
+                    improperHierarchyDetected = true;
+                } else if (foundClass != null) {
+                    classFile = foundClass; questionFolder = foundClass.getParent(); hasClass = true;
+                    improperHierarchyDetected = true;
+                }
+            }
         }
 
-        if (!hasJava && !hasClass)
+        if (!hasJava && !hasClass) {
+            addMisnamedFolderRemark(student, task.getStudentFolder(), studentRoot);
             return new GradingResult(student, task, 0.0,
                 buildFileNotFoundMessage(expectedFile, studentRoot), "FILE_NOT_FOUND");
+        }
 
         if (!hasJava && hasClass)
             return new GradingResult(student, task, 0.0,
@@ -542,6 +572,41 @@ public class ExecutionController {
         }
     }
 
+    /**
+     * Like {@link #findFileRecursive} but skips any immediate Q-prefixed
+     * subdirectory of {@code studentRoot} that does not match
+     * {@code expectedFolder}.  This prevents files inside a wrong-named
+     * question folder (e.g. {@code Q1wrong/Q1a.java}) from being mistakenly
+     * accepted as a valid submission when the correct folder ({@code Q1/})
+     * is absent.  Files that sit directly in {@code studentRoot} or inside a
+     * non-Q-prefixed directory are still considered.
+     */
+    private Path findFileSkippingWrongQFolders(Path studentRoot, String filename,
+                                               String expectedFolder) {
+        try (Stream<Path> walk = Files.walk(studentRoot)) {
+            return walk
+                .filter(Files::isRegularFile)
+                .filter(p -> p.getFileName().toString().equalsIgnoreCase(filename))
+                .filter(p -> {
+                    Path relative = studentRoot.relativize(p);
+                    if (relative.getNameCount() >= 2) {
+                        String topDir = relative.getName(0).toString();
+                        // If this file lives inside a Q-prefixed immediate child
+                        // that is NOT the expected folder, reject it.
+                        if (extractQPrefix(topDir) != null
+                                && !topDir.equalsIgnoreCase(expectedFolder)) {
+                            return false;
+                        }
+                    }
+                    return true;
+                })
+                .findFirst()
+                .orElse(null);
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
     private String buildFileNotFoundMessage(String expectedFile, Path folder) {
         StringBuilder sb = new StringBuilder();
         sb.append("File not found: ").append(expectedFile).append("\n");
@@ -634,6 +699,148 @@ public class ExecutionController {
         }
         if (!remarks.contains(remark)) {
             remarks.add(remark);
+        }
+    }
+
+    /**
+     * Scans the student's root for folders whose name shares the same Q+digit
+     * prefix as {@code expectedFolderName} but is not an exact case-insensitive
+     * match.  Adds a WRONG_FOLDER_NAME remark when such a folder is found.
+     *
+     * Called only after {@code findFolderRecursive} returned null — i.e., no
+     * exact-match (case-insensitive) folder exists anywhere in the student tree.
+     */
+    private void addMisnamedFolderRemark(Student student, String expectedFolderName, Path studentRoot) {
+        if (student.isAnomaly()) return;
+        String expectedPrefix = extractQPrefix(expectedFolderName);
+        if (expectedPrefix == null) return;
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(studentRoot)) {
+            for (Path entry : stream) {
+                if (!Files.isDirectory(entry)) continue;
+                String actual = entry.getFileName().toString();
+                // Exact case-insensitive matches are already handled by findFolderRecursive
+                if (actual.equalsIgnoreCase(expectedFolderName)) continue;
+                // Flag any folder whose Q+digit prefix matches the expected folder's prefix
+                String actualPrefix = extractQPrefix(actual);
+                if (actualPrefix != null && actualPrefix.equalsIgnoreCase(expectedPrefix)) {
+                    List<String> remarks = remarksAccumulator
+                            .computeIfAbsent(student.getId(), k -> new ArrayList<>());
+                    addRemark(remarks, expectedFolderName + ":WRONG_FOLDER_NAME:" + actual);
+                }
+            }
+        } catch (IOException ignored) {}
+    }
+
+    /**
+     * Extracts the Q+digit prefix from a folder name.
+     * e.g. {@code "Q1a"} → {@code "q1"}, {@code "Q1aa"} → {@code "q1"}, {@code "Q1"} → {@code "q1"}.
+     * Returns {@code null} if the name does not start with Q (case-insensitive) followed
+     * by at least one digit.
+     */
+    private String extractQPrefix(String folderName) {
+        if (folderName == null || folderName.length() < 2) return null;
+        if (Character.toUpperCase(folderName.charAt(0)) != 'Q') return null;
+        int i = 1;
+        while (i < folderName.length() && Character.isDigit(folderName.charAt(i))) i++;
+        if (i == 1) return null; // no digit immediately after Q
+        return folderName.substring(0, i).toLowerCase();
+    }
+
+    /**
+     * Scans the student's root for Q-prefixed directories that are not in the
+     * expected question-folder set of the grading plan.  Adds
+     * {@code <folderName>:UNEXPECTED_FOLDER} for each such directory.
+     *
+     * Ignores folders whose name is already flagged as a WRONG_FOLDER_NAME so
+     * the student does not receive two separate remarks for the same directory.
+     */
+    private void addUnexpectedFolderRemarks(Student student, GradingPlan plan) {
+        Set<String> expected = new HashSet<>();
+        for (String f : plan.getQuestionFolders()) expected.add(f.toLowerCase());
+
+        Path studentRoot = student.getRootPath();
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(studentRoot)) {
+            for (Path entry : stream) {
+                if (!Files.isDirectory(entry)) continue;
+                String name = entry.getFileName().toString();
+                // Only flag Q-prefixed directories to avoid noisy remarks on
+                // unrelated support folders (e.g., ".git", "__MACOSX").
+                if (extractQPrefix(name) == null) continue;
+                if (!expected.contains(name.toLowerCase())) {
+                    List<String> remarks = remarksAccumulator
+                        .computeIfAbsent(student.getId(), k -> new ArrayList<>());
+                    addRemark(remarks, name + ":UNEXPECTED_FOLDER");
+                }
+            }
+        } catch (IOException ignored) {}
+    }
+
+    /**
+     * For each expected Q folder that exists in the student's submission,
+     * flags any {@code .java} file that is not among the expected student files
+     * for that folder's tasks.
+     *
+     * Adds {@code <questionId>:UNEXPECTED_FILE:<filename>} for each such file,
+     * where {@code questionId} is the folder name (e.g., {@code Q1}).
+     * Tester files copied by the grader are automatically excluded.
+     */
+    private void addUnexpectedFileRemarks(Student student, GradingPlan plan) {
+        Path studentRoot = student.getRootPath();
+        Map<String, Set<String>> templateFiles = loadTemplateFilesByFolder();
+        for (String folderName : plan.getQuestionFolders()) {
+            Path qFolder = studentRoot.resolve(folderName);
+            if (!Files.isDirectory(qFolder)) continue;
+
+            // Build set of expected filenames (case-insensitive) from the grading plan
+            Set<String> expectedFiles = new HashSet<>();
+            for (GradingTask task : plan.getTasksForFolder(folderName)) {
+                expectedFiles.add(task.getStudentFile().toLowerCase());
+            }
+            // Also allow any file that was provided in the template zip for this folder
+            expectedFiles.addAll(templateFiles.getOrDefault(folderName.toLowerCase(), Collections.emptySet()));
+
+            try (DirectoryStream<Path> stream = Files.newDirectoryStream(qFolder, "*.java")) {
+                for (Path file : stream) {
+                    String fname = file.getFileName().toString();
+                    // Skip tester files injected by the grader
+                    if (fname.toLowerCase().endsWith("tester.java")) continue;
+                    if (!expectedFiles.contains(fname.toLowerCase())) {
+                        List<String> remarks = remarksAccumulator
+                            .computeIfAbsent(student.getId(), k -> new ArrayList<>());
+                        addRemark(remarks, folderName + ":UNEXPECTED_FILE:" + fname);
+                    }
+                }
+            } catch (IOException ignored) {}
+        }
+    }
+
+    /**
+     * Reads the template zip and returns a map of Q-folder name (lower-case) to
+     * the set of filenames (lower-case) that appear as immediate children of
+     * that Q folder inside the zip.
+     */
+    private Map<String, Set<String>> loadTemplateFilesByFolder() {
+        try {
+            Path templateZip = findTemplateZip();
+            if (templateZip == null) return Collections.emptyMap();
+            Map<String, Set<String>> result = new LinkedHashMap<>();
+            try (ZipFile zip = new ZipFile(templateZip.toFile())) {
+                zip.stream()
+                   .filter(entry -> !entry.isDirectory())
+                   .forEach(entry -> {
+                       // Entries look like: RenameToYourUsername/Q1/Q1a.java
+                       // parts[0]=root, parts[1]=Q-folder, parts[2]=filename
+                       String[] parts = entry.getName().split("/");
+                       if (parts.length == 3) {
+                           String qFolder  = parts[1].toLowerCase();
+                           String fileName = parts[2].toLowerCase();
+                           result.computeIfAbsent(qFolder, k -> new HashSet<>()).add(fileName);
+                       }
+                   });
+            }
+            return result;
+        } catch (IOException e) {
+            return Collections.emptyMap();
         }
     }
 

@@ -841,6 +841,7 @@ function buildWizardHTML(key, a) {
 
         <div class="section-actions">
             <button class="btn-secondary" id="${key}-scanBtn" onclick="scanMarks('${key}')">📄 Scan Exam PDF</button>
+            <button class="btn-secondary" id="${key}-manualMarksBtn" onclick="enterMarksManually('${key}')" title="Skip PDF scan and enter questions and marks by hand">✏ Enter Manually</button>
             ${hasTesters ? `<button class="btn-primary" id="${key}-skipBtn" onclick="skipToGrade('${key}')" style="display:none;">Skip to Grade (use uploaded testers)</button>` : ''}
             ${hasTesters ? '' : `<button type="button" class="btn-primary" id="${key}-genBtn" onclick="doGenerate('${key}')" style="display:none;">⚙ Generate Test Cases</button>`}
         </div>
@@ -872,7 +873,7 @@ function buildWizardHTML(key, a) {
         </div>
         <div class="section-actions" style="flex-wrap:wrap;">
             <button class="btn-secondary" onclick="wizardGoBack('${key}', 1)">← Back to Marks</button>
-            <button type="button" class="btn-secondary" id="${key}-saveAllBtn" onclick="saveAllFiles('${key}')" style="display:none;">💾 Save All Files</button>
+            <button type="button" class="btn-secondary" id="${key}-saveAllBtn" onclick="saveAllFiles('${key}')" style="display:none;">Save All Files</button>
             <button type="button" class="btn-primary" id="${key}-gradeBtn" onclick="doGrade('${key}')" style="display:none;">▶ Confirm &amp; Grade</button>
         </div>
     </div>
@@ -1026,7 +1027,7 @@ async function scanMarks(key, options = {}) {
         const data = await res.json();
 
         if (!data.success) {
-            hint.textContent = '❌ ' + (data.message || 'Failed to parse exam PDF.');
+            hint.textContent = '❌ ' + (data.message || 'Failed to parse exam PDF.') + ' — use "✏ Enter Manually" to add questions by hand.';
             hint.style.borderColor = '#dc6f6f'; hint.style.color = '#dc6f6f';
             const genBtnFail = document.getElementById(key + '-genBtn');
             const skipBtnFail = document.getElementById(key + '-skipBtn');
@@ -1058,7 +1059,7 @@ async function scanMarks(key, options = {}) {
         if (assessments[key]) assessments[key].examMarksScanned = true;
 
     } catch (e) {
-        hint.textContent = '⚠️ Network error: ' + e.message;
+        hint.textContent = '⚠️ Network error: ' + e.message + ' — use "✏ Enter Manually" to continue.';
         hint.style.borderColor = '#dc6f6f'; hint.style.color = '#dc6f6f';
         const genBtnErr = document.getElementById(key + '-genBtn');
         const skipBtnErr = document.getElementById(key + '-skipBtn');
@@ -1121,6 +1122,88 @@ function updateMarksTotal(key) {
     document.getElementById(key + '-marksTotal').textContent = total;
 }
 
+// ── Manual marks entry (bypass PDF scan) ─────────────────────────────────────
+
+function enterMarksManually(key) {
+    const hint = document.getElementById(key + '-marksHint');
+    const addMarkBlockEl = document.getElementById(key + '-addMarkBlock');
+    const genBtn = document.getElementById(key + '-genBtn');
+    const skipBtn = document.getElementById(key + '-skipBtn');
+
+    hint.textContent = '✏ Manual entry mode — add each question ID and its mark, then generate or upload testers.';
+    hint.className = 'pdf-hint';
+    hint.style.borderColor = '';
+    hint.style.color = '';
+
+    // Seed an empty first row if the table is empty
+    const tbody = document.getElementById(key + '-marksBody');
+    if (tbody && tbody.rows.length === 0) {
+        addMarkRowToTable(key, 'Q1a', 1);
+        updateMarksTotal(key);
+    }
+
+    if (addMarkBlockEl) addMarkBlockEl.style.display = 'block';
+    if (genBtn) genBtn.style.display = 'inline-flex';
+    if (skipBtn) skipBtn.style.display = 'inline-flex';
+
+    // Mark as manually entered (examMarksScanned gate is now removed from doGenerate)
+    if (assessments[key]) assessments[key].examMarksScanned = true;
+}
+
+// ── Upload tester .java files manually ───────────────────────────────────────
+
+async function handleTesterUpload(key, input) {
+    const files = Array.from(input.files);
+    if (files.length === 0) return;
+
+    const a = assessments[key];
+    if (!a.testerSources) a.testerSources = {};
+    if (!a.savedState)    a.savedState    = {};
+
+    const readers = files.map(file => new Promise((resolve, reject) => {
+        // Accept filenames like Q1aTester.java or Q1a.java — derive qId
+        const nameNoExt = file.name.replace(/\.java$/i, '');
+        // Strip trailing "Tester" if present (case-insensitive)
+        const qId = nameNoExt.replace(/Tester$/i, '').toUpperCase();
+
+        const reader = new FileReader();
+        reader.onload = e => resolve({ qId, source: e.target.result, fileName: file.name });
+        reader.onerror = () => reject(new Error('Could not read ' + file.name));
+        reader.readAsText(file);
+    }));
+
+    let loaded;
+    try {
+        loaded = await Promise.all(readers);
+    } catch (e) {
+        showAlert('error', 'File read error: ' + e.message);
+        return;
+    }
+
+    loaded.forEach(({ qId, source }) => {
+        a.testerSources[qId] = source;
+        a.savedState[qId]    = false;
+    });
+
+    // Move to editor section if not already there
+    const editorSection = document.getElementById(key + '-editorSection');
+    const marksSection  = document.getElementById(key + '-marksSection');
+    if (editorSection && editorSection.style.display === 'none') {
+        if (marksSection) marksSection.style.display = 'none';
+        editorSection.style.display = 'block';
+        editorSection.scrollIntoView({ behavior: 'smooth' });
+        wizardGotoStep(key, 2);
+        updateTabStatus(key, 2, 'Review', 'step-3');
+    }
+
+    document.getElementById(key + '-generatingOverlay').style.display = 'none';
+    renderQTabs(key);
+    showAlert('success', loaded.length + ' tester file(s) loaded — review and save before grading.');
+
+    // Reset the input so the same file can be re-uploaded if needed
+    input.value = '';
+}
+
 function getConfirmedMarks(key) {
     const marks = {};
     const marksBody = document.getElementById(key + '-marksBody');
@@ -1139,13 +1222,10 @@ function getConfirmedMarks(key) {
 
 async function doGenerate(key) {
     const meta = assessments[key];
-    if (!meta || !meta.examMarksScanned) {
-        showAlert('error', 'Scan the exam PDF first so all questions and marks appear in the table.');
-        return;
-    }
+    if (!meta) { showAlert('error', 'Assessment not found.'); return; }
     const marks = getConfirmedMarks(key);
     if (Object.keys(marks).length === 0) {
-        showAlert('error', 'Add at least one question.');
+        showAlert('error', 'Add at least one question before generating testers.');
         return;
     }
 
