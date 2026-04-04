@@ -6,6 +6,7 @@ import com.autogradingsystem.testcasegenerator.service.LLMTestOracle;
 import com.autogradingsystem.testcasegenerator.service.ScriptTesterGenerator;
 import com.autogradingsystem.testcasegenerator.service.TemplateTestSpecBuilder;
 import com.autogradingsystem.testcasegenerator.service.TesterGenerator;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestBody;
 
@@ -219,6 +220,16 @@ public class TestCaseReviewController {
 
             response.put("success", true);
             response.put("testers", testers);
+
+            // Persist confirmed marks so the exporter can use the exact totals
+            try {
+                Path testersDir = resolveInputTesters();
+                Files.createDirectories(testersDir);
+                new ObjectMapper().writeValue(testersDir.resolve("marks.json").toFile(), marks);
+            } catch (Exception marksEx) {
+                System.err.println("[WARN] Could not save marks.json: " + marksEx.getMessage());
+            }
+
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             e.printStackTrace();

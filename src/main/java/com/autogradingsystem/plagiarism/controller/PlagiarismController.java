@@ -20,22 +20,35 @@ public class PlagiarismController {
     private final PlagiarismReportExporter exporter;
     private final PlagiarismConfig config;
     private final Path outputExtracted;
-    private final Path outputReports; // ← NEW
+    private final Path outputReports;
+    private final String assessmentTitle;
 
     // ── Constructors ──────────────────────────────────────────────────────────
 
-    /** Path-aware: extracted + reports (used by GradingService) */
+    /** Path-aware: extracted + reports (no title) */
     public PlagiarismController(Path outputExtracted, Path outputReports) {
-        this(new PlagiarismConfig(), outputExtracted, outputReports);
+        this(new PlagiarismConfig(), outputExtracted, outputReports, null);
+    }
+
+    /** Path-aware: extracted + reports + assessment title */
+    public PlagiarismController(Path outputExtracted, Path outputReports, String assessmentTitle) {
+        this(new PlagiarismConfig(), outputExtracted, outputReports, assessmentTitle);
+    }
+
+    /** Full constructor (no title) */
+    public PlagiarismController(PlagiarismConfig config, Path outputExtracted, Path outputReports) {
+        this(config, outputExtracted, outputReports, null);
     }
 
     /** Full constructor — everything delegates here */
-    public PlagiarismController(PlagiarismConfig config, Path outputExtracted, Path outputReports) {
+    public PlagiarismController(PlagiarismConfig config, Path outputExtracted, Path outputReports,
+                                String assessmentTitle) {
         this.config = config;
         this.detector = new PlagiarismDetector();
         this.exporter = new PlagiarismReportExporter();
         this.outputExtracted = outputExtracted;
         this.outputReports = outputReports;
+        this.assessmentTitle = assessmentTitle;
     }
 
     // ── Path resolution ───────────────────────────────────────────────────────
@@ -67,7 +80,7 @@ public class PlagiarismController {
 
         Path reportPath = null;
         try {
-            reportPath = exporter.export(results, resolveOutputReports()); // ← KEY FIX
+            reportPath = exporter.export(results, resolveOutputReports(), assessmentTitle); // ← KEY FIX
             System.out.println("✅ Plagiarism Report → " + reportPath.toAbsolutePath());
         } catch (IOException e) {
             System.out.println("❌ Plagiarism report export failed: " + e.getMessage());

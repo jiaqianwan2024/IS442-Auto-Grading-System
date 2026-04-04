@@ -3,6 +3,8 @@ package com.autogradingsystem.analysis.service;
 import com.autogradingsystem.model.GradingResult;
 import com.autogradingsystem.model.Student;
 import com.autogradingsystem.penalty.model.ProcessedScore;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.*;
 
@@ -25,16 +27,19 @@ public class ScoreSheetExporter {
 
     // ── PATH FIELDS ──────────────────────────────────────────────────────────
 
-    private final Path csvScoresheet;
-    private final Path outputReports;
-    private final Path inputTesters;
+    private final Path   csvScoresheet;
+    private final Path   outputReports;
+    private final Path   inputTesters;
+    private final String assessmentTitle;
 
     // ── CONSTRUCTORS ─────────────────────────────────────────────────────────
 
-    public ScoreSheetExporter(Path csvScoresheet, Path outputReports, Path inputTesters) {
-        this.csvScoresheet = csvScoresheet;
-        this.outputReports = outputReports;
-        this.inputTesters  = inputTesters;
+    public ScoreSheetExporter(Path csvScoresheet, Path outputReports, Path inputTesters,
+                              String assessmentTitle) {
+        this.csvScoresheet  = csvScoresheet;
+        this.outputReports  = outputReports;
+        this.inputTesters   = inputTesters;
+        this.assessmentTitle = assessmentTitle;
     }
 
     // ── PATH RESOLUTION ──────────────────────────────────────────────────────
@@ -84,7 +89,7 @@ public class ScoreSheetExporter {
 
         Path outputDir  = resolveOutputDir();
         Files.createDirectories(outputDir);
-        Path outputFile = outputDir.resolve("IS442-ScoreSheet-Updated.xlsx");
+        Path outputFile = outputDir.resolve(assessmentTitle + "-ScoreSheet-Updated.xlsx");
 
         List<String> questionOrder = buildQuestionOrder(resultsByStudent);
 
@@ -92,11 +97,19 @@ public class ScoreSheetExporter {
         Map<String, Map<String, Double>> qScoreMap = new LinkedHashMap<>();
         buildScoreMaps(resultsByStudent, totals, qScoreMap);
 
+        // Compute max score for every question in questionOrder (includes questions
+        // with no grading results, e.g. questions whose tester failed to compile)
         Map<String, Double> maxScores = new LinkedHashMap<>();
-        for (Map.Entry<String, List<GradingResult>> entry : resultsByStudent.entrySet())
-            for (GradingResult r : entry.getValue())
-                maxScores.computeIfAbsent(r.getTask().getQuestionId(),
+        // Prefer marks.json saved at generation time — it holds the examiner-confirmed values
+        Map<String, Integer> savedMarks = readSavedMarks(resolveInputTesters());
+        for (String qid : questionOrder) {
+            if (savedMarks.containsKey(qid)) {
+                maxScores.put(qid, savedMarks.get(qid).doubleValue());
+            } else {
+                maxScores.computeIfAbsent(qid,
                     k -> ScoreAnalyzer.getMaxScoreFromTester(k, resolveInputTesters()));
+            }
+        }
 
         Set<String> gradedUsernames = totals.keySet();
         double totalMaxScore = maxScores.values().stream().mapToDouble(Double::doubleValue).sum();
@@ -138,7 +151,7 @@ public class ScoreSheetExporter {
                             boolean hasPenalties,
                             double totalMaxScore) throws IOException {
 
-        Path csvOut = outputDir.resolve("IS442-ScoreSheet-Updated.csv");
+        Path csvOut = outputDir.resolve(assessmentTitle + "-ScoreSheet-Updated.csv");
         StringBuilder sb = new StringBuilder();
 
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(
@@ -154,7 +167,7 @@ public class ScoreSheetExporter {
                 if (isHeader) {
                     StringBuilder headerRow = new StringBuilder();
                     for (int c = 0; c < cols.length; c++) {
-                        if (c == COL_EOL) continue;
+                        if (c > COL_NUMERATOR) continue;
                         if (headerRow.length() > 0) headerRow.append(",");
                         String header = cols[c].trim();
                         if (hasPenalties && c == COL_NUMERATOR) {
@@ -162,15 +175,18 @@ public class ScoreSheetExporter {
                         }
                         headerRow.append(escapeCsv(header));
                     }
+                    if (hasPenalties) {
+                        headerRow.append(",Calculated Raw Grade Denominator");
+                    }
                     for (String qid : questionOrder) {
-                        headerRow.append(",").append(escapeCsv(qid));
+                        headerRow.append(",").append(escapeCsv(hasPenalties ? qid + " (raw)" : qid));
                     }
                     headerRow.append(",Grading Remarks");
                     if (hasPenalties) {
                         headerRow.append(",Calculated Final Grade Numerator");
                         headerRow.append(",Calculated Final Grade Denominator");
                         for (String qid : questionOrder) {
-                            headerRow.append(",").append(escapeCsv(qid));
+                            headerRow.append(",").append(escapeCsv(qid + " (final)"));
                         }
                         headerRow.append(",Penalty Remarks");
                     }
@@ -191,12 +207,15 @@ public class ScoreSheetExporter {
 
                 StringBuilder dataRow = new StringBuilder();
                 for (int c = 0; c < cols.length; c++) {
-                    if (c == COL_EOL) continue;
+                    if (c > COL_NUMERATOR) continue;
                     if (dataRow.length() > 0) dataRow.append(",");
                     dataRow.append(escapeCsv(cols[c].trim()));
                 }
 
                 Map<String, Double> qScores = qScoreMap.getOrDefault(username, Collections.emptyMap());
+                if (hasPenalties) {
+                    dataRow.append(",").append(fmtNum(totalMaxScore)); // raw denominator
+                }
                 for (String qid : questionOrder) {
                     dataRow.append(",").append(fmtNum(qScores.getOrDefault(qid, 0.0)));
                 }
@@ -290,7 +309,7 @@ public class ScoreSheetExporter {
                     outHeaders.clear();
                     int cellIdx = 0;
                     for (int c = 0; c < cols.length; c++) {
-                        if (c == COL_EOL) continue;
+                        if (c > COL_NUMERATOR) continue;
                         String h = cols[c].trim();
                         if (hasPenalties && c == COL_NUMERATOR) {
                             h = "Calculated Raw Grade Numerator";
@@ -300,11 +319,16 @@ public class ScoreSheetExporter {
                         cell.setCellStyle(headerStyle);
                         outHeaders.add(h);
                     }
+                    if (hasPenalties) {
+                        Cell rawDenomH = row.createCell(cellIdx++);
+                        rawDenomH.setCellValue("Calculated Raw Grade Denominator"); rawDenomH.setCellStyle(headerStyle);
+                        outHeaders.add("Calculated Raw Grade Denominator");
+                    }
                     for (String qid : questionOrder) {
                         Cell cell = row.createCell(cellIdx++);
-                        cell.setCellValue(qid);
+                        cell.setCellValue(hasPenalties ? qid + " (raw)" : qid);
                         cell.setCellStyle(headerStyle);
-                        outHeaders.add(qid);
+                        outHeaders.add(hasPenalties ? qid + " (raw)" : qid);
                     }
                     Cell rh = row.createCell(cellIdx++);
                     rh.setCellValue("Grading Remarks"); rh.setCellStyle(headerStyle);
@@ -321,9 +345,9 @@ public class ScoreSheetExporter {
 
                         for (String qid : questionOrder) {
                             Cell cell = row.createCell(cellIdx++);
-                            cell.setCellValue(qid);
+                            cell.setCellValue(qid + " (final)");
                             cell.setCellStyle(headerStyle);
-                            outHeaders.add(qid);
+                            outHeaders.add(qid + " (final)");
                         }
 
                         Cell prh = row.createCell(cellIdx++);
@@ -353,12 +377,15 @@ public class ScoreSheetExporter {
 
                 int colIdx = 0;
                 for (int c = 0; c < cols.length; c++) {
-                    if (c == COL_EOL) continue;
+                    if (c > COL_NUMERATOR) continue;
                     row.createCell(colIdx++).setCellValue(cols[c].trim());
                 }
 
                 if (gradedUsernames.contains(username)) {
                     Map<String, Double> qScores = perQ.getOrDefault(username, Collections.emptyMap());
+                    if (hasPenalties) {
+                        row.createCell(colIdx++).setCellValue(totalMaxScore); // raw denominator
+                    }
                     for (String qid : questionOrder) {
                         row.createCell(colIdx++).setCellValue(qScores.getOrDefault(qid, 0.0));
                     }
@@ -396,6 +423,9 @@ public class ScoreSheetExporter {
                     plagCell.setCellValue(plagiarismNotes.getOrDefault(username, ""));
                     plagCell.setCellStyle(normal);
                 } else {
+                    if (hasPenalties) {
+                        row.createCell(colIdx++).setCellValue(totalMaxScore); // raw denominator
+                    }
                     for (int qi = 0; qi < questionOrder.size(); qi++) row.createCell(colIdx++).setCellStyle(normal);
                     Cell remCell = row.createCell(colIdx++);
                     remCell.setCellValue("Missing submission - refer to Anomalies tab");
@@ -403,7 +433,7 @@ public class ScoreSheetExporter {
 
                     if (hasPenalties) {
                         row.createCell(colIdx++).setCellStyle(normal); // adjusted numerator
-                        row.createCell(colIdx++).setCellValue(totalMaxScore); // denominator
+                        row.createCell(colIdx++).setCellValue(totalMaxScore); // final denominator
                         for (int qi = 0; qi < questionOrder.size(); qi++) row.createCell(colIdx++).setCellStyle(normal);
                         Cell penaltyRemark = row.createCell(colIdx++);
                         penaltyRemark.setCellValue("No penalty");
@@ -489,6 +519,17 @@ public class ScoreSheetExporter {
         Set<String> ids = new LinkedHashSet<>();
         for (List<GradingResult> results : resultsByStudent.values())
             for (GradingResult r : results) ids.add(r.getQuestionId());
+        // Also include question IDs from tester files so questions with no results still appear
+        Path testersDir = resolveInputTesters();
+        if (Files.isDirectory(testersDir)) {
+            try (java.nio.file.DirectoryStream<Path> ds =
+                         Files.newDirectoryStream(testersDir, "*Tester.java")) {
+                for (Path p : ds) {
+                    String name = p.getFileName().toString();
+                    ids.add(name.substring(0, name.length() - "Tester.java".length()));
+                }
+            } catch (IOException ignored) {}
+        }
         List<String> sorted = new ArrayList<>(ids);
         sorted.sort(ScoreSheetExporter::naturalCompare);
         return sorted;
@@ -573,6 +614,19 @@ public class ScoreSheetExporter {
     private void autoSizeColumns(XSSFSheet sheet, int count) {
         for (int i = 0; i < count; i++) {
             try { sheet.autoSizeColumn(i); } catch (Exception ignored) {}
+        }
+    }
+
+    /** Reads marks.json saved by TestCaseReviewController.generateTesters(), if present. */
+    private static Map<String, Integer> readSavedMarks(Path testersDir) {
+        Path marksFile = testersDir.resolve("marks.json");
+        if (!Files.exists(marksFile)) return Collections.emptyMap();
+        try {
+            return new ObjectMapper().readValue(marksFile.toFile(),
+                    new TypeReference<Map<String, Integer>>() {});
+        } catch (Exception e) {
+            System.err.println("[WARN] Could not read marks.json: " + e.getMessage());
+            return Collections.emptyMap();
         }
     }
 }

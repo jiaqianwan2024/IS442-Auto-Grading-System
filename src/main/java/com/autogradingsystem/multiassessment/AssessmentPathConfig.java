@@ -197,6 +197,32 @@ public class AssessmentPathConfig {
         return assessmentName;
     }
 
+    /**
+     * Converts a sanitised assessment name to a display title safe for use in
+     * filenames and report headers.
+     *
+     * Examples:
+     *   "lab-test-1"  → "Lab-Test-1"
+     *   "midterm"     → "Midterm"
+     *   "assessment1" → "Assessment1"
+     *
+     * @param sanitisedName as returned by {@link #getAssessmentName()}
+     * @return title-cased, hyphen-joined display name
+     */
+    public static String toDisplayTitle(String sanitisedName) {
+        if (sanitisedName == null || sanitisedName.isBlank()) return "Assessment";
+        String[] parts = sanitisedName.split("-", -1);
+        StringBuilder sb = new StringBuilder();
+        for (String part : parts) {
+            if (sb.length() > 0) sb.append('-');
+            if (!part.isEmpty()) {
+                sb.append(Character.toUpperCase(part.charAt(0)));
+                sb.append(part.substring(1));
+            }
+        }
+        return sb.toString();
+    }
+
     /** @return The root directory for this assessment */
     public Path getAssessmentRoot() {
         return assessmentRoot;
