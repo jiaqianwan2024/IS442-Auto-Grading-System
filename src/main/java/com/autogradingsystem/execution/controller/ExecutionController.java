@@ -253,6 +253,14 @@ public class ExecutionController {
                 }
             }
             if (found != null) { isScriptTask = true; scriptFolder = found.getParent(); }
+            // No scripts found — treat as a normal Java task.
+            // The folder name was used as the representative file (e.g. "Q3").
+            // Re-derive expectedFile / expectedClass so the Java-task path below
+            // can find "Q3.java" (and "Q3.class") correctly.
+            if (!isScriptTask) {
+                expectedFile  = task.getStudentFolder() + ".java";
+                expectedClass = task.getStudentFolder() + ".class";
+            }
         }
 
         if (isScriptTask) {
