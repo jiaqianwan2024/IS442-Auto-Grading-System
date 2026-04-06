@@ -2,7 +2,7 @@
 
 A Spring Boot web application that automatically grades Java programming assignments. Upload student submissions, a template, and a scoresheet CSV, and the system compiles code, runs tester programs, detects plagiarism, and exports scored reports through a browser-based UI.
 
-Built by **G1T4**.
+Built by **G1T4**. GitHub Link: https://github.com/jiaqianwan2024/IS442-Auto-Grading-System 
 
 ---
 
